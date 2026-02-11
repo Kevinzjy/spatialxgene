@@ -1,0 +1,22 @@
+[project]
+name = "spatialxgene"
+version = "0.1.0"
+description = "Browser-based spatial transcriptomics viewer (cellxgene-style)"
+readme = "README.md"
+requires-python = ">=3.9"
+dependencies = [
+    "scanpy>=1.9",
+    "anndata>=0.9",
+    "leidenalg",
+    "pandas",
+    "numpy",
+    "h5py",
+    "fastapi>=0.100",
+    "uvicorn[standard]>=0.22",
+]
+
+[project.scripts]
+spatialxgene = "spatialxgene.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["spatialxgene*"]
