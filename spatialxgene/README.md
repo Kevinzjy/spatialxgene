@@ -40,7 +40,7 @@ spatialxgene launch [--data-dir DIR] [--port N] [--no-browser] [--build]
 - **--build** — Run `npm run build` in `frontend/` before starting.
 
 **Viewer (spatial plot)**  
-Canvas-based plot in data coordinates. Point radius is computed from grid spacing (`sqrt(area/n)`) so points align with spatial layout with a small gap. Zoom (mouse wheel), pan (drag). Color by gene expression or obs annotation (e.g. Leiden).
+Canvas-based plot in data coordinates. Point radius is computed from grid spacing (`sqrt(area/n)`) so points align with spatial layout with a small gap. Zoom (mouse wheel), pan (drag). Color by gene expression or obs annotation (e.g. Leiden). Optional tissue background image: choose hires or lowres from `adata.uns['spatial']` when present; spot size and background opacity are adjustable.
 
 First time: build the frontend from project root:
 
@@ -72,6 +72,7 @@ Preprocessed h5ad should have:
 - **Spatial**: `obsm['spatial']` or `obs['x']` and `obs['y']`.
 - **Expression**: `X` (cells × genes), `var` index = gene names.
 - **Annotations** (optional): e.g. `obs['leiden']` for coloring.
+- **Tissue images** (optional): Visium-style `uns['spatial'][sample]['images']` (e.g. `hires`, `lowres`) and `scalefactors`; the viewer uses them for background and aligns with spot coordinates (hires extent as reference for lowres).
 
 ## Development
 

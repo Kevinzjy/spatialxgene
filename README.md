@@ -1,6 +1,6 @@
 # Spatialxgene
 
-Browser-based spatial transcriptomics viewer and preprocessing (cellxgene-style). **Launch** the viewer to explore spatial plots (zoom/pan, color by gene or annotation), or run **infer** / **preprocess** on raw h5ad.
+**v0.1** — Browser-based spatial transcriptomics viewer and preprocessing (cellxgene-style). **Launch** the viewer to explore spatial plots (zoom/pan, color by gene or annotation, optional tissue background image), or run **infer** / **preprocess** on raw h5ad.
 
 ## Requirements
 
@@ -17,8 +17,7 @@ Browser-based spatial transcriptomics viewer and preprocessing (cellxgene-style)
 │   ├── sample/            # Sample data for testing
 │   │   └── STDS0000323/   # Stereo-seq (raw + preprocessed/)
 │   └── references/       # Reference files (HCC targets, etc.)
-├── docs/
-│   └── preprocess_summary.md
+├── docs/               # master_plan, implementation_plan, design_guidelines, tasks
 └── spatialxgene/          # Main package
     ├── cli.py             # Subcommands: launch, dev, infer, preprocess
     ├── preprocess.py      # Expression pipeline (QC, HVG, PCA, UMAP, Leiden)
@@ -54,7 +53,7 @@ Browser-based spatial transcriptomics viewer and preprocessing (cellxgene-style)
 
    **While developing the frontend**, use **`spatialxgene dev`** instead: one command runs the backend and watches `spatialxgene/frontend/`; any save triggers a rebuild. Refresh the browser to see changes (no need to run `npm run build` each time).
 
-**Viewer**: Spatial plot shows points in data coordinates; point size is derived from grid spacing (bounds + n_obs) so adjacent points have a small gap. You can zoom (wheel), pan (drag), and color by gene expression or obs annotation.
+**Viewer**: Spatial plot shows points in data coordinates; point size is derived from grid spacing (bounds + n_obs) so adjacent points have a small gap. You can zoom (wheel), pan (drag), color by gene expression or obs annotation, choose a tissue background image (hires / lowres from `adata.uns['spatial']` when present), and adjust spot size and background opacity.
 
 3. **Infer spatial** (when raw h5ad has no coords):
 
@@ -76,15 +75,18 @@ Browser-based spatial transcriptomics viewer and preprocessing (cellxgene-style)
 
 ## Data
 
-- **Sample**: `data/sample/STDS0000323/` — Stereo-seq sample; preprocessed in `data/sample/STDS0000323/preprocessed/`.
+- **Sample**: `data/sample/STDS0000323/` — Stereo-seq sample; preprocessed in `data/sample/STDS0000323/preprocessed/`. Use `--data-dir` to point to your own folder.
 - **References**: `data/references/` — HCC targets, etc. (not used by the app).
+- **Viewer data format**: Preprocessed h5ad with `obsm['spatial']` (or `obs['x']`/`obs['y']`); optional `uns['spatial'][sample]['images']` (e.g. `hires`, `lowres`) and `scalefactors` for tissue background images (Visium-style).
 
 ## Documentation
-
 | Doc | Description |
 |-----|-------------|
-| [docs/preprocess_summary.md](docs/preprocess_summary.md) | Preprocessing pipeline, Stereo-seq spatial infer, sample data notes (中文) |
-| [spatialxgene/README.md](spatialxgene/README.md) | CLI subcommands (launch, dev, infer, preprocess) and data format |
+| [CHANGELOG.md](CHANGELOG.md) | Release history (v0.1.0) |
+| [docs/master_plan.md](docs/master_plan.md) | Project goals and scope |
+| [docs/implementation_plan.md](docs/implementation_plan.md) | Implementation order and data design |
+| [docs/design_guidelines.md](docs/design_guidelines.md) | UI/UX: colors, fonts, interaction |
+| [docs/tasks.md](docs/tasks.md) | Current task list |
 
 ## Development
 

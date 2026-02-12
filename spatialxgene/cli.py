@@ -31,15 +31,18 @@ def _cmd_launch(args: argparse.Namespace) -> None:
         sys.exit(1)
 
     import uvicorn
-    from spatialxgene.server.main import app, set_data_dir, set_static_dir, mount_static
+    from spatialxgene.server.main import app, set_data_dir, set_static_dir, set_debug, mount_static
 
     set_data_dir(args.data_dir.resolve())
     set_static_dir(static_dir)
+    set_debug(getattr(args, "debug", False))
     mount_static(static_dir)
 
     url = f"http://{args.host}:{args.port}"
     print(f"Spatialxgene serving at {url}")
     print(f"Data directory: {args.data_dir}")
+    if getattr(args, "debug", False):
+        print("Debug mode: on (browser console will show verbose logs)")
     if not args.no_browser:
         import webbrowser
         webbrowser.open(url)
@@ -62,10 +65,11 @@ def _cmd_dev(args: argparse.Namespace) -> None:
 
     import threading
     import uvicorn
-    from spatialxgene.server.main import app, set_data_dir, set_static_dir, mount_static
+    from spatialxgene.server.main import app, set_data_dir, set_static_dir, set_debug, mount_static
 
     set_data_dir(args.data_dir.resolve())
     set_static_dir(static_dir)
+    set_debug(getattr(args, "debug", False))
     mount_static(static_dir)
 
     def run_uvicorn():
@@ -76,6 +80,8 @@ def _cmd_dev(args: argparse.Namespace) -> None:
 
     url = f"http://{args.host}:{args.port}"
     print(f"Spatialxgene dev: backend at {url}")
+    if getattr(args, "debug", False):
+        print("Debug mode: on (browser console will show verbose logs)")
     print("Frontend: watching spatialxgene/frontend/ — save any file to rebuild; refresh browser to see changes.")
     print("Press Ctrl+C to stop.")
     if not args.no_browser:
@@ -147,7 +153,7 @@ def _cmd_preprocess(args: argparse.Namespace) -> None:
     )
 
     if input_path.is_file():
-        if not input_path.suffix == ".h5ad":
+        if input_path.suffix != ".h5ad":
             print("Input must be a .h5ad file when passing a file.", file=sys.stderr)
             sys.exit(1)
         out = output_path or input_path.parent / f"{input_path.stem}_preprocessed.h5ad"
@@ -194,6 +200,7 @@ def main() -> None:
     launch_p.add_argument("--port", type=int, default=8000, help="Port")
     launch_p.add_argument("--no-browser", action="store_true", help="Do not open browser")
     launch_p.add_argument("--build", action="store_true", help="Build frontend before starting")
+    launch_p.add_argument("--debug", action="store_true", help="Enable debug mode: verbose console logs in browser")
     launch_p.set_defaults(func=_cmd_launch)
 
     # ---- dev ----
@@ -210,6 +217,7 @@ def main() -> None:
     dev_p.add_argument("--host", type=str, default="127.0.0.1", help="Bind host")
     dev_p.add_argument("--port", type=int, default=8000, help="Port")
     dev_p.add_argument("--no-browser", action="store_true", help="Do not open browser")
+    dev_p.add_argument("--debug", action="store_true", help="Enable debug mode: verbose console logs in browser")
     dev_p.set_defaults(func=_cmd_dev)
 
     # ---- infer ----

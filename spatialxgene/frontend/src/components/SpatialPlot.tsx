@@ -19,20 +19,55 @@ function gridSpacing(
   return Math.sqrt(area / n);
 }
 
+/** Spot size scale relative to default (spacing * 0.42). 1 = current default, 0.8 = 80% (sidebar default). */
+export const SPOT_SIZE_DEFAULT_SCALE = 0.8;
+
 export type SpatialPlotProps = {
   x: number[];
   y: number[];
   colorBy: (string | number)[]; // string for categorical, number for expression
   colorMode: ColorMode;
   bounds: { xMin: number; xMax: number; yMin: number; yMax: number };
+  /** Scale for point radius relative to grid-based default (0.42 * spacing). Default 0.8 = 80%. */
+  spotSizeScale?: number;
+  /** Spot opacity 0–1 (default 1). */
+  spotOpacity?: number;
+  /** Override vmin/vmax for continuous (gene) color scale; e.g. from percentile range. */
+  colorMin?: number;
+  colorMax?: number;
+  /** Continuous color palette id (e.g. vlag, viridis). Used when colorMode is continuous. */
+  continuousPalette?: string;
+  /** Reverse palette direction (e.g. vlag_r). Used when colorMode is continuous. */
+  continuousPaletteReverse?: boolean;
+  /** URL for background image (e.g. tissue). Null = no image. */
+  backgroundImageUrl?: string | null;
+  /** Bounds in data space where the image should be drawn (from scale_factor + width/height). Omit to stretch to plot bounds. */
+  backgroundImageBounds?: { xMin: number; yMin: number; xMax: number; yMax: number } | null;
   title?: string;
 };
 
-export function SpatialPlot({ x, y, colorBy, colorMode, bounds, title }: SpatialPlotProps) {
+export function SpatialPlot({ x, y, colorBy, colorMode, bounds, spotSizeScale = SPOT_SIZE_DEFAULT_SCALE, spotOpacity = 1, colorMin, colorMax, continuousPalette, continuousPaletteReverse, backgroundImageUrl, backgroundImageBounds, title }: SpatialPlotProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const [view, setView] = useState({ scale: 1, tx: 0, ty: 0 });
   const [drag, setDrag] = useState<{ x: number; y: number } | null>(null);
+  const [backgroundImage, setBackgroundImage] = useState<HTMLImageElement | null>(null);
+
+  useEffect(() => {
+    if (!backgroundImageUrl) {
+      setBackgroundImage(null);
+      return;
+    }
+    const img = new Image();
+    img.onload = () => setBackgroundImage(img);
+    img.onerror = () => setBackgroundImage(null);
+    img.src = backgroundImageUrl;
+    return () => {
+      img.onload = null;
+      img.onerror = null;
+      img.src = "";
+    };
+  }, [backgroundImageUrl]);
 
   const n = x.length;
   if (y.length !== n || colorBy.length !== n) return null;
@@ -66,19 +101,32 @@ export function SpatialPlot({ x, y, colorBy, colorMode, bounds, title }: Spatial
     ctx.save();
     ctx.setTransform(s * dpr, 0, 0, s * dpr, ox * dpr, oy * dpr);
 
+    if (backgroundImage && backgroundImage.complete && backgroundImage.naturalWidth > 0) {
+      const imgBounds = backgroundImageBounds ?? bounds;
+      const imgW = imgBounds.xMax - imgBounds.xMin || 1;
+      const imgH = imgBounds.yMax - imgBounds.yMin || 1;
+      ctx.drawImage(backgroundImage, imgBounds.xMin, imgBounds.yMin, imgW, imgH);
+    }
+
     const spacing = gridSpacing(bounds, n);
-    // radius slightly smaller than spacing/2 so adjacent points have a small gap (≈0.85 of tangent)
-    const radiusData = Math.max(spacing * 0.42, 0.5);
+    // radius = base (0.42 * spacing) * user scale; clamp to avoid invisible or overlapping points
+    const sizeScale = Math.max(0.15, Math.min(1.5, spotSizeScale));
+    const radiusData = Math.max(spacing * 0.42 * sizeScale, 0.3);
 
     let catMap: Map<string, string> | null = null;
     let vmin = 0, vmax = 1;
     if (colorMode === "categorical") {
       catMap = getCategoricalColors(colorBy as string[]);
     } else {
-      const nums = (colorBy as number[]).filter((v) => Number.isFinite(v));
-      vmin = Math.min(...nums);
-      vmax = Math.max(...nums);
-      if (vmax <= vmin) vmax = vmin + 1;
+      if (colorMin !== undefined && colorMax !== undefined && colorMax > colorMin) {
+        vmin = colorMin;
+        vmax = colorMax;
+      } else {
+        const nums = (colorBy as number[]).filter((v) => Number.isFinite(v));
+        vmin = Math.min(...nums);
+        vmax = Math.max(...nums);
+        if (vmax <= vmin) vmax = vmin + 1;
+      }
     }
 
     const margin = radiusData + 2;
@@ -90,6 +138,9 @@ export function SpatialPlot({ x, y, colorBy, colorMode, bounds, title }: Spatial
     const clipXMax = Math.max(dataLeft, dataRight) + margin;
     const clipYMin = Math.min(dataTop, dataBottom) - margin;
     const clipYMax = Math.max(dataTop, dataBottom) + margin;
+
+    const alpha = Math.max(0, Math.min(1, spotOpacity));
+    ctx.globalAlpha = alpha;
 
     for (let i = 0; i < n; i++) {
       const px = x[i];
@@ -103,26 +154,40 @@ export function SpatialPlot({ x, y, colorBy, colorMode, bounds, title }: Spatial
         g = m ? parseInt(m[2], 16) : 128;
         b = m ? parseInt(m[3], 16) : 128;
       } else {
-        [r, g, b] = continuousToRgb(colorBy[i] as number, vmin, vmax);
+        [r, g, b] = continuousToRgb(colorBy[i] as number, vmin, vmax, continuousPalette, continuousPaletteReverse);
       }
       ctx.fillStyle = `rgb(${r},${g},${b})`;
       ctx.beginPath();
       ctx.arc(px, py, radiusData, 0, Math.PI * 2);
       ctx.fill();
     }
+    ctx.globalAlpha = 1;
     ctx.restore();
-  }, [x, y, colorBy, colorMode, bounds, n, view]);
+  }, [x, y, colorBy, colorMode, bounds, n, view, spotSizeScale, spotOpacity, colorMin, colorMax, continuousPalette, continuousPaletteReverse, backgroundImage, backgroundImageBounds]);
 
   useEffect(() => draw(), [draw]);
 
-  const onWheel = useCallback(
-    (e: React.WheelEvent) => {
+  // Redraw when container size changes (e.g. window resize or layout change)
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+    const ro = new ResizeObserver(() => setView((v) => ({ ...v })));
+    ro.observe(container);
+    return () => ro.disconnect();
+  }, []);
+
+  // Wheel with passive: false so preventDefault() works (stops page scroll when zooming)
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+    const onWheel = (e: WheelEvent) => {
       e.preventDefault();
       const factor = e.deltaY > 0 ? 0.9 : 1.1;
       setView((v) => ({ ...v, scale: Math.max(0.1, Math.min(50, v.scale * factor)) }));
-    },
-    []
-  );
+    };
+    container.addEventListener("wheel", onWheel, { passive: false });
+    return () => container.removeEventListener("wheel", onWheel);
+  }, []);
 
   const onMouseDown = useCallback((e: React.MouseEvent) => {
     if (e.button === 0) setDrag({ x: e.clientX, y: e.clientY });
@@ -160,7 +225,6 @@ export function SpatialPlot({ x, y, colorBy, colorMode, bounds, title }: Spatial
           overflow: "hidden",
           background: "#1a1a2e",
         }}
-        onWheel={onWheel}
         onMouseDown={onMouseDown}
         onMouseMove={onMouseMove}
         onMouseUp={onMouseUp}
