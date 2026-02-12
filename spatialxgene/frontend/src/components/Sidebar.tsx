@@ -3,6 +3,7 @@ import type { DatasetItem, DatasetMeta, ObsResponse } from "../api";
 import {
   CONTINUOUS_PALETTE_IDS,
   CONTINUOUS_PALETTE_LABELS,
+  getCategoricalColors,
   getPaletteGradientCss,
 } from "../colorScale";
 import { percentile } from "../utils/percentile";
@@ -47,6 +48,9 @@ type SidebarProps = {
   /** Background image key from adata (null = None) */
   backgroundImageKey: string | null;
   onBackgroundImageKeyChange: (key: string | null) => void;
+  /** Embedding mode for plotting: spatial vs UMAP (when both exist). */
+  embeddingMode: "spatial" | "umap";
+  onEmbeddingModeChange: (mode: "spatial" | "umap") => void;
   loading?: boolean;
 };
 
@@ -78,6 +82,8 @@ export function Sidebar({
   onPercentileMaxChange,
   backgroundImageKey,
   onBackgroundImageKeyChange,
+  embeddingMode,
+  onEmbeddingModeChange,
   loading,
 }: SidebarProps) {
   const [geneSearch, setGeneSearch] = useState("");
@@ -96,6 +102,33 @@ export function Sidebar({
       return uniq.size <= 50 && uniq.size >= 2;
     });
   }, [obs]);
+
+  const annotationLegend = useMemo(() => {
+    if (!obs || !selectedObsCol) return [];
+    const valsRaw = obs.data[selectedObsCol];
+    if (!valsRaw) return [];
+    const vals = valsRaw.map(String);
+
+    // Count spots per label
+    const counts = new Map<string, number>();
+    for (const v of vals) {
+      counts.set(v, (counts.get(v) ?? 0) + 1);
+    }
+
+    const colorMap = getCategoricalColors(vals);
+    const entries = Array.from(counts.entries());
+    // Sort by count desc, then label asc for stability
+    entries.sort((a, b) => {
+      if (b[1] !== a[1]) return b[1] - a[1];
+      return a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0;
+    });
+
+    return entries.map(([label, count]) => ({
+      label,
+      count,
+      color: colorMap.get(label) ?? "#888888",
+    }));
+  }, [obs, selectedObsCol]);
 
   const [paletteDropdownOpen, setPaletteDropdownOpen] = useState(false);
   const paletteDropdownRef = useRef<HTMLDivElement>(null);
@@ -123,8 +156,23 @@ export function Sidebar({
         borderRight: "1px solid #0f3460",
       }}
     >
-      <div style={{ padding: "12px 14px", borderBottom: "1px solid #0f3460", fontWeight: 600, fontSize: 15 }}>
-        Spatialxgene
+      <div
+        style={{
+          padding: "12px 14px",
+          borderBottom: "1px solid #0f3460",
+          fontWeight: 600,
+          fontSize: 15,
+          display: "flex",
+          alignItems: "center",
+          gap: 8,
+        }}
+      >
+        <img
+          src="/favicon.svg"
+          alt="Spatialxgene"
+          style={{ width: 18, height: 18, borderRadius: 4, flexShrink: 0 }}
+        />
+        <span>Spatialxgene</span>
       </div>
       {loading && (
         <div style={{ padding: 12, fontSize: 13, color: "#888" }}>
@@ -158,28 +206,73 @@ export function Sidebar({
             <div style={{ fontSize: 11, color: "#888" }}>
               {meta.n_obs.toLocaleString()} cells · {meta.n_vars.toLocaleString()} genes
             </div>
+            {(meta.has_spatial || meta.has_umap) && (
+              <>
+                <label style={{ fontSize: 12, fontWeight: 600, color: "#a0a0a0" }}>Embedding</label>
+                <div style={{ display: "flex", gap: 8 }}>
+                  {meta.has_spatial && (
+                    <button
+                      type="button"
+                      onClick={() => onEmbeddingModeChange("spatial")}
+                      style={{
+                        padding: "6px 10px",
+                        borderRadius: 6,
+                        border: "1px solid #0f3460",
+                        background: embeddingMode === "spatial" ? "#e94560" : "#1a1a2e",
+                        color: "#eee",
+                        fontSize: 12,
+                        cursor: "pointer",
+                      }}
+                    >
+                      Spatial
+                    </button>
+                  )}
+                  {meta.has_umap && (
+                    <button
+                      type="button"
+                      onClick={() => onEmbeddingModeChange("umap")}
+                      style={{
+                        padding: "6px 10px",
+                        borderRadius: 6,
+                        border: "1px solid #0f3460",
+                        background: embeddingMode === "umap" ? "#e94560" : "#1a1a2e",
+                        color: "#eee",
+                        fontSize: 12,
+                        cursor: "pointer",
+                      }}
+                    >
+                      UMAP
+                    </button>
+                  )}
+                </div>
+              </>
+            )}
 
-            <label style={{ fontSize: 12, fontWeight: 600, color: "#a0a0a0" }}>Background image</label>
-            <select
-              value={backgroundImageKey ?? ""}
-              onChange={(e) => onBackgroundImageKeyChange(e.target.value || null)}
-              style={{
-                padding: "8px 10px",
-                borderRadius: 6,
-                border: "1px solid #0f3460",
-                background: "#1a1a2e",
-                color: "#eee",
-                fontSize: 13,
-                width: "100%",
-              }}
-            >
-              <option value="">None</option>
-              {(meta?.image_keys ?? []).map((key) => (
-                <option key={key} value={key}>
-                  {key}
-                </option>
-              ))}
-            </select>
+            {embeddingMode === "spatial" && (meta.image_keys?.length ?? 0) > 0 && (
+              <>
+                <label style={{ fontSize: 12, fontWeight: 600, color: "#a0a0a0" }}>Background image</label>
+                <select
+                  value={backgroundImageKey ?? ""}
+                  onChange={(e) => onBackgroundImageKeyChange(e.target.value || null)}
+                  style={{
+                    padding: "8px 10px",
+                    borderRadius: 6,
+                    border: "1px solid #0f3460",
+                    background: "#1a1a2e",
+                    color: "#eee",
+                    fontSize: 13,
+                    width: "100%",
+                  }}
+                >
+                  <option value="">None</option>
+                  {(meta.image_keys ?? []).map((key) => (
+                    <option key={key} value={key}>
+                      {key}
+                    </option>
+                  ))}
+                </select>
+              </>
+            )}
 
             <label style={{ fontSize: 12, fontWeight: 600, color: "#a0a0a0" }}>Color by</label>
             <div style={{ display: "flex", gap: 8 }}>
@@ -486,6 +579,55 @@ export function Sidebar({
                 {Math.round(spotOpacity * 100)}%
               </span>
             </div>
+
+            {colorMode === "annotation" && annotationLegend.length > 0 && (
+              <>
+                <label style={{ fontSize: 12, fontWeight: 600, color: "#a0a0a0", marginTop: 8 }}>
+                  Annotation legend
+                </label>
+                <div
+                  style={{
+                    maxHeight: 320,
+                    overflow: "auto",
+                    borderRadius: 6,
+                    border: "1px solid #0f3460",
+                    background: "#1a1a2e",
+                    padding: "4px 6px",
+                    marginTop: 4,
+                  }}
+                >
+                  {annotationLegend.map((item) => (
+                    <div
+                      key={item.label}
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 8,
+                        fontSize: 11,
+                        padding: "1px 0",
+                      }}
+                    >
+                      <span
+                        style={{
+                          width: 12,
+                          height: 12,
+                          borderRadius: 2,
+                          background: item.color,
+                          border: "1px solid #333",
+                          flexShrink: 0,
+                        }}
+                      />
+                      <span style={{ color: "#eee", flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                        {item.label}
+                      </span>
+                      <span style={{ color: "#888", fontSize: 10, flexShrink: 0 }}>
+                        {item.count.toLocaleString()}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
           </>
         )}
       </div>

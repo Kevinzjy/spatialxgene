@@ -1,7 +1,9 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { getCategoricalColors, continuousToRgb } from "../colorScale";
 
-export type ColorMode = "categorical" | "continuous";
+export type ColorMode = "categorical" | "continuous" | "none";
+
+const PAD = 20;
 
 /**
  * Grid-based spacing: n points in [xMin..xMax] x [yMin..yMax].
@@ -70,7 +72,7 @@ export function SpatialPlot({ x, y, colorBy, colorMode, bounds, spotSizeScale = 
   }, [backgroundImageUrl]);
 
   const n = x.length;
-  if (y.length !== n || colorBy.length !== n) return null;
+  if (y.length !== n) return null;
 
   const draw = useCallback(() => {
     const canvas = canvasRef.current;
@@ -86,16 +88,20 @@ export function SpatialPlot({ x, y, colorBy, colorMode, bounds, spotSizeScale = 
     if (!ctx) return;
     const W = rect.width;
     const H = rect.height;
-    const pad = 20;
-    if (W < 2 * pad || H < 2 * pad) return;
+    if (W < 2 * PAD || H < 2 * PAD) return;
     const { scale, tx, ty } = view;
     const dataW = bounds.xMax - bounds.xMin || 1;
     const dataH = bounds.yMax - bounds.yMin || 1;
-    const sx = (W - 2 * pad) / dataW;
-    const sy = (H - 2 * pad) / dataH;
-    const s = Math.max(1e-6, Math.min(sx, sy) * scale);
-    const ox = pad + (W - 2 * pad) / 2 + tx - (bounds.xMin + bounds.xMax) / 2 * s;
-    const oy = pad + (H - 2 * pad) / 2 + ty - (bounds.yMin + bounds.yMax) / 2 * s;
+    const sx = (W - 2 * PAD) / dataW;
+    const sy = (H - 2 * PAD) / dataH;
+    const sBase = Math.max(1e-6, Math.min(sx, sy));
+    const s = sBase * scale;
+    const centerX = (bounds.xMin + bounds.xMax) / 2;
+    const centerY = (bounds.yMin + bounds.yMax) / 2;
+    const baseOx = PAD + (W - 2 * PAD) / 2;
+    const baseOy = PAD + (H - 2 * PAD) / 2;
+    const ox = baseOx + tx - centerX * s;
+    const oy = baseOy + ty - centerY * s;
 
     // Draw in DATA space: transform scales both position and circle size -> points scale with zoom
     ctx.save();
@@ -118,7 +124,7 @@ export function SpatialPlot({ x, y, colorBy, colorMode, bounds, spotSizeScale = 
     let vmin = 0, vmax = 1;
     if (colorMode === "categorical") {
       catMap = getCategoricalColors(colorBy as string[]);
-    } else {
+    } else if (colorMode === "continuous") {
       if (colorMin !== undefined && colorMax !== undefined && colorMax > colorMin) {
         vmin = colorMin;
         vmax = colorMax;
@@ -143,24 +149,63 @@ export function SpatialPlot({ x, y, colorBy, colorMode, bounds, spotSizeScale = 
     const alpha = Math.max(0, Math.min(1, spotOpacity));
     ctx.globalAlpha = alpha;
 
-    for (let i = 0; i < n; i++) {
+    // Level-of-detail: for very large point sets, subsample when zoomed out so
+    // we keep a roughly constant upper bound on the number of drawn points.
+    const MAX_DRAW_POINTS = 120_000;
+    let step = 1;
+    if (n > MAX_DRAW_POINTS) {
+      const base = n / MAX_DRAW_POINTS;
+      // When zoomed out (scale < 1), we can afford to skip more points. Clamp
+      // scale to avoid extreme factors.
+      const zoomFactor = 1 / Math.max(0.5, Math.min(2, scale));
+      step = Math.max(1, Math.floor(base * zoomFactor));
+    }
+
+    // Cache categorical colors as RGB triplets to avoid repeated hex parsing.
+    const catRgbCache: Map<string, [number, number, number]> | null =
+      colorMode === "categorical" && catMap ? new Map() : null;
+
+    const size = radiusData * 2;
+    const screenRadius = radiusData * s * dpr;
+    // 远景（小半径或有降采样）用方块，近景且全量时继续用圆，保证细节观感。
+    const useSquares = step > 1 || screenRadius <= 2;
+
+    for (let i = 0; i < n; i += step) {
       const px = x[i];
       const py = y[i];
       if (px < clipXMin || px > clipXMax || py < clipYMin || py > clipYMax) continue;
       let r: number, g: number, b: number;
-      if (colorMode === "categorical" && catMap) {
-        const hex = catMap.get(String(colorBy[i])) ?? "#888";
-        const m = hex.match(/#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})/i);
-        r = m ? parseInt(m[1], 16) : 128;
-        g = m ? parseInt(m[2], 16) : 128;
-        b = m ? parseInt(m[3], 16) : 128;
+      if (colorMode === "none") {
+        r = g = b = 136; // neutral gray when no annotation/gene selected
+      } else if (colorMode === "categorical" && catMap) {
+        const key = String(colorBy[i] ?? "");
+        let rgb: [number, number, number] | undefined = catRgbCache?.get(key);
+        if (!rgb) {
+          const hex = catMap.get(key) ?? "#888888";
+          const m = hex.match(/#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})/i);
+          const rr = m ? parseInt(m[1], 16) : 128;
+          const gg = m ? parseInt(m[2], 16) : 128;
+          const bb = m ? parseInt(m[3], 16) : 128;
+          rgb = [rr, gg, bb];
+          catRgbCache?.set(key, rgb);
+        }
+        [r, g, b] = rgb;
+      } else if (colorMode === "continuous") {
+        const v = (colorBy[i] as number) ?? NaN;
+        [r, g, b] = continuousToRgb(v, vmin, vmax, continuousPalette, continuousPaletteReverse);
       } else {
-        [r, g, b] = continuousToRgb(colorBy[i] as number, vmin, vmax, continuousPalette, continuousPaletteReverse);
+        r = g = b = 136;
       }
       ctx.fillStyle = `rgb(${r},${g},${b})`;
-      ctx.beginPath();
-      ctx.arc(px, py, radiusData, 0, Math.PI * 2);
-      ctx.fill();
+      if (useSquares) {
+        // Use small rectangles instead of arcs for better performance on large point sets / when zoomed out.
+        ctx.fillRect(px - radiusData, py - radiusData, size, size);
+      } else {
+        // When zoomed in and drawing all points, use circles for better visual quality.
+        ctx.beginPath();
+        ctx.arc(px, py, radiusData, 0, Math.PI * 2);
+        ctx.fill();
+      }
     }
     ctx.globalAlpha = 1;
     ctx.restore();
@@ -178,17 +223,54 @@ export function SpatialPlot({ x, y, colorBy, colorMode, bounds, spotSizeScale = 
   }, []);
 
   // Wheel with passive: false so preventDefault() works (stops page scroll when zooming)
+  // Zoom around the mouse cursor: keep the data point under the cursor fixed in screen space.
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
     const onWheel = (e: WheelEvent) => {
       e.preventDefault();
+      const rect = container.getBoundingClientRect();
+      const cx = e.clientX - rect.left;
+      const cy = e.clientY - rect.top;
       const factor = e.deltaY > 0 ? 0.9 : 1.1;
-      setView((v) => ({ ...v, scale: Math.max(0.1, Math.min(50, v.scale * factor)) }));
+      setView((v) => {
+        const newScale = Math.max(0.1, Math.min(50, v.scale * factor));
+
+        const W = rect.width;
+        const H = rect.height;
+        if (W < 2 * PAD || H < 2 * PAD) {
+          return { ...v, scale: newScale };
+        }
+
+        const dataW = bounds.xMax - bounds.xMin || 1;
+        const dataH = bounds.yMax - bounds.yMin || 1;
+        const sx = (W - 2 * PAD) / dataW;
+        const sy = (H - 2 * PAD) / dataH;
+        const sBase = Math.max(1e-6, Math.min(sx, sy));
+        const s = sBase * v.scale;
+        const sNew = sBase * newScale;
+        const centerX = (bounds.xMin + bounds.xMax) / 2;
+        const centerY = (bounds.yMin + bounds.yMax) / 2;
+        const baseOx = PAD + (W - 2 * PAD) / 2;
+        const baseOy = PAD + (H - 2 * PAD) / 2;
+
+        const ox = baseOx + v.tx - centerX * s;
+        const oy = baseOy + v.ty - centerY * s;
+
+        // Data coordinates under cursor before zoom.
+        const px = (cx - ox) / s;
+        const py = (cy - oy) / s;
+
+        // New translation so that (px, py) stays under the same screen position.
+        const txNew = cx - (px * sNew + baseOx - centerX * sNew);
+        const tyNew = cy - (py * sNew + baseOy - centerY * sNew);
+
+        return { scale: newScale, tx: txNew, ty: tyNew };
+      });
     };
     container.addEventListener("wheel", onWheel, { passive: false });
     return () => container.removeEventListener("wheel", onWheel);
-  }, []);
+  }, [bounds]);
 
   const onMouseDown = useCallback((e: React.MouseEvent) => {
     if (e.button === 0) setDrag({ x: e.clientX, y: e.clientY });
@@ -211,11 +293,116 @@ export function SpatialPlot({ x, y, colorBy, colorMode, bounds, spotSizeScale = 
   const onMouseUp = useCallback(() => setDrag(null), []);
   const onMouseLeave = useCallback(() => setDrag(null), []);
 
+  const handleResetView = useCallback(() => {
+    setView({ scale: 1, tx: 0, ty: 0 });
+  }, []);
+
+  const handleZoomButton = useCallback(
+    (factor: number) => {
+      const container = containerRef.current;
+      if (!container) return;
+      const rect = container.getBoundingClientRect();
+      const W = rect.width;
+      const H = rect.height;
+      if (W < 2 * PAD || H < 2 * PAD) return;
+
+      const cx = W / 2;
+      const cy = H / 2;
+
+      setView((v) => {
+        const newScale = Math.max(0.1, Math.min(50, v.scale * factor));
+        const dataW = bounds.xMax - bounds.xMin || 1;
+        const dataH = bounds.yMax - bounds.yMin || 1;
+        const sx = (W - 2 * PAD) / dataW;
+        const sy = (H - 2 * PAD) / dataH;
+        const sBase = Math.max(1e-6, Math.min(sx, sy));
+        const s = sBase * v.scale;
+        const sNew = sBase * newScale;
+        const centerX = (bounds.xMin + bounds.xMax) / 2;
+        const centerY = (bounds.yMin + bounds.yMax) / 2;
+        const baseOx = PAD + (W - 2 * PAD) / 2;
+        const baseOy = PAD + (H - 2 * PAD) / 2;
+
+        const ox = baseOx + v.tx - centerX * s;
+        const oy = baseOy + v.ty - centerY * s;
+
+        const px = (cx - ox) / s;
+        const py = (cy - oy) / s;
+
+        const txNew = cx - (px * sNew + baseOx - centerX * sNew);
+        const tyNew = cy - (py * sNew + baseOy - centerY * sNew);
+
+        return { scale: newScale, tx: txNew, ty: tyNew };
+      });
+    },
+    [bounds]
+  );
+
   return (
     <div style={{ display: "flex", flexDirection: "column", flex: 1, minHeight: 0 }}>
-      {title && (
-        <div style={{ padding: "6px 12px", fontSize: 14, fontWeight: 600 }}>
-          {title}
+      {(title || true) && (
+        <div
+          style={{
+            padding: "6px 12px",
+            fontSize: 14,
+            fontWeight: 600,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            gap: 8,
+          }}
+        >
+          <div>{title}</div>
+          <div style={{ display: "flex", gap: 6 }}>
+            <button
+              type="button"
+              onClick={() => handleZoomButton(1 / 1.2)}
+              style={{
+                padding: "2px 6px",
+                borderRadius: 4,
+                border: "1px solid #0f3460",
+                background: "#1a1a2e",
+                color: "#eee",
+                fontSize: 12,
+                cursor: "pointer",
+              }}
+              title="Zoom out"
+            >
+              −
+            </button>
+            <button
+              type="button"
+              onClick={() => handleZoomButton(1.2)}
+              style={{
+                padding: "2px 6px",
+                borderRadius: 4,
+                border: "1px solid #0f3460",
+                background: "#1a1a2e",
+                color: "#eee",
+                fontSize: 12,
+                cursor: "pointer",
+              }}
+              title="Zoom in"
+            >
+              +
+            </button>
+            <button
+              type="button"
+              onClick={handleResetView}
+              style={{
+                padding: "2px 8px",
+                borderRadius: 4,
+                border: "1px solid #0f3460",
+                background: "#1a1a2e",
+                color: "#eee",
+                fontSize: 12,
+                cursor: "pointer",
+              }}
+              title="Reset view"
+            >
+              Reset
+            </button>
+          </div>
         </div>
       )}
       <div

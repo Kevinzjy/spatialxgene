@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   fetchConfig,
   fetchDatasets,
@@ -36,6 +36,7 @@ export default function App() {
   const [backgroundImageKey, setBackgroundImageKey] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [embeddingMode, setEmbeddingMode] = useState<"spatial" | "umap">("spatial");
   const selectedIdRef = useRef<string | null>(null);
   const loadAbortRef = useRef<AbortController | null>(null);
 
@@ -92,6 +93,18 @@ export default function App() {
       });
       setSelectedObsCol(catCols.includes("leiden") ? "leiden" : catCols[0] ?? null);
       setBackgroundImageKey(null);
+      // Default embedding: prefer spatial when available, otherwise UMAP.
+      const hasSpatial = metaRes.has_spatial ?? metaRes.layout === "spatial";
+      const hasUmap = metaRes.has_umap ?? metaRes.layout === "umap";
+      if (hasSpatial) {
+        setEmbeddingMode("spatial");
+      } else if (hasUmap) {
+        setEmbeddingMode("umap");
+      } else if (metaRes.layout === "umap") {
+        setEmbeddingMode("umap");
+      } else {
+        setEmbeddingMode("spatial");
+      }
     } catch (e) {
       if (e instanceof Error && e.name === "AbortError") {
         debugLog("loadDataset aborted", { id });
@@ -125,6 +138,7 @@ export default function App() {
       setSelectedObsCol(null);
       setSelectedGene(null);
       setBackgroundImageKey(null);
+      setEmbeddingMode("spatial");
     }
   }, [selectedDatasetId]);
 
@@ -149,21 +163,49 @@ export default function App() {
   }, [selectedDatasetId, selectedGene]);
 
   const colorByValues = React.useMemo(() => {
-    if (!obs || !spatial) return [];
+    if (!spatial) return [];
     const n = spatial.x.length;
-    if (colorMode === "annotation" && selectedObsCol && obs.data[selectedObsCol]) {
+    if (colorMode === "annotation" && selectedObsCol && obs?.data[selectedObsCol]) {
       return obs.data[selectedObsCol].slice(0, n);
     }
     if (colorMode === "gene" && expression) {
       return expression.slice(0, n);
     }
-    return [];
+    // No annotation/gene selected: still show all points (color decided by plotColorMode).
+    return new Array(n).fill(0);
   }, [obs, spatial, colorMode, selectedObsCol, expression]);
 
-  const plotColorMode: ColorMode = colorMode === "annotation" ? "categorical" : "continuous";
-  const bounds = meta
-    ? { xMin: meta.x_min, xMax: meta.x_max, yMin: meta.y_min, yMax: meta.y_max }
-    : { xMin: 0, xMax: 1, yMin: 0, yMax: 1 };
+  const plotColorMode: ColorMode = React.useMemo(() => {
+    if (!spatial) return "none";
+    if (colorMode === "annotation" && selectedObsCol && obs?.data[selectedObsCol]) {
+      return "categorical";
+    }
+    if (colorMode === "gene" && expression && expression.length === spatial.x.length) {
+      return "continuous";
+    }
+    return "none";
+  }, [spatial, colorMode, selectedObsCol, obs, expression]);
+  const bounds = useMemo(() => {
+    if (spatial && spatial.x.length > 0 && spatial.y.length === spatial.x.length) {
+      let xMin = spatial.x[0];
+      let xMax = spatial.x[0];
+      let yMin = spatial.y[0];
+      let yMax = spatial.y[0];
+      for (let i = 1; i < spatial.x.length; i++) {
+        const x = spatial.x[i];
+        const y = spatial.y[i];
+        if (x < xMin) xMin = x;
+        if (x > xMax) xMax = x;
+        if (y < yMin) yMin = y;
+        if (y > yMax) yMax = y;
+      }
+      return { xMin, xMax, yMin, yMax };
+    }
+    if (meta) {
+      return { xMin: meta.x_min, xMax: meta.x_max, yMin: meta.y_min, yMax: meta.y_max };
+    }
+    return { xMin: 0, xMax: 1, yMin: 0, yMax: 1 };
+  }, [spatial, meta]);
 
   // Use a single reference extent (from hires) for all background images so that
   // lowres aligns with spots; lowres scalefactors may be relative to fullres.
@@ -196,6 +238,35 @@ export default function App() {
     };
   }, [expression, percentileMin, percentileMax]);
 
+  const handleEmbeddingModeChange = useCallback(
+    async (mode: "spatial" | "umap") => {
+      if (!selectedDatasetId || !meta) return;
+      if (mode === embeddingMode) return;
+      if (mode === "spatial" && !(meta.has_spatial ?? meta.layout === "spatial")) return;
+      if (mode === "umap" && !(meta.has_umap ?? false)) return;
+      setEmbeddingMode(mode);
+      // When switching to UMAP, background image is not applicable.
+      if (mode === "umap") {
+        setBackgroundImageKey(null);
+      }
+      try {
+        const ac = new AbortController();
+        const signal = ac.signal;
+        debugLog("switchEmbedding", { datasetId: selectedDatasetId, mode });
+        const coords = await fetchSpatial(selectedDatasetId, signal, mode);
+        if (selectedIdRef.current !== selectedDatasetId) {
+          return;
+        }
+        setSpatial(coords);
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        debugLog("switchEmbedding error", { datasetId: selectedDatasetId, mode, error: msg });
+        setError(msg);
+      }
+    },
+    [selectedDatasetId, meta, embeddingMode]
+  );
+
   return (
     <div style={{ display: "flex", height: "100vh", overflow: "hidden" }}>
       <Sidebar
@@ -206,6 +277,15 @@ export default function App() {
           debugLog("onSelectDataset", { id, next, previous: selectedDatasetId });
           setSelectedDatasetId(next);
           if (next) {
+            // When switching datasets, clear current spatial/annotation/gene state so
+            // the old image does not remain visible while the new dataset is loading.
+            setSpatial(null);
+            setObs(null);
+            setGenes([]);
+            setExpression(null);
+            setSelectedObsCol(null);
+            setSelectedGene(null);
+            setBackgroundImageKey(null);
             setSelectedGene(null);
             setExpression(null);
             loadDataset(next);
@@ -241,6 +321,8 @@ export default function App() {
         onPercentileMaxChange={setPercentileMax}
         backgroundImageKey={backgroundImageKey}
         onBackgroundImageKeyChange={setBackgroundImageKey}
+        embeddingMode={embeddingMode}
+        onEmbeddingModeChange={handleEmbeddingModeChange}
         loading={loading}
       />
       <div style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0 }}>
@@ -249,7 +331,21 @@ export default function App() {
             {error}
           </div>
         )}
-        {spatial && colorByValues.length === spatial.x.length ? (
+        {loading ? (
+          <div
+            style={{
+              flex: 1,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              background: "#1a1a2e",
+              color: "#666",
+              fontSize: 14,
+            }}
+          >
+            Loading dataset…
+          </div>
+        ) : spatial ? (
           <SpatialPlot
             x={spatial.x}
             y={spatial.y}
@@ -270,9 +366,13 @@ export default function App() {
             backgroundImageBounds={backgroundImageBounds}
             title={
               selectedDatasetId
-                ? meta?.layout
-                  ? `${selectedDatasetId} (${meta.layout === "umap" ? "UMAP" : "Spatial"})`
-                  : selectedDatasetId
+                ? `${selectedDatasetId}${
+                    meta
+                      ? embeddingMode === "umap"
+                        ? " (UMAP)"
+                        : " (Spatial)"
+                      : ""
+                  }`
                 : undefined
             }
           />

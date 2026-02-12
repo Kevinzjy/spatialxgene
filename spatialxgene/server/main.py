@@ -85,7 +85,9 @@ class DatasetMeta(BaseModel):
     x_max: float
     y_min: float
     y_max: float
-    layout: str  # "spatial" or "umap": which coordinates are used for the 2D plot
+    layout: str  # "spatial" or "umap": which coordinates are used for the default 2D plot
+    has_spatial: bool  # True if adata has spatial coordinates
+    has_umap: bool  # True if adata has UMAP embedding (obsm["X_umap"])
     image_keys: list[str]  # keys for background images in uns['spatial'] (e.g. hires, lowres); empty if none
     image_info: dict[str, ImageInfo]  # key -> scale_factor, width, height for alignment
 
@@ -122,6 +124,8 @@ def get_dataset_meta(dataset_id: str):
     """Get dataset metadata: dimensions, obs/var columns, plot bounds, image keys."""
     adata = _get_adata(dataset_id)
     x, y, layout = _get_plot_coordinates(adata)
+    has_spatial = _has_spatial(adata)
+    has_umap = "X_umap" in adata.obsm and adata.obsm["X_umap"].shape[1] >= 2
     try:
         image_keys = _get_image_keys(adata)
         image_info = {}
@@ -147,6 +151,8 @@ def get_dataset_meta(dataset_id: str):
         y_min=float(np.nanmin(y)),
         y_max=float(np.nanmax(y)),
         layout=layout,
+        has_spatial=has_spatial,
+        has_umap=has_umap,
         image_keys=image_keys,
         image_info=image_info,
     )
@@ -282,10 +288,42 @@ def _get_plot_coordinates(adata):
 
 
 @app.get("/api/datasets/{dataset_id}/spatial", response_model=SpatialResponse)
-def get_spatial(dataset_id: str):
-    """Get plot coordinates (x, y) for all cells: spatial if present, else UMAP."""
+def get_spatial(dataset_id: str, layout: Optional[str] = None):
+    """
+    Get plot coordinates (x, y) for all cells.
+
+    - Default (layout is None): spatial if present, else UMAP (same as _get_plot_coordinates).
+    - layout=\"spatial\": force spatial coordinates; 404 if none available.
+    - layout=\"umap\": force UMAP embedding; 404 if none available.
+    """
     adata = _get_adata(dataset_id)
-    x, y, _ = _get_plot_coordinates(adata)
+    if layout == "spatial":
+        if not _has_spatial(adata):
+            raise HTTPException(
+                status_code=404,
+                detail="No spatial coordinates in adata (need obsm['spatial']/['X_spatial'] or obs x/y)",
+            )
+        if "spatial" in adata.obsm:
+            x = np.asarray(adata.obsm["spatial"][:, 0], dtype=np.float64)
+            y = np.asarray(adata.obsm["spatial"][:, 1], dtype=np.float64)
+        elif "X_spatial" in adata.obsm:
+            x = np.asarray(adata.obsm["X_spatial"][:, 0], dtype=np.float64)
+            y = np.asarray(adata.obsm["X_spatial"][:, 1], dtype=np.float64)
+        else:
+            x = np.asarray(adata.obs["x"].values, dtype=np.float64)
+            y = np.asarray(adata.obs["y"].values, dtype=np.float64)
+    elif layout == "umap":
+        umap = adata.obsm.get("X_umap")
+        if umap is None or getattr(umap, "shape", (0, 0))[1] < 2:
+            raise HTTPException(
+                status_code=404,
+                detail="No UMAP embedding in adata (need obsm['X_umap'] with at least 2 columns)",
+            )
+        x = np.asarray(umap[:, 0], dtype=np.float64)
+        y = np.asarray(umap[:, 1], dtype=np.float64)
+    else:
+        x, y, _ = _get_plot_coordinates(adata)
+
     return SpatialResponse(
         x=x.tolist(),
         y=y.tolist(),
@@ -365,6 +403,21 @@ def index():
     if STATIC_DIR is not None and (STATIC_DIR / "index.html").exists():
         return FileResponse(STATIC_DIR / "index.html")
     return {"message": "Spatialxgene API. Build frontend and set static dir, or use frontend dev server."}
+
+
+@app.get("/favicon.svg")
+def favicon_svg():
+    """
+    Serve the frontend favicon from the built static directory.
+
+    In dev mode (Vite) this is served by the dev server; in launch mode we
+    need an explicit route because we only mount /assets by default.
+    """
+    if STATIC_DIR is not None:
+        svg_path = STATIC_DIR / "favicon.svg"
+        if svg_path.exists():
+            return FileResponse(svg_path)
+    raise HTTPException(status_code=404, detail="favicon.svg not found")
 
 
 def mount_static(static_dir: Path) -> None:

@@ -30,8 +30,12 @@ export type DatasetMeta = {
   x_max: number;
   y_min: number;
   y_max: number;
-  /** "spatial" or "umap": which coordinates are used for the 2D plot */
+  /** "spatial" or "umap": which coordinates are used for the default 2D plot */
   layout?: string;
+  /** True if adata has spatial coordinates (obsm["spatial"]/["X_spatial"] or obs x/y). */
+  has_spatial?: boolean;
+  /** True if adata has UMAP embedding in obsm["X_umap"]. */
+  has_umap?: boolean;
   /** Keys for background images in adata (e.g. hires, lowres); empty if none */
   image_keys?: string[];
   /** Per-key scale and size: image in data space spans (0,0) to (width/scale_factor, height/scale_factor) */
@@ -54,8 +58,15 @@ export async function fetchDatasetMeta(id: string, signal?: AbortSignal): Promis
   return r.json();
 }
 
-export async function fetchSpatial(id: string, signal?: AbortSignal): Promise<SpatialResponse> {
-  const r = await fetch(`${API_BASE}/api/datasets/${encodeURIComponent(id)}/spatial`, { signal });
+export async function fetchSpatial(
+  id: string,
+  signal?: AbortSignal,
+  layout?: "spatial" | "umap"
+): Promise<SpatialResponse> {
+  const qs = layout ? `?layout=${encodeURIComponent(layout)}` : "";
+  const r = await fetch(`${API_BASE}/api/datasets/${encodeURIComponent(id)}/spatial${qs}`, {
+    signal,
+  });
   if (!r.ok) await throwApiError(r);
   return r.json();
 }

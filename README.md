@@ -53,7 +53,7 @@
 
    **While developing the frontend**, use **`spatialxgene dev`** instead: one command runs the backend and watches `spatialxgene/frontend/`; any save triggers a rebuild. Refresh the browser to see changes (no need to run `npm run build` each time).
 
-**Viewer**: Spatial plot shows points in data coordinates; point size is derived from grid spacing (bounds + n_obs) so adjacent points have a small gap. You can zoom (wheel), pan (drag), color by gene expression or obs annotation, choose a tissue background image (hires / lowres from `adata.uns['spatial']` when present), and adjust spot size and background opacity. In gene mode, you can pick a continuous color palette and optionally reverse its direction (e.g. `vlag` vs. `vlag_r`-style).
+**Viewer**: Spatial plot shows points in data coordinates; point size is derived from grid spacing (bounds + n_obs) so adjacent points have a small gap. You can zoom (wheel), pan (drag), color by gene expression or obs annotation, choose a tissue background image (hires / lowres from `adata.uns['spatial']` when present), and adjust spot size and background opacity. When both spatial coordinates and a UMAP embedding are available, you can toggle the embedding (Spatial / UMAP) in the sidebar; in UMAP mode, tissue background images are hidden. In gene mode, you can pick a continuous color palette and optionally reverse its direction (e.g. `vlag` vs. `vlag_r`-style).
 
 3. **Infer spatial** (when raw h5ad has no coords):
 

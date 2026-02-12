@@ -193,11 +193,11 @@ def main() -> None:
     launch_p.add_argument(
         "--data-dir",
         type=Path,
-        default=Path("data/sample/STDS0000323/preprocessed"),
+        default=Path.cwd(),
         help="Directory containing preprocessed h5ad files",
     )
-    launch_p.add_argument("--host", type=str, default="127.0.0.1", help="Bind host")
-    launch_p.add_argument("--port", type=int, default=8000, help="Port")
+    launch_p.add_argument("--host", type=str, default="0.0.0.0", help="Bind host")
+    launch_p.add_argument("--port", type=int, default=5005, help="Port")
     launch_p.add_argument("--no-browser", action="store_true", help="Do not open browser")
     launch_p.add_argument("--build", action="store_true", help="Build frontend before starting")
     launch_p.add_argument("--debug", action="store_true", help="Enable debug mode: verbose console logs in browser")

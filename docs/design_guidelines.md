@@ -86,7 +86,8 @@
 | 项目 | 规范 |
 |------|------|
 | 数据集 | 下拉框，必选其一；无数据时提示「未找到数据集」等；切换时取消上一请求（AbortController）避免卡在 Loading。 |
-| 背景图 | 下拉框：None / hires / lowres（来自 `image_keys`）；与 spot 坐标对齐（hires 范围作为参考）。 |
+| Embedding 切换 | 若同一数据集中同时存在空间坐标与 UMAP（`has_spatial` / `has_umap`），在 Dataset 下方提供 Spatial / UMAP 两个按钮；当前选中态用强调色背景。切换时重新拉取对应坐标；默认优先使用空间坐标，其次 UMAP。 |
+| 背景图 | 下拉框：None / hires / lowres（来自 `image_keys`）；与 spot 坐标对齐（hires 范围作为参考）。仅在 Embedding 为 Spatial 且存在 image_keys 时显示；UMAP 模式下不显示背景图选项。 |
 | Color by | 两个按钮切换 Annotation / Gene；选中态用强调色背景。 |
 | Spot size / 透明度 | 水平滑块；Spot size 百分比与背景图 opacity 实时生效。 |
 | 注释 | 下拉框列出分类列（唯一值 2–50）；默认优先 `leiden`。 |

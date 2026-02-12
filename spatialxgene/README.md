@@ -40,7 +40,7 @@ spatialxgene launch [--data-dir DIR] [--port N] [--no-browser] [--build]
 - **--build** — Run `npm run build` in `frontend/` before starting.
 
 **Viewer (spatial plot)**  
-Canvas-based plot in data coordinates. Point radius is computed from grid spacing (`sqrt(area/n)`) so points align with spatial layout with a small gap. Zoom (mouse wheel), pan (drag). Color by gene expression or obs annotation (e.g. Leiden). Optional tissue background image: choose hires or lowres from `adata.uns['spatial']` when present; spot size and background opacity are adjustable. In gene mode, you can choose a continuous color palette and optionally reverse its direction (e.g. `vlag` vs. reversed `vlag`).
+Canvas-based plot in data coordinates. Point radius is computed from grid spacing (`sqrt(area/n)`) so points align with spatial layout with a small gap. Zoom (mouse wheel), pan (drag). Color by gene expression or obs annotation (e.g. Leiden). Optional tissue background image: choose hires or lowres from `adata.uns['spatial']` when present; spot size and background opacity are adjustable. When both spatial coordinates and a UMAP embedding are available, the sidebar lets you toggle the embedding (Spatial / UMAP); in UMAP mode, tissue background images are not shown. In gene mode, you can choose a continuous color palette and optionally reverse its direction (e.g. `vlag` vs. reversed `vlag`).
 
 First time: build the frontend from project root:
 
