@@ -8,11 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Fixed
 
-- **Packaging**: Pre-built frontend is now included in the wheel (`frontend/dist/` via `package_data`). After `pip install spatialxgene`, `spatialxgene launch` works without Node.js or running `npm run build`. See [docs/development.md](docs/development.md) for building from source.
+- **Packaging**: Pre-built frontend is now included in the wheel. After `pip install spatialxgene`, `spatialxgene launch` works without Node.js.
 
 ### Changed
 
-- **Docs**: Root README is user-only (install, commands, quick start, data format). Project layout, development workflow, and design notes moved to [docs/](docs/).
+- **Docs**: Root README is user-only (for PyPI; no source/repo paths). Release notes merged into CHANGELOG; `docs/release_notes_*` removed.
 
 ## [0.2.0] - 2026-02-12
 
@@ -37,6 +37,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 - Backend: `DatasetMeta` has `has_spatial`, `has_umap`; `/spatial` accepts optional `layout` query.
 - Frontend: `SpatialPlot` supports `colorMode: "none"` (gray points), hover props, and zoom/pan refs for rAF-driven updates.
+
+### Release notes (v0.2 scope and lessons, merged from release_notes)
+
+- **Scope**: Embedding toggle (Spatial/UMAP), hover tooltip, annotation legend (count-sorted), zoom/reset buttons, cursor-centered zoom, loading overlay, gray points when no annotation/gene selected, full viewport layout, favicon and sidebar logo. Robustness: histogram-based percentile; UMAP spot size; rAF-throttled drag/hover for Safari/Firefox. Performance: LOD, DPR cap, Firefox-specific LOD.
+- **Lessons**: Cross-browser: rAF and DPR caps; keep drag/hover deps correct. Large arrays: O(n) histogram or subsampling; avoid sort/recursion on 300k+ elements. Versioning: bump `__version__`, `pyproject.toml`, and `frontend/package.json` together; document in CHANGELOG.
 
 ## [0.1.0] - 2025-02-12
 

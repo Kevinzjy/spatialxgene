@@ -1,6 +1,6 @@
 # Spatialxgene (package)
 
-Spatial transcriptomics viewer and preprocessing. Use the `spatialxgene` CLI from the project root. If you installed from PyPI, the frontend is included; from source, see [docs/development.md](../docs/development.md) to build the frontend once.
+Spatial transcriptomics viewer and preprocessing. Use the `spatialxgene` CLI. The frontend is included when you install from PyPI.
 
 ## Subcommands
 
@@ -20,7 +20,7 @@ spatialxgene infer path/to/dir -o path/to/out     # write to output dir
 
 ### dev — Backend + frontend watch (for development)
 
-One command: backend runs and frontend is watched. When you save any file under `spatialxgene/frontend/`, the app is rebuilt automatically; **refresh the browser** to see changes. No need to run `npm run build` manually.
+One command: backend runs and frontend is watched. Saving a frontend file triggers a rebuild; refresh the browser to see changes. No need to run `npm run build` manually.
 
 ```bash
 spatialxgene dev [--data-dir DIR] [--port N] [--no-browser]
@@ -34,10 +34,10 @@ Start the web app to explore preprocessed h5ad with spatial coordinates.
 spatialxgene launch [--data-dir DIR] [--port N] [--no-browser] [--build]
 ```
 
-- **--data-dir** — Directory of preprocessed `.h5ad` files (default: `data/sample/STDS0000323/preprocessed`).
+- **--data-dir** — Directory of preprocessed `.h5ad` files.
 - **--port** — Port (default 5005). **--host** — Bind host (default 0.0.0.0 for launch, 127.0.0.1 for dev).
 - **--no-browser** — Do not open the browser.
-- **--build** — Run `npm run build` in `frontend/` before starting (only needed when running from source and frontend not yet built).
+- **--build** — Rebuild frontend before starting (only when running from source).
 
 **Viewer (spatial plot)**  
 Canvas-based plot in data coordinates. Point radius from grid spacing; zoom (wheel, cursor-centered) and pan (drag); toolbar has zoom in/out and reset. Color by annotation or gene; unselected mode shows all points in gray. Optional tissue background (hires/lowres) when embedding is Spatial; sidebar can toggle Spatial/UMAP (background image hidden in UMAP). Gene mode: continuous palette and reverse option. Hover shows spot index and annotation/gene value; annotation legend (below Opacity) lists categories with counts, sorted by count. Dataset switch shows a loading overlay; layout fills the viewport (no scrollbar).
@@ -70,4 +70,4 @@ Preprocessed h5ad should have:
 
 ## Development
 
-See [docs/development.md](../docs/development.md) for project layout, `spatialxgene dev`, Makefile targets, and backend/frontend-only runs.
+For project layout, `spatialxgene dev`, and build/run from source, see the project repository.

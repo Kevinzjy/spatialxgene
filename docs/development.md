@@ -6,7 +6,7 @@ Project layout, build and run from source, and where to find design/plan docs.
 
 ```
 <project root>/
-├── README.md              # User-facing usage only
+├── README.md              # PyPI project page (user-only; no repo/source paths)
 ├── pyproject.toml         # Python package: name = "spatialxgene"
 ├── CHANGELOG.md
 ├── Makefile               # install, build, dev, launch, test, clean, publish*
@@ -18,8 +18,7 @@ Project layout, build and run from source, and where to find design/plan docs.
 │   ├── master_plan.md
 │   ├── implementation_plan.md
 │   ├── design_guidelines.md
-│   ├── tasks.md
-│   └── release_notes_*.md
+│   └── tasks.md
 └── spatialxgene/
     ├── __init__.py        # __version__
     ├── cli.py             # Subcommands: launch, dev, infer, preprocess
@@ -83,6 +82,5 @@ Bump in sync: `spatialxgene/__init__.py` (`__version__`), `pyproject.toml` (`ver
 - [implementation_plan.md](implementation_plan.md) — Implementation order and data design
 - [design_guidelines.md](design_guidelines.md) — UI/UX: colors, fonts, interaction
 - [tasks.md](tasks.md) — Current task list
-- [release_notes_v0.2.md](release_notes_v0.2.md) — v0.2 scope and checklist
 
-Package-level CLI details (all subcommand options): [../spatialxgene/README.md](../spatialxgene/README.md).
+Release history and version notes: root [CHANGELOG.md](../CHANGELOG.md). Package-level CLI details (all subcommand options): [../spatialxgene/README.md](../spatialxgene/README.md).

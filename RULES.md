@@ -71,3 +71,16 @@
 - **最有效的补充信息**：<如果一开始就提供，会更快解决的内容>
 - **下次提问要点**：<可复制的提问模板>
 
+### 4.3 项目规范与发布教训（Spatialxgene）
+
+- **打包与 wheel**
+  - 只上传 wheel 到 PyPI、不上传源码时，前端必须打进 wheel：用 `[tool.setuptools.package-data]` 包含预构建的 `frontend/dist/**`；打 wheel 前必须先 `npm run build`（如 Makefile 的 `publish`/`publish-test` 先 `make build-frontend`）。否则 pip 安装后 `spatialxgene launch` 会报 “Frontend not found”。
+  - 仅发布时需要的依赖（如 twine）放在 `[project.optional-dependencies]` 的 `publish` 里；发布前 `uv sync --extra publish`，普通用户安装不会带上。
+
+- **PyPI 上的 README**
+  - README.md 会作为 PyPI 项目页的说明，面向的是只做 `pip install` 的用户，没有源码、没有 repo 里的路径。不要写 “from source”、“docs/…”、“spatialxgene/frontend”、“make” 等；只保留：Requirements、Install（pip only）、Commands、Quick start、Data format、`--help` 提示。链接只保留相对锚点或必要的外部链接，不要链到 repo 内 docs。
+
+- **发布与版本文档**
+  - 发布说明统一放在 CHANGELOG.md；不再维护单独的 `docs/release_notes_*.md`，避免两处不一致。新版本在 CHANGELOG 增加条目，重要版本可在条目下用 “Release notes (merged)” 子段概括 scope 与教训。
+  - 默认配置（如 host/port）若在代码中修改，需同步改文档（README、docs/development.md、前端 vite proxy 等），避免文档与行为不一致。
+
