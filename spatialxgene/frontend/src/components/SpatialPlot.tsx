@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { getCategoricalColors, continuousToRgb } from "../colorScale";
 
-export type ColorMode = "categorical" | "continuous" | "none";
+export type ColorMode = "categorical" | "continuous" | "coexpression" | "none";
 
 const PAD = 20;
 const isFirefox = typeof navigator !== "undefined" && /firefox/i.test(navigator.userAgent);
@@ -48,7 +48,7 @@ export const SPOT_SIZE_DEFAULT_SCALE = 0.8;
 export type SpatialPlotProps = {
   x: number[];
   y: number[];
-  colorBy: (string | number)[]; // string for categorical, number for expression (or placeholder when ColorMode = "none")
+  colorBy: (string | number)[]; // string for categorical/coexpression (hex), number for expression (or placeholder when ColorMode = "none")
   colorMode: ColorMode;
   bounds: { xMin: number; xMax: number; yMin: number; yMax: number };
   /** Scale for point radius relative to grid-based default (0.42 * spacing). Default 0.8 = 80%. */
@@ -82,6 +82,11 @@ export type SpatialPlotProps = {
   hoverGeneName?: string | null;
   /** For hover tooltip: expression values for current gene (aligned with x/y). */
   hoverGeneValues?: number[] | null;
+  /** For hover tooltip in coexpression mode: Gene1 name and values. */
+  hoverGene1Name?: string | null;
+  hoverGene1Values?: number[] | null;
+  hoverGene2Name?: string | null;
+  hoverGene2Values?: number[] | null;
   title?: string;
 };
 
@@ -107,6 +112,10 @@ export function SpatialPlot({
   hoverAnnotationValues,
   hoverGeneName,
   hoverGeneValues,
+  hoverGene1Name,
+  hoverGene1Values,
+  hoverGene2Name,
+  hoverGene2Values,
   title,
 }: SpatialPlotProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -301,6 +310,10 @@ export function SpatialPlot({
         const raw = colorBy[idx] as number;
         return !Number.isFinite(raw);
       }
+      if (colorMode === "coexpression") {
+        const hex = colorBy[idx];
+        return typeof hex !== "string" || !/^#[0-9a-f]{6}$/i.test(hex);
+      }
       return false;
     };
 
@@ -328,6 +341,12 @@ export function SpatialPlot({
         const raw = (colorBy[i] as number) ?? NaN;
         const v = logScale ? Math.log1p(Math.max(0, raw)) : raw;
         [r, g, b] = continuousToRgb(v, vmin, vmax, continuousPalette, continuousPaletteReverse);
+      } else if (colorMode === "coexpression") {
+        const hex = (colorBy[i] as string) ?? "#888888";
+        const m = hex.match(/#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})/i);
+        r = m ? parseInt(m[1], 16) : 136;
+        g = m ? parseInt(m[2], 16) : 136;
+        b = m ? parseInt(m[3], 16) : 136;
       } else {
         r = g = b = 136;
       }
@@ -515,11 +534,16 @@ export function SpatialPlot({
         } else if (colorMode === "continuous" && hoverGeneName && hoverGeneValues) {
           const v = hoverGeneValues[bestIdx];
           lines.push(`${hoverGeneName}: ${formatExpr(Number(v))}`);
+        } else if (colorMode === "coexpression" && hoverGene1Name && hoverGene1Values && hoverGene2Name && hoverGene2Values) {
+          const v1 = hoverGene1Values[bestIdx];
+          const v2 = hoverGene2Values[bestIdx];
+          lines.push(`${hoverGene1Name}: ${formatExpr(Number(v1))}`);
+          lines.push(`${hoverGene2Name}: ${formatExpr(Number(v2))}`);
         }
         setHover({ screenX: mx2 + 10, screenY: my2 + 10, lines });
       });
     },
-    [bounds, x, y, spotSizeScale, colorMode, hoverAnnotationName, hoverAnnotationValues, hoverGeneName, hoverGeneValues, drag]
+    [bounds, x, y, spotSizeScale, colorMode, hoverAnnotationName, hoverAnnotationValues, hoverGeneName, hoverGeneValues, hoverGene1Name, hoverGene1Values, hoverGene2Name, hoverGene2Values, drag]
   );
 
   const onMouseUp = useCallback(() => {

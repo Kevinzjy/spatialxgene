@@ -10,7 +10,7 @@ import {
   datasetImageUrl,
 } from "./api";
 import type { DatasetItem, DatasetMeta, ObsResponse } from "./api";
-import { DEFAULT_CONTINUOUS_PALETTE } from "./colorScale";
+import { DEFAULT_CONTINUOUS_PALETTE, DEFAULT_COEXPRESSION_PALETTE, coexpressionToHex, type CoexpressionPalette } from "./colorScale";
 import { setDebugMode, debugLog } from "./debug";
 import { percentile } from "./utils/percentile";
 import { Sidebar } from "./components/Sidebar";
@@ -54,8 +54,14 @@ export default function App() {
   const [obs, setObs] = useState<ObsResponse | null>(null);
   const [genes, setGenes] = useState<string[]>([]);
   const [expression, setExpression] = useState<number[] | null>(null);
-  const [colorMode, setColorMode] = useState<"gene" | "annotation">("annotation");
+  const [colorMode, setColorMode] = useState<"gene" | "annotation" | "coexpression">("annotation");
   const [selectedGene, setSelectedGene] = useState<string | null>(null);
+  const [selectedGene1, setSelectedGene1] = useState<string | null>(null);
+  const [selectedGene2, setSelectedGene2] = useState<string | null>(null);
+  const [expression1, setExpression1] = useState<number[] | null>(null);
+  const [expression2, setExpression2] = useState<number[] | null>(null);
+  const [coexpressionPalette, setCoexpressionPalette] = useState<CoexpressionPalette>(DEFAULT_COEXPRESSION_PALETTE);
+  const [coexpressionLogScale, setCoexpressionLogScale] = useState(false);
   const [selectedObsCol, setSelectedObsCol] = useState<string | null>(null);
   const [obsValueType, setObsValueType] = useState<"categorical" | "numeric">("categorical");
   const [spotSizeScale, setSpotSizeScale] = useState(SPOT_SIZE_DEFAULT_SCALE);
@@ -120,6 +126,10 @@ export default function App() {
       setGenes(varRes);
       setExpression(null);
       setSelectedGene(null);
+      setExpression1(null);
+      setExpression2(null);
+      setSelectedGene1(null);
+      setSelectedGene2(null);
       const catCols = obsRes.columns.filter((c) => {
         const vals = obsRes.data[c];
         const uniq = new Set(vals?.map(String) ?? []);
@@ -186,6 +196,10 @@ export default function App() {
       setSelectedObsCol(null);
       setObsValueType("categorical");
       setSelectedGene(null);
+      setSelectedGene1(null);
+      setSelectedGene2(null);
+      setExpression1(null);
+      setExpression2(null);
       setBackgroundImageKey(null);
       setEmbeddingMode("spatial");
     }
@@ -211,6 +225,34 @@ export default function App() {
     return () => ac.abort();
   }, [selectedDatasetId, selectedGene]);
 
+  // Fetch both genes for co-expression mode
+  useEffect(() => {
+    if (!selectedDatasetId || !selectedGene1 || !selectedGene2) {
+      setExpression1(null);
+      setExpression2(null);
+      return;
+    }
+    const ac = new AbortController();
+    const signal = ac.signal;
+    debugLog("fetchCoexpression", { datasetId: selectedDatasetId, gene1: selectedGene1, gene2: selectedGene2 });
+    Promise.all([
+      fetchExpression(selectedDatasetId, selectedGene1, signal),
+      fetchExpression(selectedDatasetId, selectedGene2, signal),
+    ])
+      .then(([arr1, arr2]) => {
+        debugLog("fetchCoexpression done", { len1: arr1.length, len2: arr2.length });
+        setExpression1(arr1);
+        setExpression2(arr2);
+      })
+      .catch((e) => {
+        if (e?.name === "AbortError") return;
+        debugLog("fetchCoexpression error", { error: String(e) });
+        setExpression1(null);
+        setExpression2(null);
+      });
+    return () => ac.abort();
+  }, [selectedDatasetId, selectedGene1, selectedGene2]);
+
   const colorByValues = React.useMemo(() => {
     if (!spatial) return [];
     const n = spatial.x.length;
@@ -220,9 +262,25 @@ export default function App() {
     if (colorMode === "gene" && expression) {
       return expression.slice(0, n);
     }
+    if (colorMode === "coexpression" && expression1 && expression2 && expression1.length >= n && expression2.length >= n) {
+      const mapRaw = (arr: number[]) => (coexpressionLogScale ? arr.map((x) => Math.log1p(Math.max(0, x))) : arr);
+      const log1 = mapRaw(expression1.slice(0, n) as number[]);
+      const log2 = mapRaw(expression2.slice(0, n) as number[]);
+      const { min: min1, max: max1 } = finiteMinMax(log1);
+      const { min: min2, max: max2 } = finiteMinMax(log2);
+      const range1 = max1 - min1 || 1;
+      const range2 = max2 - min2 || 1;
+      const out: string[] = [];
+      for (let i = 0; i < n; i++) {
+        const v1 = (log1[i] - min1) / range1;
+        const v2 = (log2[i] - min2) / range2;
+        out.push(coexpressionToHex(v1, v2, coexpressionPalette));
+      }
+      return out;
+    }
     // No annotation/gene selected: still show all points (color decided by plotColorMode).
     return new Array(n).fill(0);
-  }, [obs, spatial, colorMode, selectedObsCol, expression]);
+  }, [obs, spatial, colorMode, selectedObsCol, expression, expression1, expression2, coexpressionPalette, coexpressionLogScale]);
 
   const plotColorMode: ColorMode = React.useMemo(() => {
     if (!spatial) return "none";
@@ -232,8 +290,17 @@ export default function App() {
     if (colorMode === "gene" && expression && expression.length === spatial.x.length) {
       return "continuous";
     }
+    if (
+      colorMode === "coexpression" &&
+      expression1 &&
+      expression2 &&
+      expression1.length === spatial.x.length &&
+      expression2.length === spatial.x.length
+    ) {
+      return "coexpression";
+    }
     return "none";
-  }, [spatial, colorMode, selectedObsCol, obs, expression, obsValueType]);
+  }, [spatial, colorMode, selectedObsCol, obs, expression, expression1, expression2, obsValueType]);
   const bounds = useMemo(() => {
     if (spatial && spatial.x.length > 0 && spatial.y.length === spatial.x.length) {
       let xMin = spatial.x[0];
@@ -347,11 +414,13 @@ export default function App() {
             setObs(null);
             setGenes([]);
             setExpression(null);
+            setExpression1(null);
+            setExpression2(null);
             setSelectedObsCol(null);
             setSelectedGene(null);
+            setSelectedGene1(null);
+            setSelectedGene2(null);
             setBackgroundImageKey(null);
-            setSelectedGene(null);
-            setExpression(null);
             loadDataset(next);
           }
         }}
@@ -370,7 +439,18 @@ export default function App() {
           setSelectedObsCol(c);
           setColorMode("annotation");
         }}
+        onColorByCoexpression={(g1, g2) => {
+          setSelectedGene1(g1);
+          setSelectedGene2(g2);
+          setColorMode("coexpression");
+        }}
         onColorModeChange={setColorMode}
+        selectedGene1={selectedGene1}
+        selectedGene2={selectedGene2}
+        coexpressionPalette={coexpressionPalette}
+        onCoexpressionPaletteChange={setCoexpressionPalette}
+        coexpressionLogScale={coexpressionLogScale}
+        onCoexpressionLogScaleChange={setCoexpressionLogScale}
         spotSizeScale={spotSizeScale}
         onSpotSizeScaleChange={setSpotSizeScale}
         spotOpacity={spotOpacity}
@@ -472,6 +552,10 @@ export default function App() {
                     : null
                 : null
             }
+            hoverGene1Name={plotColorMode === "coexpression" ? selectedGene1 : null}
+            hoverGene1Values={plotColorMode === "coexpression" ? expression1 : null}
+            hoverGene2Name={plotColorMode === "coexpression" ? selectedGene2 : null}
+            hoverGene2Values={plotColorMode === "coexpression" ? expression2 : null}
             title={
               selectedDatasetId
                 ? `${selectedDatasetId}${

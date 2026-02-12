@@ -8,6 +8,7 @@ import {
   getCategoricalColors,
   getPaletteGradientCss,
   getCategoricalPaletteGradientCss,
+  type CoexpressionPalette,
 } from "../colorScale";
 
 function formatExpr(v: number): string {
@@ -39,13 +40,20 @@ type SidebarProps = {
   meta: DatasetMeta | null;
   genes: string[];
   obs: ObsResponse | null;
-  colorMode: "gene" | "annotation";
+  colorMode: "gene" | "annotation" | "coexpression";
   selectedGene: string | null;
+  selectedGene1: string | null;
+  selectedGene2: string | null;
   selectedObsCol: string | null;
   obsValueType: "categorical" | "numeric";
   onColorByGene: (gene: string | null) => void;
   onColorByAnnotation: (col: string | null) => void;
-  onColorModeChange: (mode: "gene" | "annotation") => void;
+  onColorByCoexpression: (gene1: string | null, gene2: string | null) => void;
+  onColorModeChange: (mode: "gene" | "annotation" | "coexpression") => void;
+  coexpressionPalette: CoexpressionPalette;
+  onCoexpressionPaletteChange: (palette: CoexpressionPalette) => void;
+  coexpressionLogScale: boolean;
+  onCoexpressionLogScaleChange: (v: boolean) => void;
   /** Spot size scale 0.2–1.2 (default 0.8 = 80% of defined size) */
   spotSizeScale: number;
   onSpotSizeScaleChange: (value: number) => void;
@@ -95,11 +103,18 @@ export function Sidebar({
   obs,
   colorMode,
   selectedGene,
+  selectedGene1,
+  selectedGene2,
   selectedObsCol,
   obsValueType,
   onColorByGene,
   onColorByAnnotation,
+  onColorByCoexpression,
   onColorModeChange,
+  coexpressionPalette,
+  onCoexpressionPaletteChange,
+  coexpressionLogScale,
+  onCoexpressionLogScaleChange,
   spotSizeScale,
   onSpotSizeScaleChange,
   spotOpacity,
@@ -129,11 +144,23 @@ export function Sidebar({
   onObsValueTypeChange,
 }: SidebarProps) {
   const [geneSearch, setGeneSearch] = useState("");
+  const [geneSearch1, setGeneSearch1] = useState("");
+  const [geneSearch2, setGeneSearch2] = useState("");
   const filteredGenes = useMemo(() => {
     if (!geneSearch.trim()) return genes.slice(0, 200);
     const q = geneSearch.toLowerCase();
     return genes.filter((g) => g.toLowerCase().includes(q)).slice(0, 200);
   }, [genes, geneSearch]);
+  const filteredGenes1 = useMemo(() => {
+    if (!geneSearch1.trim()) return genes.slice(0, 200);
+    const q = geneSearch1.toLowerCase();
+    return genes.filter((g) => g.toLowerCase().includes(q)).slice(0, 200);
+  }, [genes, geneSearch1]);
+  const filteredGenes2 = useMemo(() => {
+    if (!geneSearch2.trim()) return genes.slice(0, 200);
+    const q = geneSearch2.toLowerCase();
+    return genes.filter((g) => g.toLowerCase().includes(q)).slice(0, 200);
+  }, [genes, geneSearch2]);
 
   const obsColumns = useMemo(() => {
     if (!obs?.columns) return [];
@@ -418,7 +445,7 @@ export function Sidebar({
             )}
 
             <label style={{ fontSize: 12, fontWeight: 600, color: "#a0a0a0" }}>Color by</label>
-            <div style={{ display: "flex", gap: 8 }}>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
               <button
                 type="button"
                 onClick={() => onColorModeChange("annotation")}
@@ -448,6 +475,21 @@ export function Sidebar({
                 }}
               >
                 Gene
+              </button>
+              <button
+                type="button"
+                onClick={() => onColorModeChange("coexpression")}
+                style={{
+                  padding: "6px 10px",
+                  borderRadius: 6,
+                  border: "1px solid #0f3460",
+                  background: colorMode === "coexpression" ? "#e94560" : "#1a1a2e",
+                  color: "#eee",
+                  fontSize: 12,
+                  cursor: "pointer",
+                }}
+              >
+                Co-expression
               </button>
             </div>
 
@@ -570,6 +612,172 @@ export function Sidebar({
                     </div>
                   ))}
                 </div>
+              </>
+            )}
+
+            {colorMode === "coexpression" && (
+              <>
+                <label style={{ fontSize: 12, fontWeight: 600, color: "#a0a0a0" }}>Gene1</label>
+                <input
+                  type="text"
+                  placeholder="Search gene…"
+                  value={geneSearch1}
+                  onChange={(e) => setGeneSearch1(e.target.value)}
+                  style={{
+                    padding: "8px 10px",
+                    borderRadius: 6,
+                    border: "1px solid #0f3460",
+                    background: "#1a1a2e",
+                    color: "#eee",
+                    fontSize: 13,
+                    width: "100%",
+                    boxSizing: "border-box",
+                  }}
+                />
+                <div
+                  style={{
+                    maxHeight: 120,
+                    overflow: "auto",
+                    border: "1px solid #0f3460",
+                    borderRadius: 6,
+                    background: "#1a1a2e",
+                  }}
+                >
+                  {filteredGenes1.map((g) => (
+                    <div
+                      key={g}
+                      onClick={() => onColorByCoexpression(g, selectedGene2)}
+                      style={{
+                        padding: "6px 10px",
+                        fontSize: 12,
+                        cursor: "pointer",
+                        background: selectedGene1 === g ? "#e94560" : "transparent",
+                      }}
+                    >
+                      {g}
+                    </div>
+                  ))}
+                </div>
+                <label style={{ fontSize: 12, fontWeight: 600, color: "#a0a0a0" }}>Gene2</label>
+                <input
+                  type="text"
+                  placeholder="Search gene…"
+                  value={geneSearch2}
+                  onChange={(e) => setGeneSearch2(e.target.value)}
+                  style={{
+                    padding: "8px 10px",
+                    borderRadius: 6,
+                    border: "1px solid #0f3460",
+                    background: "#1a1a2e",
+                    color: "#eee",
+                    fontSize: 13,
+                    width: "100%",
+                    boxSizing: "border-box",
+                  }}
+                />
+                <div
+                  style={{
+                    maxHeight: 120,
+                    overflow: "auto",
+                    border: "1px solid #0f3460",
+                    borderRadius: 6,
+                    background: "#1a1a2e",
+                  }}
+                >
+                  {filteredGenes2.map((g) => (
+                    <div
+                      key={g}
+                      onClick={() => onColorByCoexpression(selectedGene1, g)}
+                      style={{
+                        padding: "6px 10px",
+                        fontSize: 12,
+                        cursor: "pointer",
+                        background: selectedGene2 === g ? "#e94560" : "transparent",
+                      }}
+                    >
+                      {g}
+                    </div>
+                  ))}
+                </div>
+                <label style={{ fontSize: 12, fontWeight: 600, color: "#a0a0a0" }}>Color palette</label>
+                <div
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "1fr 1fr",
+                    gap: 4,
+                    width: "100%",
+                    maxWidth: 160,
+                  }}
+                  title="Four corners: 0 (both low), Gene1, Gene2, Co-expression"
+                >
+                  <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 2 }}>
+                    <input
+                      type="color"
+                      value={coexpressionPalette.c00}
+                      onChange={(e) =>
+                        onCoexpressionPaletteChange({ ...coexpressionPalette, c00: e.target.value })
+                      }
+                      style={{ width: 36, height: 28, padding: 0, border: "1px solid #0f3460", borderRadius: 4, cursor: "pointer" }}
+                      title="Both low (0)"
+                    />
+                    <span style={{ fontSize: 9, color: "#888" }}>0</span>
+                  </div>
+                  <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 2 }}>
+                    <input
+                      type="color"
+                      value={coexpressionPalette.c10}
+                      onChange={(e) =>
+                        onCoexpressionPaletteChange({ ...coexpressionPalette, c10: e.target.value })
+                      }
+                      style={{ width: 36, height: 28, padding: 0, border: "1px solid #0f3460", borderRadius: 4, cursor: "pointer" }}
+                      title="Gene1 high"
+                    />
+                    <span style={{ fontSize: 9, color: "#888" }}>Gene1</span>
+                  </div>
+                  <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 2 }}>
+                    <input
+                      type="color"
+                      value={coexpressionPalette.c01}
+                      onChange={(e) =>
+                        onCoexpressionPaletteChange({ ...coexpressionPalette, c01: e.target.value })
+                      }
+                      style={{ width: 36, height: 28, padding: 0, border: "1px solid #0f3460", borderRadius: 4, cursor: "pointer" }}
+                      title="Gene2 high"
+                    />
+                    <span style={{ fontSize: 9, color: "#888" }}>Gene2</span>
+                  </div>
+                  <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 2 }}>
+                    <input
+                      type="color"
+                      value={coexpressionPalette.c11}
+                      onChange={(e) =>
+                        onCoexpressionPaletteChange({ ...coexpressionPalette, c11: e.target.value })
+                      }
+                      style={{ width: 36, height: 28, padding: 0, border: "1px solid #0f3460", borderRadius: 4, cursor: "pointer" }}
+                      title="Co-expression"
+                    />
+                    <span style={{ fontSize: 9, color: "#888" }}>Both</span>
+                  </div>
+                </div>
+                <label
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 6,
+                    fontSize: 12,
+                    color: "#ccc",
+                    cursor: "pointer",
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  <input
+                    type="checkbox"
+                    checked={coexpressionLogScale}
+                    onChange={(e) => onCoexpressionLogScaleChange(e.target.checked)}
+                    style={{ cursor: "pointer" }}
+                  />
+                  Log scale
+                </label>
               </>
             )}
 

@@ -328,3 +328,50 @@ export function continuousToRgb(
     Math.round(lerp(b0, b1, s) * 255),
   ];
 }
+
+// --- Co-expression palette (2D: Gene1 vs Gene2) ---
+/** Four corner colors: (0,0)=both low, (1,0)=Gene1 high, (0,1)=Gene2 high, (1,1)=both high. Hex strings. */
+export type CoexpressionPalette = {
+  c00: string;
+  c10: string;
+  c01: string;
+  c11: string;
+};
+
+/** Default: white (none), blue (Gene1), orange (Gene2), yellow (co-expression). */
+export const DEFAULT_COEXPRESSION_PALETTE: CoexpressionPalette = {
+  c00: "#ffffff",
+  c10: "#2563eb",
+  c01: "#ea580c",
+  c11: "#eab308",
+};
+
+function hexToRgbNorm(hex: string): [number, number, number] {
+  const [r, g, b] = hexToRgb(hex);
+  return [r, g, b];
+}
+
+/**
+ * Bilinear interpolation for co-expression: (v1, v2) in [0,1]^2 -> RGB hex.
+ * v1 = normalized Gene1 expression, v2 = normalized Gene2 expression.
+ */
+export function coexpressionToHex(
+  v1: number,
+  v2: number,
+  palette: CoexpressionPalette
+): string {
+  const v1c = Math.max(0, Math.min(1, Number.isFinite(v1) ? v1 : 0));
+  const v2c = Math.max(0, Math.min(1, Number.isFinite(v2) ? v2 : 0));
+  const r00 = hexToRgbNorm(palette.c00);
+  const r10 = hexToRgbNorm(palette.c10);
+  const r01 = hexToRgbNorm(palette.c01);
+  const r11 = hexToRgbNorm(palette.c11);
+  const w00 = (1 - v1c) * (1 - v2c);
+  const w10 = v1c * (1 - v2c);
+  const w01 = (1 - v1c) * v2c;
+  const w11 = v1c * v2c;
+  const r = Math.round(255 * (w00 * r00[0] + w10 * r10[0] + w01 * r01[0] + w11 * r11[0]));
+  const g = Math.round(255 * (w00 * r00[1] + w10 * r10[1] + w01 * r01[1] + w11 * r11[1]));
+  const b = Math.round(255 * (w00 * r00[2] + w10 * r10[2] + w01 * r01[2] + w11 * r11[2]));
+  return `#${Math.max(0, Math.min(255, r)).toString(16).padStart(2, "0")}${Math.max(0, Math.min(255, g)).toString(16).padStart(2, "0")}${Math.max(0, Math.min(255, b)).toString(16).padStart(2, "0")}`;
+}
