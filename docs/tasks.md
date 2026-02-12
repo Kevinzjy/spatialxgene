@@ -39,7 +39,7 @@
 
 ---
 
-## 已完成（含 v0.1）
+## 已完成（含 v0.1、v0.2）
 
 - [x] 前端解析 API 错误 body，展示 `detail`。
 - [x] SpatialPlot 使用 ResizeObserver 在容器 resize 时重绘。
@@ -47,7 +47,8 @@
 - [x] 侧栏增加 Spot size 滑块，默认 80% 点大小。
 - [x] Makefile：install、build、dev、launch、test、clean、infer、preprocess。
 - [x] 四份项目文档：master_plan、implementation_plan、design_guidelines、tasks。
-- [x] **v0.1 查看器**：后端提供 `image_keys`、`image_info` 与 `/api/datasets/{id}/images/{key}`；前端背景图（hires/lowres）、与 spot 对齐（lowres 使用 hires 参考范围）；侧栏顺序 Dataset → Background image → Color by → Annotation/Gene → Spot size → Opacity；Gene 模式配色与百分位范围；loadDataset 使用 AbortController 切换数据集时取消旧请求；文档与 CHANGELOG 更新至 v0.1。
+- [x] **v0.1 查看器**：后端提供 `image_keys`、`image_info` 与 `/api/datasets/{id}/images/{key}`；前端背景图（hires/lowres）、与 spot 对齐；侧栏 Dataset → Background image → Color by → Annotation/Gene → Spot size → Opacity；Gene 模式配色与百分位范围；loadDataset 使用 AbortController；文档与 CHANGELOG 更新至 v0.1。
+- [x] **v0.2 查看器**：Embedding 切换（Spatial/UMAP），UMAP 下隐藏背景图；favicon 与侧栏 logo；spot 悬停 tooltip（Spot # + annotation/gene）；Annotation legend（按数量排序、显示 spot count）；画布工具栏 − / + / Reset；缩放以光标为中心；未选 annotation/gene 时全点灰色显示；切换数据集时主区域 Loading overlay；响应式全屏无滚动条；percentile 直方图法避免爆栈；Safari/Firefox 性能优化（rAF 节流、DPR 上限、Firefox LOD）；文档与 CHANGELOG 更新至 v0.2。
 
 ---
 

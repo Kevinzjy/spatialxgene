@@ -4,6 +4,7 @@ import { getCategoricalColors, continuousToRgb } from "../colorScale";
 export type ColorMode = "categorical" | "continuous" | "none";
 
 const PAD = 20;
+const isFirefox = typeof navigator !== "undefined" && /firefox/i.test(navigator.userAgent);
 
 function formatExpr(v: number): string {
   if (!Number.isFinite(v)) return "—";
@@ -85,13 +86,21 @@ export function SpatialPlot({
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const [view, setView] = useState({ scale: 1, tx: 0, ty: 0 });
-  const [drag, setDrag] = useState<{ x: number; y: number } | null>(null);
+  const viewRef = useRef(view);
+  viewRef.current = view;
+  const [drag, setDrag] = useState<{ startX: number; startY: number; startView: { scale: number; tx: number; ty: number } } | null>(null);
+  const lastMouseRef = useRef({ x: 0, y: 0 });
+  const hoverMouseRef = useRef<{ mx: number; my: number } | null>(null);
+  const hoverRafRef = useRef<number | null>(null);
   const [backgroundImage, setBackgroundImage] = useState<HTMLImageElement | null>(null);
   const [hover, setHover] = useState<{
     screenX: number;
     screenY: number;
     lines: string[];
   } | null>(null);
+
+  const dragStateRef = useRef<typeof drag>(null);
+  dragStateRef.current = drag;
 
   useEffect(() => {
     if (!backgroundImageUrl) {
@@ -109,6 +118,26 @@ export function SpatialPlot({
     };
   }, [backgroundImageUrl]);
 
+  // During drag, update view at most once per frame (Safari/Firefox are slower with per-mousemove setState).
+  useEffect(() => {
+    if (!drag) return;
+    let rafId: number;
+    const tick = () => {
+      const state = dragStateRef.current;
+      if (!state) return;
+      const { startX, startY, startView } = state;
+      const { x: lastX, y: lastY } = lastMouseRef.current;
+      setView({
+        ...startView,
+        tx: startView.tx + (lastX - startX),
+        ty: startView.ty + (lastY - startY),
+      });
+      rafId = requestAnimationFrame(tick);
+    };
+    rafId = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(rafId);
+  }, [drag]);
+
   const n = x.length;
   if (y.length !== n) return null;
 
@@ -117,7 +146,8 @@ export function SpatialPlot({
     const container = containerRef.current;
     if (!canvas || !container) return;
     const rect = container.getBoundingClientRect();
-    const dpr = window.devicePixelRatio || 1;
+    // Cap DPR at 2 to reduce fill rate on Safari/Firefox (they are slower at high-DPI canvas).
+    const dpr = Math.min(2, window.devicePixelRatio || 1);
     canvas.width = rect.width * dpr;
     canvas.height = rect.height * dpr;
     canvas.style.width = `${rect.width}px`;
@@ -189,7 +219,8 @@ export function SpatialPlot({
 
     // Level-of-detail: for very large point sets, subsample when zoomed out so
     // we keep a roughly constant upper bound on the number of drawn points.
-    const MAX_DRAW_POINTS = 120_000;
+    // Firefox Canvas 2D is slower, so we use a lower cap there.
+    const MAX_DRAW_POINTS = isFirefox ? 60_000 : 120_000;
     let step = 1;
     if (n > MAX_DRAW_POINTS) {
       const base = n / MAX_DRAW_POINTS;
@@ -311,36 +342,41 @@ export function SpatialPlot({
   }, [bounds]);
 
   const onMouseDown = useCallback((e: React.MouseEvent) => {
-    if (e.button === 0) setDrag({ x: e.clientX, y: e.clientY });
+    if (e.button === 0) {
+      lastMouseRef.current = { x: e.clientX, y: e.clientY };
+      setDrag({ startX: e.clientX, startY: e.clientY, startView: viewRef.current });
+    }
   }, []);
 
   const onMouseMove = useCallback(
     (e: React.MouseEvent) => {
       if (drag) {
-        setView((v) => ({
-          ...v,
-          tx: v.tx + (e.clientX - drag.x),
-          ty: v.ty + (e.clientY - drag.y),
-        }));
-        setDrag({ x: e.clientX, y: e.clientY });
-        if (hover) setHover(null);
-      } else {
-        const container = containerRef.current;
-        if (!container || x.length === 0 || y.length !== x.length) {
-          if (hover) setHover(null);
-          return;
-        }
-        const rect = container.getBoundingClientRect();
-        const mx = e.clientX - rect.left;
-        const my = e.clientY - rect.top;
-        const W = rect.width;
-        const H = rect.height;
-        if (W < 2 * PAD || H < 2 * PAD) {
-          if (hover) setHover(null);
-          return;
-        }
-
-        const { scale, tx, ty } = view;
+        lastMouseRef.current = { x: e.clientX, y: e.clientY };
+        setHover(null);
+        return;
+      }
+      const container = containerRef.current;
+      if (!container || x.length === 0 || y.length !== x.length) {
+        setHover(null);
+        return;
+      }
+      const rect = container.getBoundingClientRect();
+      const mx = e.clientX - rect.left;
+      const my = e.clientY - rect.top;
+      const W = rect.width;
+      const H = rect.height;
+      if (W < 2 * PAD || H < 2 * PAD) {
+        setHover(null);
+        return;
+      }
+      hoverMouseRef.current = { mx, my };
+      if (hoverRafRef.current !== null) return;
+      hoverRafRef.current = requestAnimationFrame(() => {
+        hoverRafRef.current = null;
+        const pos = hoverMouseRef.current;
+        if (!pos) return;
+        const { mx: mx2, my: my2 } = pos;
+        const { scale, tx, ty } = viewRef.current;
         const dataW = bounds.xMax - bounds.xMin || 1;
         const dataH = bounds.yMax - bounds.yMin || 1;
         const sx = (W - 2 * PAD) / dataW;
@@ -353,16 +389,13 @@ export function SpatialPlot({
         const baseOy = PAD + (H - 2 * PAD) / 2;
         const ox = baseOx + tx - centerX * s;
         const oy = baseOy + ty - centerY * s;
-
-        const dataX = (mx - ox) / s;
-        const dataY = (my - oy) / s;
-
+        const dataX = (mx2 - ox) / s;
+        const dataY = (my2 - oy) / s;
         const nPts = x.length;
         const spacing = gridSpacing(bounds, nPts);
         const sizeScale = Math.max(0.15, Math.min(1.5, spotSizeScale));
         const radiusData = Math.max(spacing * 0.42 * sizeScale, Math.min(0.3, spacing * 0.08));
         const searchRadius2 = (radiusData * 1.5) * (radiusData * 1.5);
-
         let bestIdx = -1;
         let bestDist2 = searchRadius2;
         for (let i = 0; i < nPts; i++) {
@@ -374,12 +407,10 @@ export function SpatialPlot({
             bestIdx = i;
           }
         }
-
         if (bestIdx < 0) {
-          if (hover) setHover(null);
+          setHover(null);
           return;
         }
-
         const lines: string[] = [];
         lines.push(`Spot #${bestIdx}`);
         if (colorMode === "categorical" && hoverAnnotationName && hoverAnnotationValues) {
@@ -389,20 +420,24 @@ export function SpatialPlot({
           const v = hoverGeneValues[bestIdx];
           lines.push(`${hoverGeneName}: ${formatExpr(Number(v))}`);
         }
-
-        setHover({
-          screenX: mx + 10,
-          screenY: my + 10,
-          lines,
-        });
-      }
+        setHover({ screenX: mx2 + 10, screenY: my2 + 10, lines });
+      });
     },
-    [drag, hover, view, bounds, x, y, spotSizeScale, colorMode, hoverAnnotationName, hoverAnnotationValues, hoverGeneName, hoverGeneValues]
+    [bounds, x, y, spotSizeScale, colorMode, hoverAnnotationName, hoverAnnotationValues, hoverGeneName, hoverGeneValues, drag]
   );
 
   const onMouseUp = useCallback(() => {
+    if (drag) {
+      const { startX, startY, startView } = drag;
+      const { x: lx, y: ly } = lastMouseRef.current;
+      setView({
+        ...startView,
+        tx: startView.tx + (lx - startX),
+        ty: startView.ty + (ly - startY),
+      });
+    }
     setDrag(null);
-  }, []);
+  }, [drag]);
   const onMouseLeave = useCallback(() => {
     setDrag(null);
     setHover(null);

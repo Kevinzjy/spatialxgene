@@ -66,6 +66,7 @@
 | 侧栏宽度 | 固定 `280px`，`minWidth: 280`，保证选择器与滑块不挤压。 |
 | 内边距 | 侧栏块内 `12px 14px` 或 `12px`；表单项间距 `gap: 12`。 |
 | 画布 | 主区域 flex 填满，最小高度 200px；留白（padding）约 20px。 |
+| 全屏 | `html`/`body` 无 margin、height 100%、overflow hidden；`#root` 高度 100%，应用根 flex 填满，避免出现垂直滚动条。 |
 | 圆角 | 按钮、输入框、下拉框统一 `border-radius: 6px`。 |
 
 ---
@@ -76,8 +77,9 @@
 
 | 操作 | 行为 |
 |------|------|
-| 缩放 | 鼠标滚轮；缩放范围限制（如 0.1–50 倍），避免过小或过大。 |
+| 缩放 | 鼠标滚轮，以光标位置为中心；缩放范围限制（如 0.1–50 倍）。标题栏右侧提供 − / + / Reset 按钮，以画布中心缩放或重置视图。 |
 | 平移 | 左键拖拽；拖拽中光标 `grabbing`，默认 `grab`。 |
+| 悬停 | 鼠标移入画布时，在光标旁显示 tooltip：Spot #索引；若已选 Annotation 或 Gene，显示对应列名与值。 |
 | 点大小 | 由「网格间距 + spot size 比例」决定；默认 80%，滑块 20%–120%。 |
 | 重绘 | 容器 resize 时通过 ResizeObserver 触发重绘，保证比例正确。 |
 
@@ -92,7 +94,8 @@
 | Spot size / 透明度 | 水平滑块；Spot size 百分比与背景图 opacity 实时生效。 |
 | 注释 | 下拉框列出分类列（唯一值 2–50）；默认优先 `leiden`。 |
 | 基因 | 搜索框 + 列表（当前最多 200 条）；点击即着色，选中项高亮；Gene 模式下可设连续配色（palette 下拉 + Reverse 开关）与表达百分位范围（pmin/pmax）。 |
-| Loading | 数据集加载中在侧栏顶部或合适位置显示「Loading…」。 |
+| Annotation legend | 在 Opacity 下方：仅 Annotation 模式且已选列时显示；按该列每类 spot 数量从高到低排序，每行色块 + 标签 + 数量；区域可滚动（如 maxHeight 320px）。 |
+| Loading | 数据集加载中在侧栏顶部显示「Loading…」；切换数据集时主区域显示「Loading dataset…」占位，避免旧图残留。 |
 
 ### 4.3 错误与空状态
 
