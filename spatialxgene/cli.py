@@ -215,7 +215,7 @@ def main() -> None:
         help="Directory containing preprocessed h5ad files",
     )
     dev_p.add_argument("--host", type=str, default="127.0.0.1", help="Bind host")
-    dev_p.add_argument("--port", type=int, default=8000, help="Port")
+    dev_p.add_argument("--port", type=int, default=5005, help="Port")
     dev_p.add_argument("--no-browser", action="store_true", help="Do not open browser")
     dev_p.add_argument("--debug", action="store_true", help="Enable debug mode: verbose console logs in browser")
     dev_p.set_defaults(func=_cmd_dev)

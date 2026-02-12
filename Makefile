@@ -3,7 +3,7 @@
 
 PYTHON   := uv run
 FRONTEND := spatialxgene/frontend
-DATA_DIR ?= ./data/sample/STDS0000235
+DATA_DIR ?= ./data
 HOST     ?= 192.168.31.101
 PORT     ?= 5005
 DEBUG    ?= 0

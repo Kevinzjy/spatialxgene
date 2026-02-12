@@ -38,7 +38,7 @@
 | 用途 | 说明 |
 |------|------|
 | 分类着色 | 使用 `colorScale.ts` 中 `CAT_COLORS`（约 20 色，色盲友好风格）。 |
-| 连续着色（基因表达） | 当前为 blue → white → red 渐变；可扩展 viridis 等并统一在 `colorScale.ts`。 |
+| 连续着色（基因表达） | 默认为 blue → white → red 渐变（`vlag` 风格），支持多种连续调色板（如 viridis 等），并统一在 `colorScale.ts` 中配置；侧栏提供 palette 下拉与 Reverse 选项（类似 `vlag` / `vlag_r`）。 |
 | 未匹配 / 缺失 | 分类未匹配用 `#888`；连续 NaN 用梯度最低色。 |
 
 ### 1.5 建议实现方式
@@ -90,7 +90,7 @@
 | Color by | 两个按钮切换 Annotation / Gene；选中态用强调色背景。 |
 | Spot size / 透明度 | 水平滑块；Spot size 百分比与背景图 opacity 实时生效。 |
 | 注释 | 下拉框列出分类列（唯一值 2–50）；默认优先 `leiden`。 |
-| 基因 | 搜索框 + 列表（当前最多 200 条）；点击即着色，选中项高亮；Gene 模式下可设配色与表达百分位范围（pmin/pmax）。 |
+| 基因 | 搜索框 + 列表（当前最多 200 条）；点击即着色，选中项高亮；Gene 模式下可设连续配色（palette 下拉 + Reverse 开关）与表达百分位范围（pmin/pmax）。 |
 | Loading | 数据集加载中在侧栏顶部或合适位置显示「Loading…」。 |
 
 ### 4.3 错误与空状态

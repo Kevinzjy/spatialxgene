@@ -109,9 +109,10 @@ export function SpatialPlot({ x, y, colorBy, colorMode, bounds, spotSizeScale = 
     }
 
     const spacing = gridSpacing(bounds, n);
-    // radius = base (0.42 * spacing) * user scale; clamp to avoid invisible or overlapping points
+    // radius = base (0.42 * spacing) * user scale; clamp to avoid invisible or overlapping points.
+    // Use a spacing-relative minimum so that for dense embeddings (e.g. UMAP) the slider still has effect; absolute 0.3 only for sparse/spatial grids.
     const sizeScale = Math.max(0.15, Math.min(1.5, spotSizeScale));
-    const radiusData = Math.max(spacing * 0.42 * sizeScale, 0.3);
+    const radiusData = Math.max(spacing * 0.42 * sizeScale, Math.min(0.3, spacing * 0.08));
 
     let catMap: Map<string, string> | null = null;
     let vmin = 0, vmax = 1;
