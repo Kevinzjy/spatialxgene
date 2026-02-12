@@ -1,29 +1,23 @@
 # Spatialxgene
 
-**v0.2** — Browser-based spatial transcriptomics viewer and preprocessing (cellxgene-style). **Launch** the viewer to explore spatial plots (zoom/pan, color by gene or annotation, optional tissue background image), or run **infer** / **preprocess** on raw h5ad.
+**v0.2.1** — Browser-based spatial transcriptomics viewer and preprocessing (cellxgene-style). **Launch** the viewer to explore spatial plots (zoom/pan, color by gene or annotation, optional tissue image), or run **infer** / **preprocess** on raw h5ad.
 
 ## Requirements
 
-- **Python ≥3.9** (recommended: [uv](https://github.com/astral-sh/uv) for venv and install)
-- **Node.js** (for building the frontend; required only for `launch` / `dev`)
+- **Python ≥3.9**
+- If you **install from PyPI** (`pip install spatialxgene`): no other requirements; the frontend is included.
+- If you **install from source** (`pip install -e .`): [Node.js](https://nodejs.org/) is needed to build the frontend once (see [docs/development.md](docs/development.md)).
 
-## Project layout
+## Install
 
-```
-<project root>/
-├── README.md              # This file
-├── pyproject.toml         # Python package: name = "spatialxgene"
-├── data/
-│   ├── sample/            # Sample data for testing
-│   │   └── STDS0000323/   # Stereo-seq (raw + preprocessed/)
-│   └── references/       # Reference files (HCC targets, etc.)
-├── docs/               # master_plan, implementation_plan, design_guidelines, tasks
-└── spatialxgene/          # Main package
-    ├── cli.py             # Subcommands: launch, dev, infer, preprocess
-    ├── preprocess.py      # Expression pipeline (QC, HVG, PCA, UMAP, Leiden)
-    ├── infer_spatial.py   # Infer/add spatial coordinates (e.g. Stereo-seq grid)
-    ├── server/            # FastAPI backend (for launch)
-    └── frontend/          # Vite + React UI (spatial plot, sidebar)
+```bash
+# From PyPI (recommended; frontend included)
+pip install spatialxgene
+
+# From source (e.g. for development)
+git clone <repo> && cd spatialxgene
+pip install -e .
+# Then build frontend once: see docs/development.md
 ```
 
 ## Commands
@@ -31,65 +25,47 @@
 | Command | Description |
 |---------|-------------|
 | `spatialxgene launch` | Start the browser viewer; serve preprocessed h5ad from a directory. |
-| `spatialxgene dev` | Same as launch but with **frontend watch**: save any file in `spatialxgene/frontend/` to auto-rebuild; refresh browser to see changes. No need to run `npm run build` manually. |
-| `spatialxgene infer` | Detect if h5ad has spatial coords; if not, infer and add them. Skip if already present. |
-| `spatialxgene preprocess` | Expression-only: QC, normalize, HVG, PCA, UMAP, Leiden. Does not add or change spatial. |
+| `spatialxgene infer` | Add spatial coordinates when the h5ad has none (e.g. Stereo-seq grid). |
+| `spatialxgene preprocess` | Expression pipeline: QC, normalize, HVG, PCA, UMAP, Leiden. Does not change spatial. |
+
+For development (frontend watch): `spatialxgene dev` — see [docs/development.md](docs/development.md).
 
 ## Quick start
 
-1. **Install** (from this directory):
+1. **Launch the viewer**
 
    ```bash
-   uv pip install -e .
+   spatialxgene launch --data-dir /path/to/preprocessed/h5ad/dir
    ```
 
-2. **Launch the viewer** (build frontend first time only: `cd spatialxgene/frontend && npm install && npm run build`):
+   Opens http://127.0.0.1:5005 (default port 5005). Use the sidebar to pick a dataset, color by annotation or gene, choose a tissue background image (if present), and zoom/pan the plot.
+
+2. **Infer spatial** (when raw h5ad has no coordinates)
 
    ```bash
-   spatialxgene launch
+   spatialxgene infer /path/to/raw.h5ad
+   # or a directory: spatialxgene infer /path/to/dir
    ```
 
-   Opens http://127.0.0.1:8000 with sample data. Use `--data-dir` to point to another folder of preprocessed h5ad.
-
-   **While developing the frontend**, use **`spatialxgene dev`** instead: one command runs the backend and watches `spatialxgene/frontend/`; any save triggers a rebuild. Refresh the browser to see changes (no need to run `npm run build` each time).
-
-**Viewer**: Spatial plot shows points in data coordinates; point size is derived from grid spacing (bounds + n_obs) so adjacent points have a small gap. Zoom (wheel, centered on cursor), pan (drag), and use the toolbar buttons to zoom in/out or reset view. Color by gene expression or obs annotation; when none is selected, points are shown in gray. Choose a tissue background image (hires / lowres from `adata.uns['spatial']` when present) and adjust spot size and opacity. When both spatial and UMAP are available, toggle the embedding in the sidebar (UMAP mode hides background image). In gene mode, pick a continuous palette and optionally reverse it. Hover over a spot to see its index and annotation/gene value; in Annotation mode, a legend below Opacity lists categories with counts (sorted by count). Switching datasets shows a loading overlay until the new data is ready; the layout is responsive and fills the viewport without a scrollbar.
-
-3. **Infer spatial** (when raw h5ad has no coords):
+3. **Preprocess expression** (QC, reduce, cluster)
 
    ```bash
-   spatialxgene infer data/sample/STDS0000323
-   # or: spatialxgene infer path/to/file.h5ad -o path/to/out.h5ad
+   spatialxgene preprocess /path/to/raw.h5ad
+   # Writes *_preprocessed.h5ad (or input/preprocessed/ for a directory)
    ```
 
-   If data already has spatial, skips. Otherwise infers (e.g. Stereo-seq 960×768 for 737280 obs) or a factorized/proxy grid.
+## Data format (viewer)
 
-4. **Preprocess expression** (QC, reduce, cluster; does not modify spatial):
+Preprocessed h5ad for `launch` should have:
 
-   ```bash
-   spatialxgene preprocess data/sample/STDS0000323
-   # or: spatialxgene preprocess path/to/file.h5ad -o path/to/out.h5ad
-   ```
+- **Spatial**: `obsm['spatial']` or `obs['x']` and `obs['y']`.
+- **Expression**: `X`, `var` index = gene names.
+- **Annotations** (optional): e.g. `obs['leiden']` for coloring.
+- **Tissue images** (optional): Visium-style `uns['spatial'][sample]['images']` (e.g. `hires`, `lowres`) and `scalefactors`.
 
-   Writes `*_preprocessed.h5ad` (or `input/preprocessed/` when input is a directory).
-
-## Data
-
-- **Sample**: `data/sample/STDS0000323/` — Stereo-seq sample; preprocessed in `data/sample/STDS0000323/preprocessed/`. Use `--data-dir` to point to your own folder.
-- **References**: `data/references/` — HCC targets, etc. (not used by the app).
-- **Viewer data format**: Preprocessed h5ad with `obsm['spatial']` (or `obs['x']`/`obs['y']`); optional `uns['spatial'][sample]['images']` (e.g. `hires`, `lowres`) and `scalefactors` for tissue background images (Visium-style).
+More options: `spatialxgene launch --help`, `spatialxgene infer --help`, `spatialxgene preprocess --help`.
 
 ## Documentation
-| Doc | Description |
-|-----|-------------|
-| [CHANGELOG.md](CHANGELOG.md) | Release history (v0.1.0, v0.2.0) |
-| [docs/release_notes_v0.2.md](docs/release_notes_v0.2.md) | v0.2 scope and development notes |
-| [docs/master_plan.md](docs/master_plan.md) | Project goals and scope |
-| [docs/implementation_plan.md](docs/implementation_plan.md) | Implementation order and data design |
-| [docs/design_guidelines.md](docs/design_guidelines.md) | UI/UX: colors, fonts, interaction |
-| [docs/tasks.md](docs/tasks.md) | Current task list |
 
-## Development
-
-- Use **`spatialxgene dev`** for backend + frontend watch; edit `spatialxgene/frontend/` and refresh the browser.
-- Root `.gitignore` covers Python, Node, IDE, and build artifacts.
+- [CHANGELOG.md](CHANGELOG.md) — Release history.
+- [docs/](docs/) — Development, project layout, design, and plans: [development.md](docs/development.md), [master_plan.md](docs/master_plan.md), [implementation_plan.md](docs/implementation_plan.md), [design_guidelines.md](docs/design_guidelines.md), [tasks.md](docs/tasks.md).

@@ -4,6 +4,16 @@ All notable changes to this project are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [0.2.1] - 2026-02-12
+
+### Fixed
+
+- **Packaging**: Pre-built frontend is now included in the wheel (`frontend/dist/` via `package_data`). After `pip install spatialxgene`, `spatialxgene launch` works without Node.js or running `npm run build`. See [docs/development.md](docs/development.md) for building from source.
+
+### Changed
+
+- **Docs**: Root README is user-only (install, commands, quick start, data format). Project layout, development workflow, and design notes moved to [docs/](docs/).
+
 ## [0.2.0] - 2026-02-12
 
 ### Added

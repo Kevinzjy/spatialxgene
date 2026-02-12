@@ -17,7 +17,7 @@ Short summary of v0.2 scope and development experience for future reference.
 
 ## Release checklist (v0.2)
 
-- [x] Version set to 0.2.0 in `spatialxgene/__init__.py`, `pyproject.toml`, `spatialxgene/frontend/package.json`.
+- [x] Version set to 0.2.0 in `spatialxgene/__init__.py`, `pyproject.toml`, `spatialxgene/frontend/package.json`. (Later: 0.2.1 for packaging/doc updates.)
 - [x] CHANGELOG.md updated with [0.2.0] section.
 - [x] Root README and `spatialxgene/README.md` updated (viewer description, doc link).
 - [x] docs/design_guidelines.md updated (tooltip, legend, zoom/reset, loading, viewport).

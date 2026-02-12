@@ -1,6 +1,6 @@
 # Spatialxgene (package)
 
-Spatial transcriptomics viewer and preprocessing. Use the `spatialxgene` CLI from the project root.
+Spatial transcriptomics viewer and preprocessing. Use the `spatialxgene` CLI from the project root. If you installed from PyPI, the frontend is included; from source, see [docs/development.md](../docs/development.md) to build the frontend once.
 
 ## Subcommands
 
@@ -35,18 +35,12 @@ spatialxgene launch [--data-dir DIR] [--port N] [--no-browser] [--build]
 ```
 
 - **--data-dir** — Directory of preprocessed `.h5ad` files (default: `data/sample/STDS0000323/preprocessed`).
-- **--port** — Port (default 8000).
+- **--port** — Port (default 5005). **--host** — Bind host (default 0.0.0.0 for launch, 127.0.0.1 for dev).
 - **--no-browser** — Do not open the browser.
-- **--build** — Run `npm run build` in `frontend/` before starting.
+- **--build** — Run `npm run build` in `frontend/` before starting (only needed when running from source and frontend not yet built).
 
 **Viewer (spatial plot)**  
 Canvas-based plot in data coordinates. Point radius from grid spacing; zoom (wheel, cursor-centered) and pan (drag); toolbar has zoom in/out and reset. Color by annotation or gene; unselected mode shows all points in gray. Optional tissue background (hires/lowres) when embedding is Spatial; sidebar can toggle Spatial/UMAP (background image hidden in UMAP). Gene mode: continuous palette and reverse option. Hover shows spot index and annotation/gene value; annotation legend (below Opacity) lists categories with counts, sorted by count. Dataset switch shows a loading overlay; layout fills the viewport (no scrollbar).
-
-First time: build the frontend from project root:
-
-```bash
-cd spatialxgene/frontend && npm install && npm run build && cd ../..
-```
 
 ### preprocess — QC, reduce, cluster (expression only)
 
@@ -76,5 +70,4 @@ Preprocessed h5ad should have:
 
 ## Development
 
-- **Backend**: `uvicorn spatialxgene.server.main:app --reload --port 8000` (set data dir in code or before mount).
-- **Frontend**: In `spatialxgene/frontend`, `npm run dev` (Vite proxies `/api` to 8000); run backend separately.
+See [docs/development.md](../docs/development.md) for project layout, `spatialxgene dev`, Makefile targets, and backend/frontend-only runs.

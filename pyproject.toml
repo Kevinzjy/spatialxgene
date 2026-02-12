@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "spatialxgene"
-version = "0.2.0"
+version = "0.2.1"
 description = "Browser-based spatial transcriptomics viewer (cellxgene-style)"
 readme = "README.md"
 requires-python = ">=3.9"
@@ -20,8 +20,17 @@ dependencies = [
     "Pillow>=9.0",
 ]
 
+[project.optional-dependencies]
+# Install with: uv sync --extra publish (or pip install -e ".[publish]")
+# Used by: make publish, make publish-test
+publish = ["twine>=4.0"]
+
 [project.scripts]
 spatialxgene = "spatialxgene.cli:main"
 
 [tool.setuptools.packages.find]
 include = ["spatialxgene*"]
+
+# Pre-built frontend (run "make build" before "uv build" / "make publish*")
+[tool.setuptools.package-data]
+spatialxgene = ["frontend/dist/*", "frontend/dist/**/*"]

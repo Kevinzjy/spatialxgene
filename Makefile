@@ -8,7 +8,12 @@ HOST     ?= 192.168.31.101
 PORT     ?= 5005
 DEBUG    ?= 0
 
-.PHONY: help install install-frontend build build-frontend dev launch test test-frontend clean infer preprocess
+# Publishing config (read credentials from environment)
+# - For TestPyPI: export TESTPYPI_USERNAME / TESTPYPI_PASSWORD
+# - For PyPI: export PYPI_TOKEN (API token); TWINE_USERNAME is fixed to __token__
+TESTPYPI_USERNAME ?= kevinzjy
+
+.PHONY: help install install-frontend build build-frontend dev launch test test-frontend clean infer preprocess publish publish-test
 
 help:
 	@echo "Spatialxgene Makefile targets:"
@@ -22,6 +27,8 @@ help:
 	@echo "  make clean           - Remove .venv, node_modules, dist, caches"
 	@echo "  make infer           - Infer spatial coords (usage: make infer INPUT=path/to/dir_or_file)"
 	@echo "  make preprocess      - Preprocess h5ad (usage: make preprocess INPUT=path/to/dir_or_file)"
+	@echo "  make publish-test    - Build wheel and upload to TestPyPI (needs TESTPYPI_USERNAME/TESTPYPI_PASSWORD)"
+	@echo "  make publish         - Build wheel and upload to PyPI (needs PYPI_TOKEN)"
 	@echo ""
 	@echo "Examples:"
 	@echo "  make dev DATA_DIR=./data/sample/STDS0000235 HOST=192.168.31.101 PORT=5005"
@@ -83,3 +90,23 @@ clean:
 	rm -rf .pytest_cache .ruff_cache .mypy_cache
 	rm -f $(FRONTEND)/tsconfig.tsbuildinfo
 	@echo "Cleaned. Run 'make install' to reinstall."
+
+# Build wheel and upload to TestPyPI (needs twine from optional deps)
+publish-test:
+	uv sync --extra publish
+	@echo "Building frontend (included in wheel)..."
+	$(MAKE) build-frontend
+	@echo "Building wheel with uv..."
+	uv build --wheel
+	@echo "Uploading to TestPyPI..."
+	$(PYTHON) -m twine upload --repository testpypi dist/*
+
+# Build wheel and upload to PyPI (needs twine from optional deps)
+publish:
+	uv sync --extra publish
+	@echo "Building frontend (included in wheel)..."
+	$(MAKE) build-frontend
+	@echo "Building wheel with uv..."
+	uv build --wheel
+	@echo "Uploading to PyPI..."
+	$(PYTHON) -m twine upload --repository pypi dist/*
