@@ -3,14 +3,32 @@ import type { DatasetItem, DatasetMeta, ObsResponse } from "../api";
 import {
   CONTINUOUS_PALETTE_IDS,
   CONTINUOUS_PALETTE_LABELS,
+  CATEGORICAL_PALETTE_IDS,
+  CATEGORICAL_PALETTE_LABELS,
   getCategoricalColors,
   getPaletteGradientCss,
+  getCategoricalPaletteGradientCss,
 } from "../colorScale";
-import { percentile } from "../utils/percentile";
 
 function formatExpr(v: number): string {
   if (!Number.isFinite(v)) return "—";
-  if (Math.abs(v) >= 1000 || (Math.abs(v) < 0.01 && v !== 0)) return v.toExponential(2);
+  const abs = Math.abs(v);
+  // Very small but non-zero: keep a few decimals
+  if (abs > 0 && abs < 0.001) {
+    return v.toExponential(2);
+  }
+  const sign = v < 0 ? "-" : "";
+  const n = abs;
+  if (n >= 1_000_000_000) {
+    return `${sign}${(n / 1_000_000_000).toFixed(2)}B`;
+  }
+  if (n >= 1_000_000) {
+    return `${sign}${(n / 1_000_000).toFixed(2)}M`;
+  }
+  if (n >= 1_000) {
+    return `${sign}${(n / 1_000).toFixed(2)}K`;
+  }
+  // Default: up to 4 decimal places, trim trailing zeros
   return Number(v.toFixed(4)).toString();
 }
 
@@ -24,6 +42,7 @@ type SidebarProps = {
   colorMode: "gene" | "annotation";
   selectedGene: string | null;
   selectedObsCol: string | null;
+  obsValueType: "categorical" | "numeric";
   onColorByGene: (gene: string | null) => void;
   onColorByAnnotation: (col: string | null) => void;
   onColorModeChange: (mode: "gene" | "annotation") => void;
@@ -33,25 +52,35 @@ type SidebarProps = {
   /** Spot opacity 0–1 (default 1) */
   spotOpacity: number;
   onSpotOpacityChange: (value: number) => void;
+  /** Categorical color palette id (annotation categorical only) */
+  categoricalPalette?: string;
+  onCategoricalPaletteChange?: (id: string) => void;
   /** Continuous color palette id (gene mode only) */
   continuousPalette: string;
   onContinuousPaletteChange: (id: string) => void;
   /** Reverse palette direction (e.g. vlag -> vlag_r). Gene mode only. */
   continuousPaletteReverse: boolean;
   onContinuousPaletteReverseChange: (v: boolean) => void;
-  /** Gene expression values (for percentile color range; gene mode only) */
-  expression: number[] | null;
-  percentileMin: number;
-  percentileMax: number;
-  onPercentileMinChange: (p: number) => void;
-  onPercentileMaxChange: (p: number) => void;
+  /** Gene expression values (for color range; gene / numeric annotation) */
+  continuousValues: number[] | null;
+  /** Min range input: number or "p1"/"p99.5" for percentile */
+  rangeMinInput: string;
+  rangeMaxInput: string;
+  onRangeMinInputChange: (s: string) => void;
+  onRangeMaxInputChange: (s: string) => void;
+  /** Parsed effective min/max (for display under inputs and colorbar) */
+  effectiveColorMin: number | null;
+  effectiveColorMax: number | null;
+  logScale: boolean;
+  onLogScaleChange: (v: boolean) => void;
   /** Background image key from adata (null = None) */
   backgroundImageKey: string | null;
   onBackgroundImageKeyChange: (key: string | null) => void;
   /** Embedding mode for plotting: spatial vs UMAP (when both exist). */
-  embeddingMode: "spatial" | "umap";
-  onEmbeddingModeChange: (mode: "spatial" | "umap") => void;
+  embeddingMode: "spatial" | "umap" | "pca" | "tsne";
+  onEmbeddingModeChange: (mode: "spatial" | "umap" | "pca" | "tsne") => void;
   loading?: boolean;
+  onObsValueTypeChange: (t: "categorical" | "numeric") => void;
 };
 
 export function Sidebar({
@@ -64,6 +93,7 @@ export function Sidebar({
   colorMode,
   selectedGene,
   selectedObsCol,
+  obsValueType,
   onColorByGene,
   onColorByAnnotation,
   onColorModeChange,
@@ -71,20 +101,27 @@ export function Sidebar({
   onSpotSizeScaleChange,
   spotOpacity,
   onSpotOpacityChange,
+  categoricalPalette = "default",
+  onCategoricalPaletteChange,
   continuousPalette,
   onContinuousPaletteChange,
   continuousPaletteReverse,
   onContinuousPaletteReverseChange,
-  expression,
-  percentileMin,
-  percentileMax,
-  onPercentileMinChange,
-  onPercentileMaxChange,
+  continuousValues,
+  rangeMinInput,
+  rangeMaxInput,
+  onRangeMinInputChange,
+  onRangeMaxInputChange,
+  effectiveColorMin,
+  effectiveColorMax,
+  logScale,
+  onLogScaleChange,
   backgroundImageKey,
   onBackgroundImageKeyChange,
   embeddingMode,
   onEmbeddingModeChange,
   loading,
+  onObsValueTypeChange,
 }: SidebarProps) {
   const [geneSearch, setGeneSearch] = useState("");
   const filteredGenes = useMemo(() => {
@@ -93,15 +130,51 @@ export function Sidebar({
     return genes.filter((g) => g.toLowerCase().includes(q)).slice(0, 200);
   }, [genes, geneSearch]);
 
-  const categoricalCols = useMemo(() => {
+  const obsColumns = useMemo(() => {
     if (!obs?.columns) return [];
-    return obs.columns.filter((c) => {
-      const vals = obs.data[c];
-      if (!vals) return false;
-      const uniq = new Set(vals.map(String));
-      return uniq.size <= 50 && uniq.size >= 2;
-    });
+    return obs.columns.slice();
   }, [obs]);
+
+  const selectedObsStats = useMemo(() => {
+    if (!obs || !selectedObsCol) return null;
+    const vals = obs.data[selectedObsCol];
+    if (!vals) return null;
+    const uniq = new Set(vals.map(String)).size;
+    const allNumeric = (vals as (number | string)[]).every((v) => typeof v === "number" && Number.isFinite(v));
+    return { uniq, allNumeric };
+  }, [obs, selectedObsCol]);
+
+  const isNumericPaletteMode = colorMode === "gene" || (colorMode === "annotation" && obsValueType === "numeric");
+  const isCategoricalPaletteMode = colorMode === "annotation" && obsValueType === "categorical" && !!selectedObsCol;
+
+  useEffect(() => {
+    if (!selectedObsCol || !selectedObsStats) return;
+    const { uniq, allNumeric } = selectedObsStats;
+    // Auto-infer: many unique numeric values -> numeric; otherwise categorical.
+    const inferred: "categorical" | "numeric" = allNumeric && uniq > 50 ? "numeric" : "categorical";
+    onObsValueTypeChange(inferred);
+  }, [selectedObsCol, selectedObsStats, onObsValueTypeChange]);
+
+  const colorbarStats = useMemo(() => {
+    if (!isNumericPaletteMode || !continuousValues || continuousValues.length === 0) return null;
+    const dataMin = Math.min(...continuousValues.filter((v) => Number.isFinite(v)));
+    const dataMax = Math.max(...continuousValues.filter((v) => Number.isFinite(v)));
+    const lo = effectiveColorMin ?? dataMin;
+    const hi = effectiveColorMax ?? dataMax;
+    let mid: number;
+    if (logScale) {
+      const loSafe = Math.max(0, lo);
+      const hiSafe = Math.max(0, hi);
+      if (hiSafe <= loSafe) {
+        mid = loSafe;
+      } else {
+        mid = Math.expm1((Math.log1p(loSafe) + Math.log1p(hiSafe)) / 2);
+      }
+    } else {
+      mid = (lo + hi) / 2;
+    }
+    return { lo, mid, hi };
+  }, [isNumericPaletteMode, continuousValues, effectiveColorMin, effectiveColorMax, logScale]);
 
   const annotationLegend = useMemo(() => {
     if (!obs || !selectedObsCol) return [];
@@ -115,7 +188,7 @@ export function Sidebar({
       counts.set(v, (counts.get(v) ?? 0) + 1);
     }
 
-    const colorMap = getCategoricalColors(vals);
+    const colorMap = getCategoricalColors(vals, categoricalPalette, continuousPaletteReverse);
     const entries = Array.from(counts.entries());
     // Sort by count desc, then label asc for stability
     entries.sort((a, b) => {
@@ -128,7 +201,7 @@ export function Sidebar({
       count,
       color: colorMap.get(label) ?? "#888888",
     }));
-  }, [obs, selectedObsCol]);
+  }, [obs, selectedObsCol, categoricalPalette, continuousPaletteReverse]);
 
   const [paletteDropdownOpen, setPaletteDropdownOpen] = useState(false);
   const paletteDropdownRef = useRef<HTMLDivElement>(null);
@@ -206,7 +279,7 @@ export function Sidebar({
             <div style={{ fontSize: 11, color: "#888" }}>
               {meta.n_obs.toLocaleString()} cells · {meta.n_vars.toLocaleString()} genes
             </div>
-            {(meta.has_spatial || meta.has_umap) && (
+            {(meta.has_spatial || meta.has_umap || meta.has_pca || meta.has_tsne) && (
               <>
                 <label style={{ fontSize: 12, fontWeight: 600, color: "#a0a0a0" }}>Embedding</label>
                 <div style={{ display: "flex", gap: 8 }}>
@@ -242,6 +315,40 @@ export function Sidebar({
                       }}
                     >
                       UMAP
+                    </button>
+                  )}
+                  {meta.has_pca && (
+                    <button
+                      type="button"
+                      onClick={() => onEmbeddingModeChange("pca")}
+                      style={{
+                        padding: "6px 10px",
+                        borderRadius: 6,
+                        border: "1px solid #0f3460",
+                        background: embeddingMode === "pca" ? "#e94560" : "#1a1a2e",
+                        color: "#eee",
+                        fontSize: 12,
+                        cursor: "pointer",
+                      }}
+                    >
+                      PCA
+                    </button>
+                  )}
+                  {meta.has_tsne && (
+                    <button
+                      type="button"
+                      onClick={() => onEmbeddingModeChange("tsne")}
+                      style={{
+                        padding: "6px 10px",
+                        borderRadius: 6,
+                        border: "1px solid #0f3460",
+                        background: embeddingMode === "tsne" ? "#e94560" : "#1a1a2e",
+                        color: "#eee",
+                        fontSize: 12,
+                        cursor: "pointer",
+                      }}
+                    >
+                      t-SNE
                     </button>
                   )}
                 </div>
@@ -325,12 +432,62 @@ export function Sidebar({
                   }}
                 >
                   <option value="">Select…</option>
-                  {categoricalCols.map((c) => (
+                  {obsColumns.map((c) => (
                     <option key={c} value={c}>
                       {c}
                     </option>
                   ))}
                 </select>
+
+                {selectedObsCol && selectedObsStats && (
+                  <>
+                    <label style={{ fontSize: 12, fontWeight: 600, color: "#a0a0a0", marginTop: 8 }}>
+                      Variable type
+                    </label>
+                    <div style={{ display: "flex", gap: 8, marginBottom: 4 }}>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const { uniq } = selectedObsStats;
+                          if (uniq > 50) {
+                            window.alert(
+                              "Too many distinct values to use as categorical (more than 50). Please use numeric mode instead."
+                            );
+                            return;
+                          }
+                          onObsValueTypeChange("categorical");
+                        }}
+                        style={{
+                          padding: "4px 8px",
+                          borderRadius: 6,
+                          border: "1px solid #0f3460",
+                          background: obsValueType === "categorical" ? "#e94560" : "#1a1a2e",
+                          color: "#eee",
+                          fontSize: 11,
+                          cursor: "pointer",
+                        }}
+                      >
+                        Categorical
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => onObsValueTypeChange("numeric")}
+                        style={{
+                          padding: "4px 8px",
+                          borderRadius: 6,
+                          border: "1px solid #0f3460",
+                          background: obsValueType === "numeric" ? "#e94560" : "#1a1a2e",
+                          color: "#eee",
+                          fontSize: 11,
+                          cursor: "pointer",
+                        }}
+                      >
+                        Numeric
+                      </button>
+                    </div>
+                  </>
+                )}
+
               </>
             )}
 
@@ -377,7 +534,11 @@ export function Sidebar({
                     </div>
                   ))}
                 </div>
+              </>
+            )}
 
+            {(colorMode === "gene" || (colorMode === "annotation" && selectedObsCol)) && (
+              <>
                 <label style={{ fontSize: 12, fontWeight: 600, color: "#a0a0a0" }}>Color palette</label>
                 <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                   <div ref={paletteDropdownRef} style={{ position: "relative", flex: 1, minWidth: 0 }}>
@@ -404,13 +565,21 @@ export function Sidebar({
                           flex: "0 0 80px",
                           height: 14,
                           borderRadius: 3,
-                          background: getPaletteGradientCss(continuousPalette, continuousPaletteReverse),
+                          background: isCategoricalPaletteMode
+                            ? getCategoricalPaletteGradientCss(categoricalPalette, continuousPaletteReverse)
+                            : getPaletteGradientCss(continuousPalette, continuousPaletteReverse),
                           border: "1px solid #333",
                         }}
-                        title={CONTINUOUS_PALETTE_LABELS[continuousPalette] ?? continuousPalette}
+                        title={
+                          isCategoricalPaletteMode
+                            ? CATEGORICAL_PALETTE_LABELS[categoricalPalette] ?? categoricalPalette
+                            : CONTINUOUS_PALETTE_LABELS[continuousPalette] ?? continuousPalette
+                        }
                       />
                       <span style={{ flex: 1 }}>
-                        {CONTINUOUS_PALETTE_LABELS[continuousPalette] ?? continuousPalette}
+                        {isCategoricalPaletteMode
+                          ? CATEGORICAL_PALETTE_LABELS[categoricalPalette] ?? categoricalPalette
+                          : CONTINUOUS_PALETTE_LABELS[continuousPalette] ?? continuousPalette}
                       </span>
                     </button>
                     {paletteDropdownOpen && (
@@ -430,12 +599,16 @@ export function Sidebar({
                           boxShadow: "0 4px 12px rgba(0,0,0,0.3)",
                         }}
                       >
-                        {CONTINUOUS_PALETTE_IDS.map((id) => (
+                        {(isCategoricalPaletteMode ? CATEGORICAL_PALETTE_IDS : CONTINUOUS_PALETTE_IDS).map((id) => (
                           <button
                             key={id}
                             type="button"
                             onClick={() => {
-                              onContinuousPaletteChange(id);
+                              if (isCategoricalPaletteMode) {
+                                onCategoricalPaletteChange?.(id);
+                              } else {
+                                onContinuousPaletteChange(id);
+                              }
                               setPaletteDropdownOpen(false);
                             }}
                             style={{
@@ -445,7 +618,11 @@ export function Sidebar({
                               alignItems: "center",
                               gap: 10,
                               border: "none",
-                              background: id === continuousPalette ? "#0f3460" : "transparent",
+                              background:
+                                (!isCategoricalPaletteMode && id === continuousPalette) ||
+                                (isCategoricalPaletteMode && id === categoricalPalette)
+                                  ? "#0f3460"
+                                  : "transparent",
                               color: "#eee",
                               fontSize: 12,
                               cursor: "pointer",
@@ -457,17 +634,33 @@ export function Sidebar({
                                 flex: "0 0 80px",
                                 height: 12,
                                 borderRadius: 2,
-                                background: getPaletteGradientCss(id),
+                                background: isCategoricalPaletteMode
+                                  ? getCategoricalPaletteGradientCss(id)
+                                  : getPaletteGradientCss(id),
                                 border: "1px solid #333",
                               }}
                             />
-                            <span>{CONTINUOUS_PALETTE_LABELS[id] ?? id}</span>
+                            <span>
+                              {isCategoricalPaletteMode
+                                ? CATEGORICAL_PALETTE_LABELS[id] ?? id
+                                : CONTINUOUS_PALETTE_LABELS[id] ?? id}
+                            </span>
                           </button>
                         ))}
                       </div>
                     )}
                   </div>
-                  <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: "#ccc", cursor: "pointer", whiteSpace: "nowrap" }}>
+                  <label
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 6,
+                      fontSize: 12,
+                      color: "#ccc",
+                      cursor: "pointer",
+                      whiteSpace: "nowrap",
+                    }}
+                  >
                     <input
                       type="checkbox"
                       checked={continuousPaletteReverse}
@@ -478,109 +671,101 @@ export function Sidebar({
                   </label>
                 </div>
 
-                {expression && expression.length > 0 && (
+                {isNumericPaletteMode && continuousValues && continuousValues.length > 0 && (
                   <>
                     <label style={{ fontSize: 12, fontWeight: 600, color: "#a0a0a0" }}>Color range</label>
-                    <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "nowrap" }}>
                       <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 2 }}>
-                        <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
-                          <input
-                            type="number"
-                            min={0}
-                            max={100}
-                            step={1}
-                            value={percentileMin}
-                            onChange={(e) => {
-                              const v = Number(e.target.value);
-                              if (!Number.isFinite(v)) return;
-                              onPercentileMinChange(Math.max(0, Math.min(percentileMax - 1, Math.floor(v))));
-                            }}
-                            style={{
-                              width: 48,
-                              padding: "4px 6px",
-                              borderRadius: 4,
-                              border: "1px solid #0f3460",
-                              background: "#1a1a2e",
-                              color: "#eee",
-                              fontSize: 12,
-                              textAlign: "center",
-                            }}
-                          />
-                          <span style={{ fontSize: 12, color: "#888" }}>%</span>
-                        </div>
+                        <input
+                          type="text"
+                          placeholder="p0 / number"
+                          value={rangeMinInput}
+                          onChange={(e) => onRangeMinInputChange(e.target.value)}
+                          style={{
+                            width: 64,
+                            padding: "4px 6px",
+                            borderRadius: 4,
+                            border: "1px solid #0f3460",
+                            background: "#1a1a2e",
+                            color: "#eee",
+                            fontSize: 12,
+                          }}
+                        />
                         <span style={{ fontSize: 10, color: "#666" }}>
-                          {formatExpr(percentile(expression, percentileMin))}
+                          {effectiveColorMin != null ? formatExpr(effectiveColorMin) : "—"}
                         </span>
                       </div>
                       <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 2 }}>
-                        <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
-                          <input
-                            type="number"
-                            min={0}
-                            max={100}
-                            step={1}
-                            value={percentileMax}
-                            onChange={(e) => {
-                              const v = Number(e.target.value);
-                              if (!Number.isFinite(v)) return;
-                              onPercentileMaxChange(Math.min(100, Math.max(percentileMin + 1, Math.ceil(v))));
-                            }}
-                            style={{
-                              width: 48,
-                              padding: "4px 6px",
-                              borderRadius: 4,
-                              border: "1px solid #0f3460",
-                              background: "#1a1a2e",
-                              color: "#eee",
-                              fontSize: 12,
-                              textAlign: "center",
-                            }}
-                          />
-                          <span style={{ fontSize: 12, color: "#888" }}>%</span>
-                        </div>
+                        <input
+                          type="text"
+                          placeholder="p100 / number"
+                          value={rangeMaxInput}
+                          onChange={(e) => onRangeMaxInputChange(e.target.value)}
+                          style={{
+                            width: 64,
+                            padding: "4px 6px",
+                            borderRadius: 4,
+                            border: "1px solid #0f3460",
+                            background: "#1a1a2e",
+                            color: "#eee",
+                            fontSize: 12,
+                          }}
+                        />
                         <span style={{ fontSize: 10, color: "#666" }}>
-                          {formatExpr(percentile(expression, percentileMax))}
+                          {effectiveColorMax != null ? formatExpr(effectiveColorMax) : "—"}
                         </span>
                       </div>
+                      <label
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 6,
+                          fontSize: 12,
+                          color: "#ccc",
+                          cursor: "pointer",
+                          whiteSpace: "nowrap",
+                        }}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={logScale}
+                          onChange={(e) => onLogScaleChange(e.target.checked)}
+                          style={{ cursor: "pointer" }}
+                        />
+                        Log scale
+                      </label>
                     </div>
+                    {colorbarStats && (
+                      <div style={{ marginTop: 4, width: "100%" }}>
+                        <div
+                          style={{
+                            height: 10,
+                            borderRadius: 3,
+                            background: getPaletteGradientCss(continuousPalette, continuousPaletteReverse),
+                            border: "1px solid #333",
+                          }}
+                        />
+                        <div
+                          style={{
+                            display: "flex",
+                            justifyContent: "space-between",
+                            fontSize: 10,
+                            color: "#666",
+                            marginTop: 2,
+                          }}
+                        >
+                          <span>{formatExpr(colorbarStats.lo)}</span>
+                          <span>{formatExpr(colorbarStats.mid)}</span>
+                          <span>{formatExpr(colorbarStats.hi)}</span>
+                        </div>
+                      </div>
+                    )}
                   </>
                 )}
               </>
             )}
 
-            <label style={{ fontSize: 12, fontWeight: 600, color: "#a0a0a0" }}>Spot size</label>
-            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-              <input
-                type="range"
-                min={0.2}
-                max={1.2}
-                step={0.05}
-                value={spotSizeScale}
-                onChange={(e) => onSpotSizeScaleChange(Number(e.target.value))}
-                style={{ flex: 1, accentColor: "#e94560" }}
-              />
-              <span style={{ fontSize: 11, color: "#888", minWidth: 36 }}>
-                {Math.round(spotSizeScale * 100)}%
-              </span>
-            </div>
-
-            <label style={{ fontSize: 12, fontWeight: 600, color: "#a0a0a0" }}>Opacity</label>
-            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-              <input
-                type="range"
-                min={0}
-                max={1}
-                step={0.05}
-                value={spotOpacity}
-                onChange={(e) => onSpotOpacityChange(Number(e.target.value))}
-                style={{ flex: 1, accentColor: "#e94560" }}
-              />
-              <span style={{ fontSize: 11, color: "#888", minWidth: 36 }}>
-                {Math.round(spotOpacity * 100)}%
-              </span>
-            </div>
-
-            {colorMode === "annotation" && annotationLegend.length > 0 && (
+            {colorMode === "annotation" && obsValueType === "categorical" && annotationLegend.length > 0 && (
               <>
                 <label style={{ fontSize: 12, fontWeight: 600, color: "#a0a0a0", marginTop: 8 }}>
                   Annotation legend
@@ -628,6 +813,38 @@ export function Sidebar({
                 </div>
               </>
             )}
+
+            <label style={{ fontSize: 12, fontWeight: 600, color: "#a0a0a0" }}>Spot size</label>
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <input
+                type="range"
+                min={0.2}
+                max={1.2}
+                step={0.05}
+                value={spotSizeScale}
+                onChange={(e) => onSpotSizeScaleChange(Number(e.target.value))}
+                style={{ flex: 1, accentColor: "#e94560" }}
+              />
+              <span style={{ fontSize: 11, color: "#888", minWidth: 36 }}>
+                {Math.round(spotSizeScale * 100)}%
+              </span>
+            </div>
+
+            <label style={{ fontSize: 12, fontWeight: 600, color: "#a0a0a0" }}>Opacity</label>
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <input
+                type="range"
+                min={0}
+                max={1}
+                step={0.05}
+                value={spotOpacity}
+                onChange={(e) => onSpotOpacityChange(Number(e.target.value))}
+                style={{ flex: 1, accentColor: "#e94560" }}
+              />
+              <span style={{ fontSize: 11, color: "#888", minWidth: 36 }}>
+                {Math.round(spotOpacity * 100)}%
+              </span>
+            </div>
           </>
         )}
       </div>

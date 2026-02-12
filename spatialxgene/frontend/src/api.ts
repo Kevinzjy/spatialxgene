@@ -30,12 +30,16 @@ export type DatasetMeta = {
   x_max: number;
   y_min: number;
   y_max: number;
-  /** "spatial" or "umap": which coordinates are used for the default 2D plot */
+  /** "spatial" / "umap" / "pca" / "tsne": which coordinates are used for the default 2D plot */
   layout?: string;
   /** True if adata has spatial coordinates (obsm["spatial"]/["X_spatial"] or obs x/y). */
   has_spatial?: boolean;
   /** True if adata has UMAP embedding in obsm["X_umap"]. */
   has_umap?: boolean;
+  /** True if adata has PCA embedding in obsm["X_pca"]. */
+  has_pca?: boolean;
+  /** True if adata has t-SNE embedding in obsm["X_tsne"]. */
+  has_tsne?: boolean;
   /** Keys for background images in adata (e.g. hires, lowres); empty if none */
   image_keys?: string[];
   /** Per-key scale and size: image in data space spans (0,0) to (width/scale_factor, height/scale_factor) */
@@ -61,7 +65,7 @@ export async function fetchDatasetMeta(id: string, signal?: AbortSignal): Promis
 export async function fetchSpatial(
   id: string,
   signal?: AbortSignal,
-  layout?: "spatial" | "umap"
+  layout?: "spatial" | "umap" | "pca" | "tsne"
 ): Promise<SpatialResponse> {
   const qs = layout ? `?layout=${encodeURIComponent(layout)}` : "";
   const r = await fetch(`${API_BASE}/api/datasets/${encodeURIComponent(id)}/spatial${qs}`, {

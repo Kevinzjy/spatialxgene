@@ -14,6 +14,21 @@ import { DEFAULT_CONTINUOUS_PALETTE } from "./colorScale";
 import { setDebugMode, debugLog } from "./debug";
 import { percentile } from "./utils/percentile";
 import { Sidebar } from "./components/Sidebar";
+
+/** Parse color range input: "p1" / "p99.5" → percentile value; "0.5" / "100" → raw number. */
+function parseRangeInput(str: string, values: number[] | null): number | null {
+  if (!values || values.length === 0) return null;
+  const s = str.trim().toLowerCase();
+  if (s === "") return null;
+  if (s.startsWith("p")) {
+    const num = parseFloat(s.slice(1));
+    if (!Number.isFinite(num) || num < 0 || num > 100) return null;
+    return percentile(values, num);
+  }
+  const num = parseFloat(str.trim());
+  if (!Number.isFinite(num)) return null;
+  return num;
+}
 import { SpatialPlot, SPOT_SIZE_DEFAULT_SCALE, type ColorMode } from "./components/SpatialPlot";
 
 export default function App() {
@@ -27,16 +42,19 @@ export default function App() {
   const [colorMode, setColorMode] = useState<"gene" | "annotation">("annotation");
   const [selectedGene, setSelectedGene] = useState<string | null>(null);
   const [selectedObsCol, setSelectedObsCol] = useState<string | null>(null);
+  const [obsValueType, setObsValueType] = useState<"categorical" | "numeric">("categorical");
   const [spotSizeScale, setSpotSizeScale] = useState(SPOT_SIZE_DEFAULT_SCALE);
   const [spotOpacity, setSpotOpacity] = useState(1);
   const [continuousPalette, setContinuousPalette] = useState(DEFAULT_CONTINUOUS_PALETTE);
+  const [categoricalPalette, setCategoricalPalette] = useState<string>("default");
   const [continuousPaletteReverse, setContinuousPaletteReverse] = useState(false);
-  const [percentileMin, setPercentileMin] = useState(0);
-  const [percentileMax, setPercentileMax] = useState(100);
+  const [logScale, setLogScale] = useState(false);
+  const [rangeMinInput, setRangeMinInput] = useState("p0");
+  const [rangeMaxInput, setRangeMaxInput] = useState("p100");
   const [backgroundImageKey, setBackgroundImageKey] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [embeddingMode, setEmbeddingMode] = useState<"spatial" | "umap">("spatial");
+  const [embeddingMode, setEmbeddingMode] = useState<"spatial" | "umap" | "pca" | "tsne">("spatial");
   const selectedIdRef = useRef<string | null>(null);
   const loadAbortRef = useRef<AbortController | null>(null);
 
@@ -92,16 +110,29 @@ export default function App() {
         return uniq.size <= 50 && uniq.size >= 2;
       });
       setSelectedObsCol(catCols.includes("leiden") ? "leiden" : catCols[0] ?? null);
+      setObsValueType("categorical");
+      setRangeMinInput("p0");
+      setRangeMaxInput("p100");
       setBackgroundImageKey(null);
-      // Default embedding: prefer spatial when available, otherwise UMAP.
+      // Default embedding: prefer spatial, then UMAP, then PCA, then t-SNE.
       const hasSpatial = metaRes.has_spatial ?? metaRes.layout === "spatial";
       const hasUmap = metaRes.has_umap ?? metaRes.layout === "umap";
+      const hasPca = metaRes.has_pca ?? metaRes.layout === "pca";
+      const hasTsne = metaRes.has_tsne ?? metaRes.layout === "tsne";
       if (hasSpatial) {
         setEmbeddingMode("spatial");
       } else if (hasUmap) {
         setEmbeddingMode("umap");
+      } else if (hasPca) {
+        setEmbeddingMode("pca");
+      } else if (hasTsne) {
+        setEmbeddingMode("tsne");
       } else if (metaRes.layout === "umap") {
         setEmbeddingMode("umap");
+      } else if (metaRes.layout === "pca") {
+        setEmbeddingMode("pca");
+      } else if (metaRes.layout === "tsne") {
+        setEmbeddingMode("tsne");
       } else {
         setEmbeddingMode("spatial");
       }
@@ -136,6 +167,7 @@ export default function App() {
       setGenes([]);
       setExpression(null);
       setSelectedObsCol(null);
+      setObsValueType("categorical");
       setSelectedGene(null);
       setBackgroundImageKey(null);
       setEmbeddingMode("spatial");
@@ -178,13 +210,13 @@ export default function App() {
   const plotColorMode: ColorMode = React.useMemo(() => {
     if (!spatial) return "none";
     if (colorMode === "annotation" && selectedObsCol && obs?.data[selectedObsCol]) {
-      return "categorical";
+      return obsValueType === "numeric" ? "continuous" : "categorical";
     }
     if (colorMode === "gene" && expression && expression.length === spatial.x.length) {
       return "continuous";
     }
     return "none";
-  }, [spatial, colorMode, selectedObsCol, obs, expression]);
+  }, [spatial, colorMode, selectedObsCol, obs, expression, obsValueType]);
   const bounds = useMemo(() => {
     if (spatial && spatial.x.length > 0 && spatial.y.length === spatial.x.length) {
       let xMin = spatial.x[0];
@@ -224,29 +256,45 @@ export default function App() {
     };
   }, [meta?.image_info, meta?.image_keys, backgroundImageKey]);
 
-  const expressionColorRange = React.useMemo(() => {
-    if (!expression || expression.length === 0) return null;
-    const pMin = Math.max(0, Math.min(100, percentileMin));
-    const pMax = Math.max(0, Math.min(100, percentileMax));
-    const lo = Math.min(pMin, pMax);
-    const hi = Math.max(pMin, pMax);
+  const continuousValues: number[] | null = React.useMemo(() => {
+    if (colorMode === "gene") {
+      return expression;
+    }
+    if (colorMode === "annotation" && obsValueType === "numeric" && selectedObsCol && obs?.data[selectedObsCol]) {
+      const vals = obs.data[selectedObsCol] as (number | string)[];
+      const nums = vals
+        .map((v) => (typeof v === "number" ? v : Number(v)))
+        .filter((v) => Number.isFinite(v)) as number[];
+      return nums.length === vals.length ? (nums as number[]) : null;
+    }
+    return null;
+  }, [colorMode, obsValueType, selectedObsCol, obs, expression]);
+
+  const continuousColorRange = React.useMemo(() => {
+    if (!continuousValues || continuousValues.length === 0) return null;
+    const lo = parseRangeInput(rangeMinInput, continuousValues);
+    const hi = parseRangeInput(rangeMaxInput, continuousValues);
+    const dataMin = Math.min(...continuousValues.filter((v) => Number.isFinite(v)));
+    const dataMax = Math.max(...continuousValues.filter((v) => Number.isFinite(v)));
+    const colorMin = lo ?? dataMin;
+    const colorMax = hi ?? dataMax;
     return {
-      colorMin: percentile(expression, lo),
-      colorMax: percentile(expression, hi),
-      percentileMin: lo,
-      percentileMax: hi,
+      colorMin: Math.min(colorMin, colorMax),
+      colorMax: Math.max(colorMin, colorMax),
     };
-  }, [expression, percentileMin, percentileMax]);
+  }, [continuousValues, rangeMinInput, rangeMaxInput]);
 
   const handleEmbeddingModeChange = useCallback(
-    async (mode: "spatial" | "umap") => {
+    async (mode: "spatial" | "umap" | "pca" | "tsne") => {
       if (!selectedDatasetId || !meta) return;
       if (mode === embeddingMode) return;
       if (mode === "spatial" && !(meta.has_spatial ?? meta.layout === "spatial")) return;
       if (mode === "umap" && !(meta.has_umap ?? false)) return;
+      if (mode === "pca" && !(meta.has_pca ?? false)) return;
+      if (mode === "tsne" && !(meta.has_tsne ?? false)) return;
       setEmbeddingMode(mode);
       // When switching to UMAP, background image is not applicable.
-      if (mode === "umap") {
+      if (mode !== "spatial") {
         setBackgroundImageKey(null);
       }
       try {
@@ -297,6 +345,7 @@ export default function App() {
         colorMode={colorMode}
         selectedGene={selectedGene}
         selectedObsCol={selectedObsCol}
+        obsValueType={obsValueType}
         onColorByGene={(g) => {
           setSelectedGene(g);
           setColorMode("gene");
@@ -310,20 +359,27 @@ export default function App() {
         onSpotSizeScaleChange={setSpotSizeScale}
         spotOpacity={spotOpacity}
         onSpotOpacityChange={setSpotOpacity}
+        categoricalPalette={categoricalPalette}
+        onCategoricalPaletteChange={setCategoricalPalette}
         continuousPalette={continuousPalette}
         onContinuousPaletteChange={setContinuousPalette}
         continuousPaletteReverse={continuousPaletteReverse}
         onContinuousPaletteReverseChange={setContinuousPaletteReverse}
-        expression={expression}
-        percentileMin={percentileMin}
-        percentileMax={percentileMax}
-        onPercentileMinChange={setPercentileMin}
-        onPercentileMaxChange={setPercentileMax}
+        continuousValues={continuousValues}
+        rangeMinInput={rangeMinInput}
+        rangeMaxInput={rangeMaxInput}
+        onRangeMinInputChange={setRangeMinInput}
+        onRangeMaxInputChange={setRangeMaxInput}
+        effectiveColorMin={continuousColorRange?.colorMin ?? null}
+        effectiveColorMax={continuousColorRange?.colorMax ?? null}
+        logScale={logScale}
+        onLogScaleChange={setLogScale}
         backgroundImageKey={backgroundImageKey}
         onBackgroundImageKeyChange={setBackgroundImageKey}
         embeddingMode={embeddingMode}
         onEmbeddingModeChange={handleEmbeddingModeChange}
         loading={loading}
+        onObsValueTypeChange={setObsValueType}
       />
       <div style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0 }}>
         {error && (
@@ -354,24 +410,44 @@ export default function App() {
             bounds={bounds}
             spotSizeScale={spotSizeScale}
             spotOpacity={spotOpacity}
+            categoricalPalette={categoricalPalette}
+            categoricalPaletteReverse={continuousPaletteReverse}
             continuousPalette={continuousPalette}
             continuousPaletteReverse={continuousPaletteReverse}
-            colorMin={colorMode === "gene" ? expressionColorRange?.colorMin : undefined}
-            colorMax={colorMode === "gene" ? expressionColorRange?.colorMax : undefined}
+            logScale={logScale}
+            colorMin={plotColorMode === "continuous" ? continuousColorRange?.colorMin : undefined}
+            colorMax={plotColorMode === "continuous" ? continuousColorRange?.colorMax : undefined}
             backgroundImageUrl={
               selectedDatasetId && backgroundImageKey
                 ? datasetImageUrl(selectedDatasetId, backgroundImageKey)
                 : null
             }
             backgroundImageBounds={backgroundImageBounds}
-            hoverAnnotationName={colorMode === "annotation" ? selectedObsCol : null}
+            hoverAnnotationName={colorMode === "annotation" && obsValueType === "categorical" ? selectedObsCol : null}
             hoverAnnotationValues={
-              colorMode === "annotation" && selectedObsCol && obs?.data[selectedObsCol]
+              colorMode === "annotation" &&
+              obsValueType === "categorical" &&
+              selectedObsCol &&
+              obs?.data[selectedObsCol]
                 ? obs.data[selectedObsCol]
                 : null
             }
-            hoverGeneName={colorMode === "gene" ? selectedGene : null}
-            hoverGeneValues={colorMode === "gene" && expression ? expression : null}
+            hoverGeneName={
+              plotColorMode === "continuous"
+                ? colorMode === "gene"
+                  ? selectedGene
+                  : selectedObsCol
+                : null
+            }
+            hoverGeneValues={
+              plotColorMode === "continuous"
+                ? colorMode === "gene"
+                  ? expression
+                  : selectedObsCol && obs?.data[selectedObsCol]
+                    ? (obs.data[selectedObsCol] as number[])
+                    : null
+                : null
+            }
             title={
               selectedDatasetId
                 ? `${selectedDatasetId}${

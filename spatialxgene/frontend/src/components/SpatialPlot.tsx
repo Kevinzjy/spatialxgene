@@ -8,7 +8,21 @@ const isFirefox = typeof navigator !== "undefined" && /firefox/i.test(navigator.
 
 function formatExpr(v: number): string {
   if (!Number.isFinite(v)) return "—";
-  if (Math.abs(v) >= 1000 || (Math.abs(v) < 0.01 && v !== 0)) return v.toExponential(2);
+  const abs = Math.abs(v);
+  if (abs > 0 && abs < 0.001) {
+    return v.toExponential(2);
+  }
+  const sign = v < 0 ? "-" : "";
+  const n = abs;
+  if (n >= 1_000_000_000) {
+    return `${sign}${(n / 1_000_000_000).toFixed(2)}B`;
+  }
+  if (n >= 1_000_000) {
+    return `${sign}${(n / 1_000_000).toFixed(2)}M`;
+  }
+  if (n >= 1_000) {
+    return `${sign}${(n / 1_000).toFixed(2)}K`;
+  }
   return Number(v.toFixed(4)).toString();
 }
 
@@ -41,6 +55,10 @@ export type SpatialPlotProps = {
   spotSizeScale?: number;
   /** Spot opacity 0–1 (default 1). */
   spotOpacity?: number;
+  /** Categorical color palette id (used when colorMode is categorical). */
+  categoricalPalette?: string;
+  /** Reverse categorical palette direction. */
+  categoricalPaletteReverse?: boolean;
   /** Override vmin/vmax for continuous (gene) color scale; e.g. from percentile range. */
   colorMin?: number;
   colorMax?: number;
@@ -48,6 +66,8 @@ export type SpatialPlotProps = {
   continuousPalette?: string;
   /** Reverse palette direction (e.g. vlag_r). Used when colorMode is continuous. */
   continuousPaletteReverse?: boolean;
+  /** Log scale for continuous values (applied as log1p to v, vmin, vmax). */
+  logScale?: boolean;
   /** URL for background image (e.g. tissue). Null = no image. */
   backgroundImageUrl?: string | null;
   /** Bounds in data space where the image should be drawn (from scale_factor + width/height). Omit to stretch to plot bounds. */
@@ -71,10 +91,13 @@ export function SpatialPlot({
   bounds,
   spotSizeScale = SPOT_SIZE_DEFAULT_SCALE,
   spotOpacity = 1,
+  categoricalPalette,
+  categoricalPaletteReverse,
   colorMin,
   colorMax,
   continuousPalette,
   continuousPaletteReverse,
+  logScale,
   backgroundImageUrl,
   backgroundImageBounds,
   hoverAnnotationName,
@@ -189,18 +212,29 @@ export function SpatialPlot({
     const radiusData = Math.max(spacing * 0.42 * sizeScale, Math.min(0.3, spacing * 0.08));
 
     let catMap: Map<string, string> | null = null;
-    let vmin = 0, vmax = 1;
+    let vmin = 0,
+      vmax = 1;
     if (colorMode === "categorical") {
-      catMap = getCategoricalColors(colorBy as string[]);
+      catMap = getCategoricalColors(colorBy as string[], categoricalPalette, !!categoricalPaletteReverse);
     } else if (colorMode === "continuous") {
+      let vminRaw: number;
+      let vmaxRaw: number;
       if (colorMin !== undefined && colorMax !== undefined && colorMax > colorMin) {
-        vmin = colorMin;
-        vmax = colorMax;
+        vminRaw = colorMin;
+        vmaxRaw = colorMax;
       } else {
         const nums = (colorBy as number[]).filter((v) => Number.isFinite(v));
-        vmin = Math.min(...nums);
-        vmax = Math.max(...nums);
-        if (vmax <= vmin) vmax = vmin + 1;
+        vminRaw = Math.min(...nums);
+        vmaxRaw = Math.max(...nums);
+        if (vmaxRaw <= vminRaw) vmaxRaw = vminRaw + 1;
+      }
+      if (logScale) {
+        const toLog = (x: number) => Math.log1p(Math.max(0, x));
+        vmin = toLog(vminRaw);
+        vmax = toLog(vmaxRaw);
+      } else {
+        vmin = vminRaw;
+        vmax = vmaxRaw;
       }
     }
 
@@ -260,7 +294,8 @@ export function SpatialPlot({
         }
         [r, g, b] = rgb;
       } else if (colorMode === "continuous") {
-        const v = (colorBy[i] as number) ?? NaN;
+        const raw = (colorBy[i] as number) ?? NaN;
+        const v = logScale ? Math.log1p(Math.max(0, raw)) : raw;
         [r, g, b] = continuousToRgb(v, vmin, vmax, continuousPalette, continuousPaletteReverse);
       } else {
         r = g = b = 136;
@@ -278,7 +313,26 @@ export function SpatialPlot({
     }
     ctx.globalAlpha = 1;
     ctx.restore();
-  }, [x, y, colorBy, colorMode, bounds, n, view, spotSizeScale, spotOpacity, colorMin, colorMax, continuousPalette, continuousPaletteReverse, backgroundImage, backgroundImageBounds]);
+  }, [
+    x,
+    y,
+    colorBy,
+    colorMode,
+    bounds,
+    n,
+    view,
+    spotSizeScale,
+    spotOpacity,
+    colorMin,
+    colorMax,
+    continuousPalette,
+    continuousPaletteReverse,
+    categoricalPalette,
+    categoricalPaletteReverse,
+    backgroundImage,
+    backgroundImageBounds,
+    logScale,
+  ]);
 
   useEffect(() => draw(), [draw]);
 

@@ -85,9 +85,11 @@ class DatasetMeta(BaseModel):
     x_max: float
     y_min: float
     y_max: float
-    layout: str  # "spatial" or "umap": which coordinates are used for the default 2D plot
+    layout: str  # "spatial", "umap", "pca", or "tsne": which coordinates are used for the default 2D plot
     has_spatial: bool  # True if adata has spatial coordinates
     has_umap: bool  # True if adata has UMAP embedding (obsm["X_umap"])
+    has_pca: bool  # True if adata has PCA embedding (obsm["X_pca"])
+    has_tsne: bool  # True if adata has t-SNE embedding (obsm["X_tsne"])
     image_keys: list[str]  # keys for background images in uns['spatial'] (e.g. hires, lowres); empty if none
     image_info: dict[str, ImageInfo]  # key -> scale_factor, width, height for alignment
 
@@ -126,6 +128,8 @@ def get_dataset_meta(dataset_id: str):
     x, y, layout = _get_plot_coordinates(adata)
     has_spatial = _has_spatial(adata)
     has_umap = "X_umap" in adata.obsm and adata.obsm["X_umap"].shape[1] >= 2
+    has_pca = "X_pca" in adata.obsm and adata.obsm["X_pca"].shape[1] >= 2
+    has_tsne = "X_tsne" in adata.obsm and adata.obsm["X_tsne"].shape[1] >= 2
     try:
         image_keys = _get_image_keys(adata)
         image_info = {}
@@ -153,6 +157,8 @@ def get_dataset_meta(dataset_id: str):
         layout=layout,
         has_spatial=has_spatial,
         has_umap=has_umap,
+        has_pca=has_pca,
+        has_tsne=has_tsne,
         image_keys=image_keys,
         image_info=image_info,
     )
@@ -267,7 +273,7 @@ def _get_plot_coordinates(adata):
     """
     Return (x, y) for the 2D plot: use spatial if present, otherwise UMAP.
     Raises ValueError if neither is available.
-    Returns (x, y, layout) where layout is "spatial" or "umap".
+    Returns (x, y, layout) where layout is \"spatial\" or \"umap\".
     """
     if _has_spatial(adata):
         if "spatial" in adata.obsm:
@@ -294,7 +300,9 @@ def get_spatial(dataset_id: str, layout: Optional[str] = None):
 
     - Default (layout is None): spatial if present, else UMAP (same as _get_plot_coordinates).
     - layout=\"spatial\": force spatial coordinates; 404 if none available.
-    - layout=\"umap\": force UMAP embedding; 404 if none available.
+    - layout=\"umap\": force UMAP embedding from obsm['X_umap']; 404 if none available.
+    - layout=\"pca\": force PCA embedding from obsm['X_pca']; 404 if none available.
+    - layout=\"tsne\": force t-SNE embedding from obsm['X_tsne']; 404 if none available.
     """
     adata = _get_adata(dataset_id)
     if layout == "spatial":
@@ -321,6 +329,24 @@ def get_spatial(dataset_id: str, layout: Optional[str] = None):
             )
         x = np.asarray(umap[:, 0], dtype=np.float64)
         y = np.asarray(umap[:, 1], dtype=np.float64)
+    elif layout == "pca":
+        pca = adata.obsm.get("X_pca")
+        if pca is None or getattr(pca, "shape", (0, 0))[1] < 2:
+            raise HTTPException(
+                status_code=404,
+                detail="No PCA embedding in adata (need obsm['X_pca'] with at least 2 columns)",
+            )
+        x = np.asarray(pca[:, 0], dtype=np.float64)
+        y = np.asarray(pca[:, 1], dtype=np.float64)
+    elif layout == "tsne":
+        tsne = adata.obsm.get("X_tsne")
+        if tsne is None or getattr(tsne, "shape", (0, 0))[1] < 2:
+            raise HTTPException(
+                status_code=404,
+                detail="No t-SNE embedding in adata (need obsm['X_tsne'] with at least 2 columns)",
+            )
+        x = np.asarray(tsne[:, 0], dtype=np.float64)
+        y = np.asarray(tsne[:, 1], dtype=np.float64)
     else:
         x, y, _ = _get_plot_coordinates(adata)
 

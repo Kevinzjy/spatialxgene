@@ -3,19 +3,80 @@
  * Continuous palettes mirror matplotlib/seaborn built-in colormaps (vlag, viridis, etc.).
  */
 
-// Categorical palette (distinct, colorblind-friendly-ish)
-const CAT_COLORS = [
-  "#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd",
-  "#8c564b", "#e377c2", "#7f7f7f", "#bcbd22", "#17becf",
-  "#aec7e8", "#ffbb78", "#98df8a", "#ff9896", "#c5b0d5",
-  "#c49c94", "#f7b6d2", "#c7c7c7", "#dbdb8d", "#9edae5",
-];
+// Categorical palettes (distinct, colorblind-friendly-ish)
+const CAT_PALETTES: Record<string, string[]> = {
+  default: [
+    "#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd",
+    "#8c564b", "#e377c2", "#7f7f7f", "#bcbd22", "#17becf",
+    "#aec7e8", "#ffbb78", "#98df8a", "#ff9896", "#c5b0d5",
+    "#c49c94", "#f7b6d2", "#c7c7c7", "#dbdb8d", "#9edae5",
+  ],
+  pastel: [
+    "#a6cee3", "#fb9a99", "#b2df8a", "#fdbf6f", "#cab2d6",
+    "#ffff99", "#1f78b4", "#33a02c", "#e31a1c", "#ff7f00",
+    "#6a3d9a", "#b15928", "#b3e2cd", "#fdcdac", "#cbd5e8",
+    "#f4cae4", "#e6f5c9", "#fff2ae", "#f1e2cc", "#cccccc",
+  ],
+  // ColorBrewer-like sets for more variety
+  Set1: [
+    "#e41a1c", "#377eb8", "#4daf4a", "#984ea3", "#ff7f00",
+    "#ffff33", "#a65628", "#f781bf", "#999999",
+  ],
+  Set2: [
+    "#66c2a5", "#fc8d62", "#8da0cb", "#e78ac3",
+    "#a6d854", "#ffd92f", "#e5c494", "#b3b3b3",
+  ],
+  Dark2: [
+    "#1b9e77", "#d95f02", "#7570b3", "#e7298a",
+    "#66a61e", "#e6ab02", "#a6761d", "#666666",
+  ],
+  Paired: [
+    "#a6cee3", "#1f78b4", "#b2df8a", "#33a02c",
+    "#fb9a99", "#e31a1c", "#fdbf6f", "#ff7f00",
+    "#cab2d6", "#6a3d9a", "#ffff99", "#b15928",
+  ],
+};
 
-export function getCategoricalColors(labels: string[]): Map<string, string> {
+export const CATEGORICAL_PALETTE_IDS = Object.keys(CAT_PALETTES);
+
+export const CATEGORICAL_PALETTE_LABELS: Record<string, string> = {
+  default: "Default",
+  pastel: "Pastel",
+  Set1: "Set1",
+  Set2: "Set2",
+  Dark2: "Dark2",
+  Paired: "Paired",
+};
+
+export function getCategoricalColors(
+  labels: string[],
+  paletteId: string = "default",
+  reverse = false
+): Map<string, string> {
+  let colors = CAT_PALETTES[paletteId] ?? CAT_PALETTES.default;
+  if (reverse) {
+    colors = [...colors].reverse();
+  }
   const uniq = [...new Set(labels)];
   const m = new Map<string, string>();
-  uniq.forEach((l, i) => m.set(l, CAT_COLORS[i % CAT_COLORS.length]));
+  const isNaNLabel = (l: string) => {
+    const s = String(l).trim().toLowerCase();
+    return s === "nan" || s === "" || s === "none" || s === "null";
+  };
+  const paletteLabels = uniq.filter((l) => !isNaNLabel(l));
+  const nanLabels = uniq.filter((l) => isNaNLabel(l));
+  paletteLabels.forEach((l, i) => m.set(l, colors[i % colors.length]));
+  // Assign a fixed light gray color for NaN / missing-like labels, without consuming palette slots.
+  nanLabels.forEach((l) => m.set(l, "#d3d3d3"));
   return m;
+}
+
+export function getCategoricalPaletteGradientCss(paletteId: string, reverse = false): string {
+  const colors = CAT_PALETTES[paletteId] ?? CAT_PALETTES.default;
+  const list = reverse ? [...colors].reverse() : colors;
+  const step = list.length > 1 ? 100 / (list.length - 1) : 100;
+  const parts = list.map((c, i) => `${c} ${i * step}%`);
+  return `linear-gradient(to right, ${parts.join(", ")})`;
 }
 
 // --- Continuous palettes (gene expression) ---
@@ -81,6 +142,31 @@ const RDYLBU = stopsFromHex(
   ["#d73027", "#fc8d59", "#ffffbf", "#91bfdb", "#4575b4"]
 );
 
+const RDYLGN = stopsFromHex(
+  [0, 0.25, 0.5, 0.75, 1],
+  ["#a50026", "#fdae61", "#ffffbf", "#a6d96a", "#006837"]
+);
+
+const SPECTRAL = stopsFromHex(
+  [0, 0.25, 0.5, 0.75, 1],
+  ["#9e0142", "#f46d43", "#ffffbf", "#66c2a5", "#5e4fa2"]
+);
+
+const PIYG = stopsFromHex(
+  [0, 0.25, 0.5, 0.75, 1],
+  ["#8e0152", "#de77ae", "#f7f7f7", "#7fbc41", "#276419"]
+);
+
+const PUOR = stopsFromHex(
+  [0, 0.25, 0.5, 0.75, 1],
+  ["#7f3b08", "#fdb863", "#f7f7f7", "#74add1", "#2d004b"]
+);
+
+const RDBU_R = stopsFromHex(
+  [0, 0.5, 1],
+  ["#3b4cc0", "#ffffff", "#b4042e"]
+);
+
 // Sequential (single-hue or multi)
 const BLUES = stopsFromHex(
   [0, 0.5, 1],
@@ -102,6 +188,21 @@ const YLORRD = stopsFromHex(
   [0, 0.5, 1],
   ["#800026", "#fc4e2a", "#ffffcc"]
 );
+
+const YLGNBU = stopsFromHex(
+  [0, 0.5, 1],
+  ["#081d58", "#41b6c4", "#edf8fb"]
+);
+
+const ORRD = stopsFromHex(
+  [0, 0.5, 1],
+  ["#7f0000", "#fcae91", "#fff5f0"]
+);
+
+const REDS = stopsFromHex(
+  [0, 0.5, 1],
+  ["#67000d", "#fb6a4a", "#fff5f0"]
+);
 const HOT = stopsFromHex(
   [0, 0.33, 0.66, 1],
   ["#000000", "#800000", "#ffff00", "#ffffff"]
@@ -120,13 +221,21 @@ const CONTINUOUS_PALETTES: Record<string, ColorStop[]> = {
   cividis: CIVIDIS,
   coolwarm: COOLWARM,
   RdBu: RDBU,
+  RdBu_r: RDBU_R,
   BrBG: BRBG,
   RdYlBu: RDYLBU,
+  RdYlGn: RDYLGN,
+  Spectral: SPECTRAL,
+  PiYG: PIYG,
+  PuOr: PUOR,
   Blues: BLUES,
   Greens: GREENS,
   Oranges: ORANGES,
   Purples: PURPLES,
   YlOrRd: YLORRD,
+  YlGnBu: YLGNBU,
+  OrRd: ORRD,
+  Reds: REDS,
   hot: HOT,
   gray: GRAY,
 };
@@ -166,13 +275,21 @@ export const CONTINUOUS_PALETTE_LABELS: Record<string, string> = {
   cividis: "cividis",
   coolwarm: "coolwarm",
   RdBu: "RdBu",
+  RdBu_r: "RdBu_r",
   BrBG: "BrBG",
   RdYlBu: "RdYlBu",
+  RdYlGn: "RdYlGn",
+  Spectral: "Spectral",
+  PiYG: "PiYG",
+  PuOr: "PuOr",
   Blues: "Blues",
   Greens: "Greens",
   Oranges: "Oranges",
   Purples: "Purples",
   YlOrRd: "YlOrRd",
+  YlGnBu: "YlGnBu",
+  OrRd: "OrRd",
+  Reds: "Reds",
   hot: "hot",
   gray: "gray",
 };
