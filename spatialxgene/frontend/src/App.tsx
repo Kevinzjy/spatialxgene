@@ -268,7 +268,7 @@ export default function App() {
   );
 
   return (
-    <div style={{ display: "flex", height: "100vh", overflow: "hidden" }}>
+    <div style={{ display: "flex", flex: 1, minHeight: 0, overflow: "hidden" }}>
       <Sidebar
         datasets={datasets}
         selectedDatasetId={selectedDatasetId}
@@ -364,6 +364,14 @@ export default function App() {
                 : null
             }
             backgroundImageBounds={backgroundImageBounds}
+            hoverAnnotationName={colorMode === "annotation" ? selectedObsCol : null}
+            hoverAnnotationValues={
+              colorMode === "annotation" && selectedObsCol && obs?.data[selectedObsCol]
+                ? obs.data[selectedObsCol]
+                : null
+            }
+            hoverGeneName={colorMode === "gene" ? selectedGene : null}
+            hoverGeneValues={colorMode === "gene" && expression ? expression : null}
             title={
               selectedDatasetId
                 ? `${selectedDatasetId}${

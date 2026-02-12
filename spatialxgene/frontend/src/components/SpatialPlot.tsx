@@ -5,6 +5,12 @@ export type ColorMode = "categorical" | "continuous" | "none";
 
 const PAD = 20;
 
+function formatExpr(v: number): string {
+  if (!Number.isFinite(v)) return "—";
+  if (Math.abs(v) >= 1000 || (Math.abs(v) < 0.01 && v !== 0)) return v.toExponential(2);
+  return Number(v.toFixed(4)).toString();
+}
+
 /**
  * Grid-based spacing: n points in [xMin..xMax] x [yMin..yMax].
  * If points form a regular grid, cell area = (dataW*dataH)/n, so step ≈ sqrt(area/n).
@@ -27,7 +33,7 @@ export const SPOT_SIZE_DEFAULT_SCALE = 0.8;
 export type SpatialPlotProps = {
   x: number[];
   y: number[];
-  colorBy: (string | number)[]; // string for categorical, number for expression
+  colorBy: (string | number)[]; // string for categorical, number for expression (or placeholder when ColorMode = "none")
   colorMode: ColorMode;
   bounds: { xMin: number; xMax: number; yMin: number; yMax: number };
   /** Scale for point radius relative to grid-based default (0.42 * spacing). Default 0.8 = 80%. */
@@ -45,15 +51,47 @@ export type SpatialPlotProps = {
   backgroundImageUrl?: string | null;
   /** Bounds in data space where the image should be drawn (from scale_factor + width/height). Omit to stretch to plot bounds. */
   backgroundImageBounds?: { xMin: number; yMin: number; xMax: number; yMax: number } | null;
+  /** For hover tooltip: name of current annotation column (when categorical). */
+  hoverAnnotationName?: string | null;
+  /** For hover tooltip: values of current annotation column (aligned with x/y). */
+  hoverAnnotationValues?: (string | number)[] | null;
+  /** For hover tooltip: current gene name (when continuous). */
+  hoverGeneName?: string | null;
+  /** For hover tooltip: expression values for current gene (aligned with x/y). */
+  hoverGeneValues?: number[] | null;
   title?: string;
 };
 
-export function SpatialPlot({ x, y, colorBy, colorMode, bounds, spotSizeScale = SPOT_SIZE_DEFAULT_SCALE, spotOpacity = 1, colorMin, colorMax, continuousPalette, continuousPaletteReverse, backgroundImageUrl, backgroundImageBounds, title }: SpatialPlotProps) {
+export function SpatialPlot({
+  x,
+  y,
+  colorBy,
+  colorMode,
+  bounds,
+  spotSizeScale = SPOT_SIZE_DEFAULT_SCALE,
+  spotOpacity = 1,
+  colorMin,
+  colorMax,
+  continuousPalette,
+  continuousPaletteReverse,
+  backgroundImageUrl,
+  backgroundImageBounds,
+  hoverAnnotationName,
+  hoverAnnotationValues,
+  hoverGeneName,
+  hoverGeneValues,
+  title,
+}: SpatialPlotProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const [view, setView] = useState({ scale: 1, tx: 0, ty: 0 });
   const [drag, setDrag] = useState<{ x: number; y: number } | null>(null);
   const [backgroundImage, setBackgroundImage] = useState<HTMLImageElement | null>(null);
+  const [hover, setHover] = useState<{
+    screenX: number;
+    screenY: number;
+    lines: string[];
+  } | null>(null);
 
   useEffect(() => {
     if (!backgroundImageUrl) {
@@ -285,13 +323,90 @@ export function SpatialPlot({ x, y, colorBy, colorMode, bounds, spotSizeScale = 
           ty: v.ty + (e.clientY - drag.y),
         }));
         setDrag({ x: e.clientX, y: e.clientY });
+        if (hover) setHover(null);
+      } else {
+        const container = containerRef.current;
+        if (!container || x.length === 0 || y.length !== x.length) {
+          if (hover) setHover(null);
+          return;
+        }
+        const rect = container.getBoundingClientRect();
+        const mx = e.clientX - rect.left;
+        const my = e.clientY - rect.top;
+        const W = rect.width;
+        const H = rect.height;
+        if (W < 2 * PAD || H < 2 * PAD) {
+          if (hover) setHover(null);
+          return;
+        }
+
+        const { scale, tx, ty } = view;
+        const dataW = bounds.xMax - bounds.xMin || 1;
+        const dataH = bounds.yMax - bounds.yMin || 1;
+        const sx = (W - 2 * PAD) / dataW;
+        const sy = (H - 2 * PAD) / dataH;
+        const sBase = Math.max(1e-6, Math.min(sx, sy));
+        const s = sBase * scale;
+        const centerX = (bounds.xMin + bounds.xMax) / 2;
+        const centerY = (bounds.yMin + bounds.yMax) / 2;
+        const baseOx = PAD + (W - 2 * PAD) / 2;
+        const baseOy = PAD + (H - 2 * PAD) / 2;
+        const ox = baseOx + tx - centerX * s;
+        const oy = baseOy + ty - centerY * s;
+
+        const dataX = (mx - ox) / s;
+        const dataY = (my - oy) / s;
+
+        const nPts = x.length;
+        const spacing = gridSpacing(bounds, nPts);
+        const sizeScale = Math.max(0.15, Math.min(1.5, spotSizeScale));
+        const radiusData = Math.max(spacing * 0.42 * sizeScale, Math.min(0.3, spacing * 0.08));
+        const searchRadius2 = (radiusData * 1.5) * (radiusData * 1.5);
+
+        let bestIdx = -1;
+        let bestDist2 = searchRadius2;
+        for (let i = 0; i < nPts; i++) {
+          const dx = x[i] - dataX;
+          const dy = y[i] - dataY;
+          const d2 = dx * dx + dy * dy;
+          if (d2 < bestDist2) {
+            bestDist2 = d2;
+            bestIdx = i;
+          }
+        }
+
+        if (bestIdx < 0) {
+          if (hover) setHover(null);
+          return;
+        }
+
+        const lines: string[] = [];
+        lines.push(`Spot #${bestIdx}`);
+        if (colorMode === "categorical" && hoverAnnotationName && hoverAnnotationValues) {
+          const v = hoverAnnotationValues[bestIdx];
+          lines.push(`${hoverAnnotationName}: ${v ?? "—"}`);
+        } else if (colorMode === "continuous" && hoverGeneName && hoverGeneValues) {
+          const v = hoverGeneValues[bestIdx];
+          lines.push(`${hoverGeneName}: ${formatExpr(Number(v))}`);
+        }
+
+        setHover({
+          screenX: mx + 10,
+          screenY: my + 10,
+          lines,
+        });
       }
     },
-    [drag]
+    [drag, hover, view, bounds, x, y, spotSizeScale, colorMode, hoverAnnotationName, hoverAnnotationValues, hoverGeneName, hoverGeneValues]
   );
 
-  const onMouseUp = useCallback(() => setDrag(null), []);
-  const onMouseLeave = useCallback(() => setDrag(null), []);
+  const onMouseUp = useCallback(() => {
+    setDrag(null);
+  }, []);
+  const onMouseLeave = useCallback(() => {
+    setDrag(null);
+    setHover(null);
+  }, []);
 
   const handleResetView = useCallback(() => {
     setView({ scale: 1, tx: 0, ty: 0 });
@@ -412,6 +527,7 @@ export function SpatialPlot({ x, y, colorBy, colorMode, bounds, spotSizeScale = 
           minHeight: 200,
           overflow: "hidden",
           background: "#1a1a2e",
+          position: "relative",
         }}
         onMouseDown={onMouseDown}
         onMouseMove={onMouseMove}
@@ -422,6 +538,30 @@ export function SpatialPlot({ x, y, colorBy, colorMode, bounds, spotSizeScale = 
           ref={canvasRef}
           style={{ width: "100%", height: "100%", display: "block", cursor: drag ? "grabbing" : "grab" }}
         />
+        {hover && (
+          <div
+            style={{
+              position: "absolute",
+              left: hover.screenX,
+              top: hover.screenY,
+              transform: "translateY(-50%)",
+              background: "#020617",
+              color: "#eee",
+              borderRadius: 4,
+              border: "1px solid #0f3460",
+              padding: "4px 6px",
+              fontSize: 11,
+              pointerEvents: "none",
+              maxWidth: 260,
+              boxShadow: "0 4px 12px rgba(0,0,0,0.5)",
+              whiteSpace: "nowrap",
+            }}
+          >
+            {hover.lines.map((line, i) => (
+              <div key={i}>{line}</div>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );
