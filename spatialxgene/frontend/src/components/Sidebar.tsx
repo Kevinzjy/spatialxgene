@@ -76,6 +76,9 @@ type SidebarProps = {
   /** Background image key from adata (null = None) */
   backgroundImageKey: string | null;
   onBackgroundImageKeyChange: (key: string | null) => void;
+  /** Background image opacity 0–1 (only in spatial embedding when image selected). */
+  backgroundOpacity: number;
+  onBackgroundOpacityChange: (v: number) => void;
   /** Embedding mode for plotting: spatial vs UMAP (when both exist). */
   embeddingMode: "spatial" | "umap" | "pca" | "tsne";
   onEmbeddingModeChange: (mode: "spatial" | "umap" | "pca" | "tsne") => void;
@@ -118,6 +121,8 @@ export function Sidebar({
   onLogScaleChange,
   backgroundImageKey,
   onBackgroundImageKeyChange,
+  backgroundOpacity,
+  onBackgroundOpacityChange,
   embeddingMode,
   onEmbeddingModeChange,
   loading,
@@ -157,8 +162,18 @@ export function Sidebar({
 
   const colorbarStats = useMemo(() => {
     if (!isNumericPaletteMode || !continuousValues || continuousValues.length === 0) return null;
-    const dataMin = Math.min(...continuousValues.filter((v) => Number.isFinite(v)));
-    const dataMax = Math.max(...continuousValues.filter((v) => Number.isFinite(v)));
+    let dataMin = Infinity;
+    let dataMax = -Infinity;
+    for (let i = 0; i < continuousValues.length; i++) {
+      const v = continuousValues[i];
+      if (!Number.isFinite(v)) continue;
+      if (v < dataMin) dataMin = v;
+      if (v > dataMax) dataMax = v;
+    }
+    if (dataMin === Infinity || dataMax === -Infinity) {
+      dataMin = 0;
+      dataMax = 1;
+    }
     const lo = effectiveColorMin ?? dataMin;
     const hi = effectiveColorMax ?? dataMax;
     let mid: number;
@@ -378,6 +393,27 @@ export function Sidebar({
                     </option>
                   ))}
                 </select>
+                {backgroundImageKey && (
+                  <>
+                    <label style={{ fontSize: 12, fontWeight: 600, color: "#a0a0a0", marginTop: 6 }}>
+                      Background opacity
+                    </label>
+                    <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                      <input
+                        type="range"
+                        min={0}
+                        max={1}
+                        step={0.05}
+                        value={backgroundOpacity}
+                        onChange={(e) => onBackgroundOpacityChange(Number(e.target.value))}
+                        style={{ flex: 1, accentColor: "#e94560" }}
+                      />
+                      <span style={{ fontSize: 11, color: "#888", minWidth: 36 }}>
+                        {Math.round(backgroundOpacity * 100)}%
+                      </span>
+                    </div>
+                  </>
+                )}
               </>
             )}
 

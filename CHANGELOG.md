@@ -4,6 +4,16 @@ All notable changes to this project are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [0.2.2] - 2026-02-12
+
+### Fixed
+
+- **Large-array stack overflow**: When coloring by gene on datasets with many points (e.g. hundreds of thousands), the viewer could throw "Maximum call stack size exceeded". Cause: `Math.min(...arr)` / `Math.max(...arr)` spread too many arguments. Replaced with loop-based min/max in `App.tsx` (`finiteMinMax`, continuous color range), `Sidebar.tsx` (colorbar stats), and `SpatialPlot.tsx` (continuous mode vmin/vmax).
+
+### Changed
+
+- **RULES.md**: Added project rule "前端：大数组不要用 spread 展开" — do not use spread on large arrays (e.g. avoid `Math.min(...arr)` / `Math.max(...arr)`); use a for-loop instead. Applies to App.tsx, Sidebar, SpatialPlot and similar code.
+
 ## [0.2.1] - 2026-02-12
 
 ### Fixed

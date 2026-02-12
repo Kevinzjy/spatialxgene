@@ -1,6 +1,6 @@
 # Spatialxgene
 
-**v0.2.1** — Browser-based spatial transcriptomics viewer and preprocessing (cellxgene-style). Launch the viewer to explore spatial plots (zoom/pan, color by gene or annotation, optional tissue image), or run **infer** / **preprocess** on raw h5ad.
+**v0.2.2** — Browser-based spatial transcriptomics viewer and preprocessing (cellxgene-style). Launch the viewer to explore spatial plots (zoom/pan, color by gene or annotation, optional tissue image), or run **infer** / **preprocess** on raw h5ad.
 
 ## Requirements
 

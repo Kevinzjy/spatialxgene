@@ -82,5 +82,18 @@
 
 - **发布与版本文档**
   - 发布说明统一放在 CHANGELOG.md；不再维护单独的 `docs/release_notes_*.md`，避免两处不一致。新版本在 CHANGELOG 增加条目，重要版本可在条目下用 “Release notes (merged)” 子段概括 scope 与教训。
+  - **版本号必须三处同步**：每次发版前同时修改 `spatialxgene/__init__.py`（`__version__`）、`pyproject.toml`（`version`）、`spatialxgene/frontend/package.json`（`version`），以及 `spatialxgene/frontend/package-lock.json` 中顶层和 `""` 包的 `version`；否则 API/前端显示的版本会与 PyPI 不一致。
   - 默认配置（如 host/port）若在代码中修改，需同步改文档（README、docs/development.md、前端 vite proxy 等），避免文档与行为不一致。
+
+- **前端：大数组不要用 spread 展开**
+  - 在 JavaScript/TypeScript 中，`Math.min(...arr)`、`Math.max(...arr)` 会把数组元素展开为函数参数。当 `arr` 长度很大（例如几十万，如基因表达向量）时，会触发 **RangeError: Maximum call stack size exceeded**。
+  - 规则：**任何可能很大的数组（如 expression、continuousValues、colorBy）求 min/max 或类似聚合时，必须用 for 循环逐项比较，禁止 `Math.min(...arr)` / `Math.max(...arr)`。** 同理，避免对超大数组做 `sort`、递归或其它会导致调用栈/参数列表过长的操作；百分位等已有 `utils/percentile` 的直方图 O(n) 实现，可复用。
+  - 适用文件：前端所有涉及「全量数组聚合」的 useMemo / 绘图逻辑（如 App.tsx 的 continuousColorRange、Sidebar 的 colorbarStats、SpatialPlot 里连续模式的 vmin/vmax）。
+
+- **前端：跨浏览器与 canvas 性能**
+  - 拖拽、缩放、悬停等高频更新必须用 **requestAnimationFrame** 批量（每帧最多一次 setState），避免每事件一次 setState 导致卡顿或 Safari/Firefox 表现异常。
+  - 悬停/命中检测要做 rAF 节流，避免在 mousemove 里做重计算或重复 setState。
+  - Canvas 的 **devicePixelRatio** 建议封顶（如 2），避免高 DPR 设备上 canvas 过大导致内存与帧率问题。
+  - 修改拖拽/悬停逻辑时注意 **useEffect、useCallback 的依赖**：漏掉依赖会导致闭包陈旧或重复订阅，出现“松手后仍跟手”“悬停不更新”等问题；多写依赖则可能造成不必要的重绘，需在正确性与性能之间权衡。
+  - 浏览器差异：Firefox 等可对 LOD（可见点数上限）使用更保守的值（如 60k vs 120k），避免缩放时卡顿。
 

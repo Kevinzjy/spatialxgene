@@ -29,6 +29,21 @@ function parseRangeInput(str: string, values: number[] | null): number | null {
   if (!Number.isFinite(num)) return null;
   return num;
 }
+
+function finiteMinMax(arr: number[]): { min: number; max: number } {
+  let min = Infinity;
+  let max = -Infinity;
+  for (let i = 0; i < arr.length; i++) {
+    const v = arr[i];
+    if (!Number.isFinite(v)) continue;
+    if (v < min) min = v;
+    if (v > max) max = v;
+  }
+  if (min === Infinity || max === -Infinity) {
+    return { min: 0, max: 1 };
+  }
+  return { min, max };
+}
 import { SpatialPlot, SPOT_SIZE_DEFAULT_SCALE, type ColorMode } from "./components/SpatialPlot";
 
 export default function App() {
@@ -52,6 +67,7 @@ export default function App() {
   const [rangeMinInput, setRangeMinInput] = useState("p0");
   const [rangeMaxInput, setRangeMaxInput] = useState("p100");
   const [backgroundImageKey, setBackgroundImageKey] = useState<string | null>(null);
+  const [backgroundOpacity, setBackgroundOpacity] = useState(1);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [embeddingMode, setEmbeddingMode] = useState<"spatial" | "umap" | "pca" | "tsne">("spatial");
@@ -114,6 +130,7 @@ export default function App() {
       setRangeMinInput("p0");
       setRangeMaxInput("p100");
       setBackgroundImageKey(null);
+      setBackgroundOpacity(1);
       // Default embedding: prefer spatial, then UMAP, then PCA, then t-SNE.
       const hasSpatial = metaRes.has_spatial ?? metaRes.layout === "spatial";
       const hasUmap = metaRes.has_umap ?? metaRes.layout === "umap";
@@ -274,8 +291,7 @@ export default function App() {
     if (!continuousValues || continuousValues.length === 0) return null;
     const lo = parseRangeInput(rangeMinInput, continuousValues);
     const hi = parseRangeInput(rangeMaxInput, continuousValues);
-    const dataMin = Math.min(...continuousValues.filter((v) => Number.isFinite(v)));
-    const dataMax = Math.max(...continuousValues.filter((v) => Number.isFinite(v)));
+    const { min: dataMin, max: dataMax } = finiteMinMax(continuousValues);
     const colorMin = lo ?? dataMin;
     const colorMax = hi ?? dataMax;
     return {
@@ -375,7 +391,14 @@ export default function App() {
         logScale={logScale}
         onLogScaleChange={setLogScale}
         backgroundImageKey={backgroundImageKey}
-        onBackgroundImageKeyChange={setBackgroundImageKey}
+        onBackgroundImageKeyChange={(key) => {
+          setBackgroundImageKey(key);
+          if (!key) {
+            setBackgroundOpacity(1);
+          }
+        }}
+        backgroundOpacity={backgroundOpacity}
+        onBackgroundOpacityChange={setBackgroundOpacity}
         embeddingMode={embeddingMode}
         onEmbeddingModeChange={handleEmbeddingModeChange}
         loading={loading}
@@ -422,6 +445,7 @@ export default function App() {
                 ? datasetImageUrl(selectedDatasetId, backgroundImageKey)
                 : null
             }
+            backgroundOpacity={backgroundOpacity}
             backgroundImageBounds={backgroundImageBounds}
             hoverAnnotationName={colorMode === "annotation" && obsValueType === "categorical" ? selectedObsCol : null}
             hoverAnnotationValues={

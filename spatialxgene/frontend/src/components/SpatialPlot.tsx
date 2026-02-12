@@ -70,6 +70,8 @@ export type SpatialPlotProps = {
   logScale?: boolean;
   /** URL for background image (e.g. tissue). Null = no image. */
   backgroundImageUrl?: string | null;
+  /** Opacity for background image only (0–1). */
+  backgroundOpacity?: number;
   /** Bounds in data space where the image should be drawn (from scale_factor + width/height). Omit to stretch to plot bounds. */
   backgroundImageBounds?: { xMin: number; yMin: number; xMax: number; yMax: number } | null;
   /** For hover tooltip: name of current annotation column (when categorical). */
@@ -99,6 +101,7 @@ export function SpatialPlot({
   continuousPaletteReverse,
   logScale,
   backgroundImageUrl,
+  backgroundOpacity,
   backgroundImageBounds,
   hoverAnnotationName,
   hoverAnnotationValues,
@@ -202,7 +205,11 @@ export function SpatialPlot({
       const imgBounds = backgroundImageBounds ?? bounds;
       const imgW = imgBounds.xMax - imgBounds.xMin || 1;
       const imgH = imgBounds.yMax - imgBounds.yMin || 1;
+      const bgAlpha = Math.max(0, Math.min(1, backgroundOpacity ?? 1));
+      const prevAlpha = ctx.globalAlpha;
+      ctx.globalAlpha = bgAlpha;
       ctx.drawImage(backgroundImage, imgBounds.xMin, imgBounds.yMin, imgW, imgH);
+      ctx.globalAlpha = prevAlpha;
     }
 
     const spacing = gridSpacing(bounds, n);
@@ -223,9 +230,19 @@ export function SpatialPlot({
         vminRaw = colorMin;
         vmaxRaw = colorMax;
       } else {
-        const nums = (colorBy as number[]).filter((v) => Number.isFinite(v));
-        vminRaw = Math.min(...nums);
-        vmaxRaw = Math.max(...nums);
+        const nums = colorBy as number[];
+        vminRaw = Infinity;
+        vmaxRaw = -Infinity;
+        for (let i = 0; i < nums.length; i++) {
+          const v = nums[i];
+          if (!Number.isFinite(v)) continue;
+          if (v < vminRaw) vminRaw = v;
+          if (v > vmaxRaw) vmaxRaw = v;
+        }
+        if (!Number.isFinite(vminRaw) || !Number.isFinite(vmaxRaw)) {
+          vminRaw = 0;
+          vmaxRaw = 1;
+        }
         if (vmaxRaw <= vminRaw) vmaxRaw = vminRaw + 1;
       }
       if (logScale) {
@@ -265,7 +282,8 @@ export function SpatialPlot({
     }
 
     // Cache categorical colors as RGB triplets to avoid repeated hex parsing.
-    const catRgbCache: Map<string, [number, number, number]> | null =
+    // Important: keys must use the same type as in catMap (string or number), do NOT coerce to string.
+    const catRgbCache: Map<any, [number, number, number]> | null =
       colorMode === "categorical" && catMap ? new Map() : null;
 
     const size = radiusData * 2;
@@ -273,15 +291,28 @@ export function SpatialPlot({
     // 远景（小半径或有降采样）用方块，近景且全量时继续用圆，保证细节观感。
     const useSquares = step > 1 || screenRadius <= 2;
 
-    for (let i = 0; i < n; i += step) {
+    const isNaNCategory = (idx: number): boolean => {
+      if (colorMode === "categorical") {
+        const key = String(colorBy[idx] ?? "");
+        const sKey = key.trim().toLowerCase();
+        return sKey === "nan" || sKey === "" || sKey === "none" || sKey === "null";
+      }
+      if (colorMode === "continuous") {
+        const raw = colorBy[idx] as number;
+        return !Number.isFinite(raw);
+      }
+      return false;
+    };
+
+    const drawPoint = (i: number) => {
       const px = x[i];
       const py = y[i];
-      if (px < clipXMin || px > clipXMax || py < clipYMin || py > clipYMax) continue;
+      if (px < clipXMin || px > clipXMax || py < clipYMin || py > clipYMax) return;
       let r: number, g: number, b: number;
       if (colorMode === "none") {
         r = g = b = 136; // neutral gray when no annotation/gene selected
       } else if (colorMode === "categorical" && catMap) {
-        const key = String(colorBy[i] ?? "");
+        const key = colorBy[i] as any;
         let rgb: [number, number, number] | undefined = catRgbCache?.get(key);
         if (!rgb) {
           const hex = catMap.get(key) ?? "#888888";
@@ -310,6 +341,16 @@ export function SpatialPlot({
         ctx.arc(px, py, radiusData, 0, Math.PI * 2);
         ctx.fill();
       }
+    };
+
+    // Draw NaN / missing categories first (so they stay at the bottom), then all others.
+    for (let i = 0; i < n; i += step) {
+      if (!isNaNCategory(i)) continue;
+      drawPoint(i);
+    }
+    for (let i = 0; i < n; i += step) {
+      if (isNaNCategory(i)) continue;
+      drawPoint(i);
     }
     ctx.globalAlpha = 1;
     ctx.restore();
@@ -331,6 +372,7 @@ export function SpatialPlot({
     categoricalPaletteReverse,
     backgroundImage,
     backgroundImageBounds,
+    backgroundOpacity,
     logScale,
   ]);
 
