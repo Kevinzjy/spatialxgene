@@ -68,6 +68,7 @@ class DatasetMeta(BaseModel):
     x_max: float
     y_min: float
     y_max: float
+    layout: str  # "spatial" or "umap": which coordinates are used for the 2D plot
 
 
 class SpatialResponse(BaseModel):
@@ -93,10 +94,9 @@ def list_datasets():
 
 @app.get("/api/datasets/{dataset_id}", response_model=DatasetMeta)
 def get_dataset_meta(dataset_id: str):
-    """Get dataset metadata: dimensions, obs/var columns, spatial bounds."""
+    """Get dataset metadata: dimensions, obs/var columns, plot bounds (spatial or UMAP)."""
     adata = _get_adata(dataset_id)
-    x = _get_spatial_x(adata)
-    y = _get_spatial_y(adata)
+    x, y, layout = _get_plot_coordinates(adata)
     return DatasetMeta(
         id=dataset_id,
         name=dataset_id,
@@ -108,34 +108,49 @@ def get_dataset_meta(dataset_id: str):
         x_max=float(np.nanmax(x)),
         y_min=float(np.nanmin(y)),
         y_max=float(np.nanmax(y)),
+        layout=layout,
     )
 
 
-def _get_spatial_x(adata):
-    if "spatial" in adata.obsm:
-        return adata.obsm["spatial"][:, 0]
-    if "x" in adata.obs.columns:
-        return adata.obs["x"].values
-    raise ValueError("No spatial coordinates in adata")
+def _has_spatial(adata) -> bool:
+    """True if adata has spatial coordinates (obsm or obs x/y)."""
+    if "spatial" in adata.obsm or "X_spatial" in adata.obsm:
+        return True
+    return "x" in adata.obs.columns and "y" in adata.obs.columns
 
 
-def _get_spatial_y(adata):
-    if "spatial" in adata.obsm:
-        return adata.obsm["spatial"][:, 1]
-    if "y" in adata.obs.columns:
-        return adata.obs["y"].values
-    raise ValueError("No spatial coordinates in adata")
+def _get_plot_coordinates(adata):
+    """
+    Return (x, y) for the 2D plot: use spatial if present, otherwise UMAP.
+    Raises ValueError if neither is available.
+    Returns (x, y, layout) where layout is "spatial" or "umap".
+    """
+    if _has_spatial(adata):
+        if "spatial" in adata.obsm:
+            x = np.asarray(adata.obsm["spatial"][:, 0], dtype=np.float64)
+            y = np.asarray(adata.obsm["spatial"][:, 1], dtype=np.float64)
+        elif "X_spatial" in adata.obsm:
+            x = np.asarray(adata.obsm["X_spatial"][:, 0], dtype=np.float64)
+            y = np.asarray(adata.obsm["X_spatial"][:, 1], dtype=np.float64)
+        else:
+            x = np.asarray(adata.obs["x"].values, dtype=np.float64)
+            y = np.asarray(adata.obs["y"].values, dtype=np.float64)
+        return x, y, "spatial"
+    if "X_umap" in adata.obsm and adata.obsm["X_umap"].shape[1] >= 2:
+        x = np.asarray(adata.obsm["X_umap"][:, 0], dtype=np.float64)
+        y = np.asarray(adata.obsm["X_umap"][:, 1], dtype=np.float64)
+        return x, y, "umap"
+    raise ValueError("No spatial coordinates or UMAP in adata (need obsm['spatial'] or obs x/y or obsm['X_umap'])")
 
 
 @app.get("/api/datasets/{dataset_id}/spatial", response_model=SpatialResponse)
 def get_spatial(dataset_id: str):
-    """Get spatial coordinates (x, y) for all cells."""
+    """Get plot coordinates (x, y) for all cells: spatial if present, else UMAP."""
     adata = _get_adata(dataset_id)
-    x = _get_spatial_x(adata)
-    y = _get_spatial_y(adata)
+    x, y, _ = _get_plot_coordinates(adata)
     return SpatialResponse(
-        x=np.asarray(x, dtype=np.float64).tolist(),
-        y=np.asarray(y, dtype=np.float64).tolist(),
+        x=x.tolist(),
+        y=y.tolist(),
     )
 
 

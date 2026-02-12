@@ -136,7 +136,13 @@ export default function App() {
             colorBy={colorByValues}
             colorMode={plotColorMode}
             bounds={bounds}
-            title={selectedDatasetId ?? undefined}
+            title={
+              selectedDatasetId
+                ? meta?.layout
+                  ? `${selectedDatasetId} (${meta.layout === "umap" ? "UMAP" : "Spatial"})`
+                  : selectedDatasetId
+                : undefined
+            }
           />
         ) : (
           <div
@@ -154,7 +160,7 @@ export default function App() {
               ? "Select a dataset from the sidebar"
               : loading
                 ? "Loading…"
-                : "Select an annotation or gene to color the spatial plot"}
+                : "Select an annotation or gene to color the plot"}
           </div>
         )}
       </div>

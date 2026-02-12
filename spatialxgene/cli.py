@@ -92,13 +92,15 @@ def _cmd_infer(args: argparse.Namespace) -> None:
     output_path = args.output.resolve() if args.output else None
     in_place = output_path is None
     kwargs = dict(bin_scale_um=args.bin_scale_um)
+    flip_y = getattr(args, "flip_y", False)
+    grid_shape = tuple(args.grid) if getattr(args, "grid", None) else None
 
     if input_path.is_file():
         if input_path.suffix != ".h5ad":
             print("Input must be a .h5ad file.", file=sys.stderr)
             sys.exit(1)
         out = output_path or input_path
-        added = infer_file(input_path, out, in_place=in_place, **kwargs)
+        added = infer_file(input_path, out, in_place=in_place, flip_y=flip_y, grid_shape=grid_shape, **kwargs)
         if added:
             print(f"Added spatial coordinates -> {out}")
         else:
@@ -114,6 +116,8 @@ def _cmd_infer(args: argparse.Namespace) -> None:
             input_path,
             out_dir,
             exclude_name_containing=args.exclude,
+            flip_y=flip_y,
+            grid_shape=grid_shape,
             **kwargs,
         )
         for out_path, added in results:
@@ -226,6 +230,8 @@ def main() -> None:
         help="Output file or directory (default: overwrite in place)",
     )
     infer_p.add_argument("--bin-scale-um", type=float, default=1.0, help="Bin size in micron for inferred grid (default 1.0)")
+    infer_p.add_argument("--flip-y", action="store_true", help="Flip y axis (y = n_rows-1 - y) so tissue orientation matches display")
+    infer_p.add_argument("--grid", type=int, nargs=2, metavar=("COLS", "ROWS"), default=None, help="Force grid shape for n_obs (e.g. 768 960 to swap 960x768). Must have COLS*ROWS=n_obs.")
     infer_p.add_argument("--exclude", type=str, default="preprocessed", help="Skip input files whose name contains this (default: preprocessed)")
     infer_p.set_defaults(func=_cmd_infer)
 

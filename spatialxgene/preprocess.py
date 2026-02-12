@@ -3,10 +3,30 @@ Preprocessing pipeline for expression matrix only: QC, normalize, HVG, PCA, neig
 Does not add or modify spatial coordinates; use `spatialxgene infer` for that.
 """
 from pathlib import Path
+import warnings
 
 import anndata as ad
 import scanpy.preprocessing as sc_pp
 import scanpy.tools as sc_tl
+
+
+def _has_spatial(adata: ad.AnnData) -> bool:
+    """True if adata has spatial coordinates."""
+    if "spatial" in adata.obsm:
+        return True
+    return "x" in adata.obs.columns and "y" in adata.obs.columns
+
+
+def _check_spatial_preserved(adata: ad.AnnData, step: str) -> None:
+    """Warn if spatial was expected but is missing or shape mismatch."""
+    if "spatial" not in adata.obsm:
+        return
+    if adata.obsm["spatial"].shape[0] != adata.n_obs:
+        warnings.warn(
+            f"preprocess: after {step}, obsm['spatial'] shape {adata.obsm['spatial'].shape[0]} != n_obs {adata.n_obs}",
+            UserWarning,
+            stacklevel=2,
+        )
 
 
 def run_preprocess(
@@ -23,16 +43,21 @@ def run_preprocess(
     Run expression-only preprocessing: QC, normalize, log, HVG, PCA, neighbors, UMAP, Leiden.
     Does not modify spatial information. Returns the modified adata (in place + return).
     """
+    had_spatial = _has_spatial(adata)
     if "n_genes_by_counts" not in adata.obs.columns and adata.X is not None:
         sc_pp.calculate_qc_metrics(adata, inplace=True)
     if min_genes > 0 and "n_genes_by_counts" in adata.obs.columns:
         adata = adata[adata.obs["n_genes_by_counts"] >= min_genes].copy()
+    if had_spatial:
+        _check_spatial_preserved(adata, "QC filter (min_genes)")
     if min_cells > 0 and adata.n_vars > 0:
         sc_pp.filter_genes(adata, min_cells=min_cells)
 
     sc_pp.normalize_total(adata, target_sum=1e4)
     sc_pp.log1p(adata)
     sc_pp.highly_variable_genes(adata, n_top_genes=n_top_genes, flavor="seurat", subset=True)
+    if had_spatial:
+        _check_spatial_preserved(adata, "HVG subset")
 
     n_pcs_use = min(n_pcs, min(adata.n_obs, adata.n_vars) - 1)
     sc_tl.pca(adata, n_comps=n_pcs_use, svd_solver="arpack")

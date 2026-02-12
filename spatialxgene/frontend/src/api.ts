@@ -13,6 +13,8 @@ export type DatasetMeta = {
   x_max: number;
   y_min: number;
   y_max: number;
+  /** "spatial" or "umap": which coordinates are used for the 2D plot */
+  layout?: string;
 };
 
 export type SpatialResponse = { x: number[]; y: number[] };
