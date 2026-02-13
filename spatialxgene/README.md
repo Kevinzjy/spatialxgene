@@ -40,7 +40,7 @@ spatialxgene launch [--data-dir DIR] [--port N] [--no-browser] [--build]
 - **--build** — Rebuild frontend before starting (only when running from source).
 
 **Viewer (spatial plot)**  
-Canvas-based plot in data coordinates. Point radius from grid spacing; zoom (wheel, cursor-centered) and pan (drag); toolbar has zoom in/out and reset. Color by annotation or gene; unselected mode shows all points in gray. Optional tissue background (hires/lowres) when embedding is Spatial; sidebar can toggle Spatial/UMAP (background image hidden in UMAP). Gene mode: continuous palette and reverse option. Hover shows spot index and annotation/gene value; annotation legend (below Opacity) lists categories with counts, sorted by count. Dataset switch shows a loading overlay; layout fills the viewport (no scrollbar).
+Canvas-based plot in data coordinates. Point radius from grid spacing; zoom (wheel, cursor-centered) and pan (drag); toolbar has zoom in/out and reset. Color by annotation or gene; unselected mode shows all points in gray. Optional tissue background (hires/lowres) when embedding is Spatial; sidebar can toggle Spatial/UMAP (background image hidden in UMAP). Gene mode: continuous palette and reverse option. Hover shows spot index and annotation/gene value; annotation legend (below Opacity) lists categories with counts, sorted by count. Dataset switch shows a loading overlay with a step-based progress bar (25% per request) and a brief hold at 100% so the user sees the full sequence; layout fills the viewport (no scrollbar).
 
 ### preprocess — QC, reduce, cluster (expression only)
 

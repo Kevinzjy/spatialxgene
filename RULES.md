@@ -93,7 +93,10 @@
 
 - **服务器网络权限**
   - 生产环境网络权限较严：**只能获得一个代理端口的权限**（例如 nginx 上仅能配置一个 `location /spatialxgene/` 反代到本应用）。不能为项目单独增加根路径或其它全局路由（如 `/favicon.svg`、`/api` 等）。
-  - 因此子路径部署时，所有静态资源与 API 必须都落在该唯一 location 下（如 `/spatialxgene/...`）。后端通过 `--api-base` / `SPATIALXGENE_API_BASE` 注入 base，前端 HTML 与组件（含 favicon、logo、assets、API）全部使用该 base，不依赖 nginx 侧再配其它 location。本地 nginx 测试配置（如 `docker/nginx-test-docker.conf`）也仅保留该一个 location，与生产一致。
+  - 因此子路径部署时，所有静态资源与 API 必须都落在该唯一 location 下（如 `/spatialxgene/...`）。后端通过 `--api-base` / `SPATIALXGENE_API_BASE` 注入 base，前端 HTML 与组件（含 favicon、logo、assets、API）全部使用该 base，不依赖 nginx 侧再配其它 location。本地 nginx 测试配置（`docker/nginx-test.conf`）也仅保留该一个 location，与生产一致。
+
+- **数据集加载进度条**
+  - 采用按步骤的进度（4 个请求：meta / spatial / obs / var，每完成一个 +25%），避免用户误以为页面卡死。全部完成后保持 100% 约 400ms 再关闭 loading，避免“到 75% 就突然结束”的体感；若在等待期间用户切换了数据集则直接 return，由 finally 收尾。
 
 - **打包与 wheel**
   - 只上传 wheel 到 PyPI、不上传源码时，前端必须打进 wheel：用 `[tool.setuptools.package-data]` 包含预构建的 `frontend/dist/**`；打 wheel 前必须先 `npm run build`（如 Makefile 的 `publish`/`publish-test` 先 `make build-frontend`）。否则 pip 安装后 `spatialxgene launch` 会报 “Frontend not found”。

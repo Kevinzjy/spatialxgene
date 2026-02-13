@@ -16,7 +16,7 @@ docker compose -f docker/docker-compose.yml up -d
 - **Token**: Default `--token zhaoslab`. Override with `command: ["--token", "your-secret"]` or `command: ["--token", ""]` to disable.
 - **Port**: Default `5005`; change `ports` in the compose file if needed.
 
-See [docker/README.md](../docker/README.md) for more options.
+See [docker/README.md](../docker/README.md) for more options. If you only have a single nginx location (e.g. `/spatialxgene/`), set `--api-base spatialxgene` or `SPATIALXGENE_API_BASE=spatialxgene` so all assets and API use that path; see RULES.md §4.3 (server network permission).
 
 ---
 

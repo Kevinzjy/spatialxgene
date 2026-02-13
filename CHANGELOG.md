@@ -4,6 +4,20 @@ All notable changes to this project are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [Unreleased]
+
+### Added
+
+- **Subpath deployment (nginx)**: When the app is behind a reverse proxy at a path (e.g. `location /spatialxgene/`), use `--api-base spatialxgene` or env `SPATIALXGENE_API_BASE=spatialxgene` so the frontend requests favicon, assets, and API under that path. Backend injects `window.__API_BASE__` and rewrites favicon href in index.html; Sidebar logo and API use the same base. Works with a single nginx location (no extra `/favicon.svg` route).
+- **Local subpath test**: One-command `docker compose -f docker/docker-compose.nginx-test.yml up --build` runs nginx + spatialxgene; open http://localhost:8888/spatialxgene/ to test the same as production. Single config `docker/nginx-test.conf` (one location only).
+- **Dataset loading progress bar**: Step-based progress (25% per request: meta, spatial, obs, var) with a visible bar and "Loading dataset… X%". After all complete, progress stays at 100% for 400 ms so the user sees the full sequence instead of an abrupt switch to content.
+
+### Changed
+
+- **Docker deployment**: `docker/README.md` documents build → `docker save` → upload → on server `docker load` + `cd docker` + `docker compose up -d`. Compose example uses `image: spatialxgene:latest` and `command: ["--token", "...", "--api-base", "spatialxgene"]`.
+- **Backend when `--api-base` set**: Serves the app at both `/` (for nginx that strips the path) and at the subpath (for direct open). Serves `/favicon.svg` at root directly (no redirect) to avoid redirect loop behind nginx.
+- **RULES.md**: Server has only one proxy port; all assets/API must live under that location. Favicon/logo 404: distinguish tab icon vs in-page logo; ask clearly to get the right fix first time.
+
 ## [0.2.3] - 2026-02-12
 
 ### Added
