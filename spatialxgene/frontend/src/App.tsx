@@ -77,6 +77,10 @@ export default function App() {
   const [backgroundOpacity, setBackgroundOpacity] = useState(1);
   const [loading, setLoading] = useState(false);
   const [loadProgress, setLoadProgress] = useState(0);
+  /** True while fetching expression for the selected gene (single-gene mode). */
+  const [expressionLoading, setExpressionLoading] = useState(false);
+  /** True while fetching expression for co-expression mode. */
+  const [coexpressionLoading, setCoexpressionLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [anndataError, setAnndataError] = useState<string | null>(null);
   const [embeddingMode, setEmbeddingMode] = useState<"spatial" | "umap" | "pca" | "tsne">("spatial");
@@ -244,9 +248,11 @@ export default function App() {
   useEffect(() => {
     if (!selectedDatasetId || !selectedGene) {
       setExpression(null);
+      setExpressionLoading(false);
       return;
     }
     const ac = new AbortController();
+    setExpressionLoading(true);
     debugLog("fetchExpression", { datasetId: selectedDatasetId, gene: selectedGene, layer: selectedLayer });
     fetchExpression(selectedDatasetId, selectedGene, ac.signal, selectedLayer)
       .then((arr) => {
@@ -257,8 +263,14 @@ export default function App() {
         if (e?.name === "AbortError") return;
         debugLog("fetchExpression error", { gene: selectedGene, error: String(e) });
         setExpression(null);
+      })
+      .finally(() => {
+        setExpressionLoading(false);
       });
-    return () => ac.abort();
+    return () => {
+      ac.abort();
+      setExpressionLoading(false);
+    };
   }, [selectedDatasetId, selectedGene, selectedLayer]);
 
   // Fetch both genes for co-expression mode
@@ -266,10 +278,12 @@ export default function App() {
     if (!selectedDatasetId || !selectedGene1 || !selectedGene2) {
       setExpression1(null);
       setExpression2(null);
+      setCoexpressionLoading(false);
       return;
     }
     const ac = new AbortController();
     const signal = ac.signal;
+    setCoexpressionLoading(true);
     debugLog("fetchCoexpression", { datasetId: selectedDatasetId, gene1: selectedGene1, gene2: selectedGene2, layer: selectedLayer });
     Promise.all([
       fetchExpression(selectedDatasetId, selectedGene1, signal, selectedLayer),
@@ -285,8 +299,14 @@ export default function App() {
         debugLog("fetchCoexpression error", { error: String(e) });
         setExpression1(null);
         setExpression2(null);
+      })
+      .finally(() => {
+        setCoexpressionLoading(false);
       });
-    return () => ac.abort();
+    return () => {
+      ac.abort();
+      setCoexpressionLoading(false);
+    };
   }, [selectedDatasetId, selectedGene1, selectedGene2, selectedLayer]);
 
   const colorByValues = React.useMemo(() => {
@@ -579,9 +599,10 @@ export default function App() {
             </div>
           </div>
         ) : spatial ? (
-          <SpatialPlot
-            x={spatial.x}
-            y={spatial.y}
+          <div style={{ position: "relative", flex: 1, display: "flex", minWidth: 0 }}>
+            <SpatialPlot
+              x={spatial.x}
+              y={spatial.y}
             colorBy={colorByValues}
             colorMode={plotColorMode}
             bounds={bounds}
@@ -641,7 +662,51 @@ export default function App() {
                   }`
                 : undefined
             }
-          />
+            />
+            {(expressionLoading || coexpressionLoading) && (
+              <div
+                style={{
+                  position: "absolute",
+                  inset: 0,
+                  display: "flex",
+                  flexDirection: "column",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  background: "rgba(26, 26, 46, 0.85)",
+                  color: "#ccc",
+                  fontSize: 14,
+                  gap: 12,
+                }}
+              >
+                <span>
+                  {expressionLoading && selectedGene
+                    ? `Loading expression for ${selectedGene}…`
+                    : coexpressionLoading && selectedGene1 && selectedGene2
+                      ? `Loading expression for ${selectedGene1}, ${selectedGene2}…`
+                      : "Loading expression…"}
+                </span>
+                <div
+                  style={{
+                    width: 240,
+                    height: 6,
+                    background: "#0f3460",
+                    borderRadius: 3,
+                    overflow: "hidden",
+                  }}
+                >
+                  <div
+                    style={{
+                      width: "40%",
+                      height: "100%",
+                      background: "#e94560",
+                      borderRadius: 3,
+                      animation: "expression-loading-shimmer 1.2s ease-in-out infinite",
+                    }}
+                  />
+                </div>
+              </div>
+            )}
+          </div>
         ) : (
           <div
             style={{
