@@ -505,11 +505,12 @@ def index():
         raw = raw.replace("</head>", f"{inj}\n</head>", 1)
     else:
         raw = inj + "\n" + raw
-    # Favicon href: use absolute path with API_BASE so it works at subpath (./favicon.svg resolves wrong when URL has no trailing slash)
-    favicon_href = f"{API_BASE}/favicon.svg"
+    # Favicon href: always use absolute path with API_BASE (./favicon.svg resolves to /favicon.svg when URL has no trailing slash)
+    favicon_href = f"{API_BASE}/favicon.svg".lstrip("/") or "favicon.svg"
+    favicon_href = "/" + favicon_href
     raw = re.sub(
-        r'<link\s+rel="icon"[^>]*\shref="[^"]*"[^>]*/?\s*>',
-        f'<link rel="icon" type="image/svg+xml" href="{favicon_href}">',
+        r'(<link\s+rel="icon"[^>]*\bhref=")([^"]*)(")',
+        lambda m: f"{m.group(1)}{favicon_href}{m.group(3)}",
         raw,
         count=1,
     )
@@ -538,3 +539,23 @@ def mount_static(static_dir: Path) -> None:
     """Mount static files (call after set_static_dir)."""
     if (static_dir / "assets").exists():
         app.mount("/assets", StaticFiles(directory=static_dir / "assets"), name="assets")
+
+
+def get_app():
+    """
+    Return the ASGI app to run. When API_BASE is set, mounts the main app at that path
+    so you can test subpath locally: open http://localhost:5005/<api_base>/ and favicon/API/assets work.
+    """
+    if not API_BASE:
+        return app
+    from starlette.responses import RedirectResponse
+    from starlette.routing import Mount
+
+    root = FastAPI(title="Spatialxgene (root)")
+
+    @root.get("/favicon.svg")
+    def _redirect_favicon():
+        return RedirectResponse(url=f"{API_BASE}/favicon.svg", status_code=302)
+
+    root.mount(API_BASE.rstrip("/") or "/", app)
+    return root

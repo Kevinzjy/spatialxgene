@@ -175,7 +175,7 @@ def _cmd_launch(args: argparse.Namespace) -> None:
         sys.exit(1)
 
     import uvicorn
-    from spatialxgene.server.main import app, set_data_dir, set_static_dir, set_debug, set_token, set_api_base, mount_static
+    from spatialxgene.server.main import get_app, set_data_dir, set_static_dir, set_debug, set_token, set_api_base, mount_static
 
     set_data_dir(args.data_dir.resolve())
     set_static_dir(static_dir)
@@ -184,9 +184,13 @@ def _cmd_launch(args: argparse.Namespace) -> None:
     set_api_base(getattr(args, "api_base", "") or "")
     mount_static(static_dir)
 
+    api_base = getattr(args, "api_base", "") or ""
+    base_path = f"/{api_base.strip('/')}" if api_base.strip() else ""
     url = _format_server_url(args.host, args.port)
     token = getattr(args, "token", None)
     print(f"Spatialxgene serving at {url}")
+    if base_path:
+        print(f"  With --api-base: open {url.rstrip('/')}{base_path}/ to test subpath (favicon, assets, API).")
     if _host_is_listen_all(args.host):
         addrs = _local_ipv4_addresses()
         if addrs:
@@ -203,9 +207,11 @@ def _cmd_launch(args: argparse.Namespace) -> None:
     if not args.no_browser:
         import webbrowser
         open_url = f"http://127.0.0.1:{args.port}" if _host_is_listen_all(args.host) else url
+        if base_path:
+            open_url = open_url.rstrip("/") + base_path + "/"
         webbrowser.open(_append_token(open_url, token))
 
-    uvicorn.run(app, host=args.host, port=args.port, log_level="info")
+    uvicorn.run(get_app(), host=args.host, port=args.port, log_level="info")
 
 
 def _cmd_dev(args: argparse.Namespace) -> None:
@@ -223,7 +229,7 @@ def _cmd_dev(args: argparse.Namespace) -> None:
 
     import threading
     import uvicorn
-    from spatialxgene.server.main import app, set_data_dir, set_static_dir, set_debug, set_token, set_api_base, mount_static
+    from spatialxgene.server.main import get_app, set_data_dir, set_static_dir, set_debug, set_token, set_api_base, mount_static
 
     set_data_dir(args.data_dir.resolve())
     set_static_dir(static_dir)
@@ -233,21 +239,26 @@ def _cmd_dev(args: argparse.Namespace) -> None:
     mount_static(static_dir)
 
     def run_uvicorn():
-        uvicorn.run(app, host=args.host, port=args.port, log_level="info")
+        uvicorn.run(get_app(), host=args.host, port=args.port, log_level="info")
 
     server_thread = threading.Thread(target=run_uvicorn, daemon=True)
     server_thread.start()
 
     token = getattr(args, "token", None)
+    api_base = getattr(args, "api_base", "") or ""
+    base_path = f"/{api_base.strip('/')}" if api_base.strip() else ""
     url = _append_token(_format_server_url(args.host, args.port), token)
     print(f"Spatialxgene dev: backend at {url}")
+    if base_path:
+        print(f"  With --api-base: open {url.rstrip('/')}{base_path}/ to test subpath.")
     if getattr(args, "debug", False):
         print("Debug mode: on (browser console will show verbose logs)")
     print("Frontend: watching spatialxgene/frontend/ — save any file to rebuild; refresh browser to see changes.")
     print("Press Ctrl+C to stop.")
     if not args.no_browser:
         import webbrowser
-        webbrowser.open(url)
+        open_url = url.rstrip("/") + base_path + "/" if base_path else url
+        webbrowser.open(open_url)
     subprocess.run(["npm", "run", "build:watch"], cwd=frontend_dir)
 
 

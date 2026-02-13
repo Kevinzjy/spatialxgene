@@ -92,6 +92,8 @@ location /spatialxgene/ {
 
 Access the app at `https://your-domain/spatialxgene/`. For root access, run without `--api-base`.
 
+**Test subpath locally** (no need to deploy): run `spatialxgene launch --api-base spatialxgene` and open `http://localhost:5005/spatialxgene/`; the app is mounted at that path so favicon, assets, and API all work as on production.
+
 ## Development
 
 For project layout, `spatialxgene dev`, and build/run from source, see the project repository.
