@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { DatasetItem, DatasetMeta, ObsResponse } from "../api";
+import { API_BASE, type DatasetItem, type DatasetMeta, type ObsResponse } from "../api";
 import {
   CONTINUOUS_PALETTE_IDS,
   CONTINUOUS_PALETTE_LABELS,
@@ -288,7 +288,7 @@ export function Sidebar({
         }}
       >
         <img
-          src="/favicon.svg"
+          src={API_BASE === "." ? "./favicon.svg" : `${API_BASE}/favicon.svg`}
           alt="SPATIALxGENE"
           style={{ width: 18, height: 18, borderRadius: 4, flexShrink: 0 }}
         />

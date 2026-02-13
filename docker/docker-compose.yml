@@ -7,10 +7,9 @@ services:
       - "5005:5005"
     volumes:
       - ../data:/data
+    # When nginx proxies e.g. location /spatialxgene/ to this port, set so favicon/API/assets use that path
+    environment:
+      - SPATIALXGENE_API_BASE=spatialxgene
     command: ["--token", "zhaoslab"]
 
-    # Override token: use command or environment; default is --token zhaoslab
-    # command: ["--token", "your-secret"]
-    # command: ["--token", ""]   # disable token
-    # For nginx subpath (e.g. /spatialxgene/): add --api-base
-    # command: ["--api-base", "spatialxgene", "--token", "zhaoslab"]
+    # Override token: command or env; for subpath use SPATIALXGENE_API_BASE (above) or: command: ["--api-base", "spatialxgene", "--token", "zhaoslab"]

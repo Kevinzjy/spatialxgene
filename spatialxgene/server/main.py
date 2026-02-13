@@ -505,15 +505,18 @@ def index():
         raw = raw.replace("</head>", f"{inj}\n</head>", 1)
     else:
         raw = inj + "\n" + raw
-    # Favicon href: always use absolute path with API_BASE (./favicon.svg resolves to /favicon.svg when URL has no trailing slash)
-    favicon_href = f"{API_BASE}/favicon.svg".lstrip("/") or "favicon.svg"
-    favicon_href = "/" + favicon_href
+    # Favicon href: always use absolute path with API_BASE so tab icon loads (./ or /favicon.svg -> /spatialxgene/favicon.svg)
+    favicon_href = "/" + (f"{API_BASE}/favicon.svg".lstrip("/") or "favicon.svg")
+    # Replace in rel="icon" (or "shortcut icon") link
     raw = re.sub(
-        r'(<link\s+rel="icon"[^>]*\bhref=")([^"]*)(")',
+        r'(<link\s+rel="[^"]*icon[^"]*"[^>]*\bhref=")([^"]*)(")',
         lambda m: f"{m.group(1)}{favicon_href}{m.group(3)}",
         raw,
         count=1,
     )
+    # Fallback: replace any remaining favicon.svg href that looks wrong (e.g. ./favicon.svg or /favicon.svg when we have a base)
+    if API_BASE and ('href="./favicon.svg"' in raw or 'href="/favicon.svg"' in raw):
+        raw = raw.replace('href="./favicon.svg"', f'href="{favicon_href}"').replace('href="/favicon.svg"', f'href="{favicon_href}"')
     return HTMLResponse(
         raw,
         headers={"Cache-Control": "no-store"},
@@ -543,19 +546,28 @@ def mount_static(static_dir: Path) -> None:
 
 def get_app():
     """
-    Return the ASGI app to run. When API_BASE is set, mounts the main app at that path
-    so you can test subpath locally: open http://localhost:5005/<api_base>/ and favicon/API/assets work.
+    Return the ASGI app to run. When API_BASE is set, mounts the main app at both
+    the subpath (for direct local test: localhost:5005/<api_base>/) and at / (for
+    nginx: nginx proxies /spatialxgene/ -> backend GET /, so backend must serve at /).
     """
     if not API_BASE:
         return app
-    from starlette.responses import RedirectResponse
     from starlette.routing import Mount
 
     root = FastAPI(title="Spatialxgene (root)")
 
+    # Serve favicon at / so when nginx forwards /spatialxgene/favicon.svg as GET /favicon.svg we respond
+    # (redirect would loop: 302 to /spatialxgene/favicon.svg -> nginx strips -> GET /favicon.svg again)
     @root.get("/favicon.svg")
-    def _redirect_favicon():
-        return RedirectResponse(url=f"{API_BASE}/favicon.svg", status_code=302)
+    def _root_favicon():
+        if STATIC_DIR is not None:
+            svg_path = STATIC_DIR / "favicon.svg"
+            if svg_path.exists():
+                return FileResponse(svg_path, media_type="image/svg+xml")
+        raise HTTPException(status_code=404, detail="favicon.svg not found")
 
+    # Mount at subpath first so GET /spatialxgene/ is handled when opening that URL directly
     root.mount(API_BASE.rstrip("/") or "/", app)
+    # Mount at / so when nginx proxies /spatialxgene/ -> GET /, the backend still serves the app
+    root.mount("/", app)
     return root

@@ -1,50 +1,44 @@
-# Docker deployment for Spatialxgene
+# Docker 部署
 
-Build and run with Docker Compose from the **project root**:
+## 服务器上的用法（你当前流程）
+
+1. **本机**：构建并打包镜像，上传到服务器。
+   ```bash
+   # 在项目根目录
+   docker build -f docker/Dockerfile -t spatialxgene:latest .
+   docker save -o spatialxgene.tar spatialxgene:latest
+   # 把 spatialxgene.tar 拷到服务器
+   ```
+
+2. **服务器**：加载镜像，在放有 `docker-compose.yml` 的目录（如 `docker/`）里起服务。
+   ```bash
+   docker load -i spatialxgene.tar
+   cd docker
+   docker compose up -d
+   ```
+
+3. **docker-compose.yml 示例**（只保留你需要的部分即可）：
+   ```yaml
+   services:
+     spatialxgene:
+       image: spatialxgene:latest
+       ports:
+         - "5005:5005"
+       volumes:
+         - /data/zhao/filebrowser/srv/users/spatial:/data
+       command: ["--token", "zhaoslab", "--api-base", "spatialxgene"]
+   ```
+   - 若 nginx 反代路径不是 `/spatialxgene/`，把 `--api-base` 改成对应路径名。
+   - 数据目录按你服务器实际路径改 `volumes` 里的宿主机路径。
+
+---
+
+## 本地一键测子路径（可选）
+
+在项目根目录执行：
 
 ```bash
-docker compose -f docker/docker-compose.yml up -d
+docker compose -f docker/docker-compose.nginx-test.yml up --build
 ```
 
-- **Data**: Default volume `./data` on the host is mounted at `/data` in the container. Put your preprocessed h5ad files in `./data/` (or change the `volumes` path in `docker-compose.yml`).
-- **Port**: App listens on 5005 inside the container; default mapping is `5005:5005`. Change the left side to bind another host port.
-- **Token**: Default auth token is `zhaoslab`. Override by uncommenting and editing the `command` in `docker-compose.yml`:
-  - `command: ["--token", "your-secret"]` — use your own token
-  - `command: ["--token", ""]` — disable token (open access)
-
-## Subpath behind nginx
-
-If you proxy at a path like `/spatialxgene/`, pass the same base to the app:
-
-```yaml
-command: ["--api-base", "spatialxgene", "--token", "zhaoslab"]
-```
-
-Adjust `--api-base` to match your nginx `location` path (without leading/trailing slashes).
-
-## Build only (no compose)
-
-From project root:
-
-```bash
-docker build -f docker/Dockerfile -t spatialxgene .
-docker run -p 5005:5005 -v "$(pwd)/data:/data" spatialxgene
-```
-
-## See also
-
-- [../docs/deployment.md](../docs/deployment.md) — Full deployment guide (Docker Compose + systemd).
-
-## Remote deployment
-
-```bash
-# Save images
-make docker 
-docker save -o docker/spatialxgene.tar docker-spatialxgene:latest
-
-# Load images
-docker load -i spatialxgene.tar
-git clone <repo>
-cd docker
-docker compose up
-```
+浏览器打开 http://localhost:8888/spatialxgene/ 。数据目录为 `./data`。

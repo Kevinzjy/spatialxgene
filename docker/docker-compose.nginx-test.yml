@@ -1,0 +1,28 @@
+# One-command local test: nginx + spatialxgene, same as production (subpath /spatialxgene/).
+#
+# From project root:
+#   docker compose -f docker/docker-compose.nginx-test.yml up --build
+#
+# Then open http://localhost:8888/spatialxgene/
+# Data: ./data on host is mounted at /data in the app container; put h5ad files there.
+
+services:
+  spatialxgene:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    environment:
+      - SPATIALXGENE_API_BASE=spatialxgene
+    volumes:
+      - ../data:/data
+    command: ["--token", "zhaoslab"]
+    # No host port; nginx proxies to this service
+
+  nginx:
+    image: nginx:alpine
+    ports:
+      - "8888:80"
+    volumes:
+      - ./nginx-test.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - spatialxgene

@@ -62,6 +62,13 @@
 - **改动范围**：最近修改了哪些文件/功能（如果我知道）
 - **期望行为**：我希望最终看到什么结果（例如页面显示、API 返回、构建通过）
 
+**针对「某个图片/图标/资源 404 或不显示」类问题，第一次就修对的提问要点：**
+
+- **说清楚是哪一个 UI 元素**：例如「**不是**浏览器标签页上的小图标，是**页面里**侧边栏/顶栏上 SPATIALxGENE 标题**左边**的那个 logo 不显示」。
+- **区分「标签页 favicon」和「页面内的 logo」**：两者都可能请求 `favicon.svg`，控制台报错一样，但修复位置不同（前者改 HTML 注入/nginx，后者改前端组件里的 `img src`）。若只说「favicon 不显示」，AI 会默认当成标签页图标去改。
+- **若该资源的 URL 不在网页源码里**：可以补一句「这个图在浏览器查看网页源代码里找不到 href/地址」，这样会提示 AI 去查 **前端代码**（React 组件、`img` 的 `src`）而不是只查 HTML 或 nginx。
+- **简短模板**：「页面上 [位置，如侧边栏顶部] 的 [元素，如 logo/图标] 不显示，控制台报 [资源] 404；不是标签页图标，是页面内容里的。」
+
 ### 4.2 教训记录（模板）
 
 > 每次“反复修改后才解决”的问题，都要在此追加一条记录。
@@ -71,7 +78,22 @@
 - **最有效的补充信息**：<如果一开始就提供，会更快解决的内容>
 - **下次提问要点**：<可复制的提问模板>
 
+---
+
+#### 子路径部署下「favicon/logo」不显示（2026-02）
+
+- **问题**：nginx 用 `location /spatialxgene/` 反代到 5005，页面能打开，但控制台报 `GET .../favicon.svg 404`，页面上有图标/logo 显示不出来。
+- **根因**：
+  - 存在**两种**会请求 `favicon.svg` 的地方：① 浏览器**标签页图标**（HTML 里 `<link rel="icon" href="...">`）；② 前端**页面内的 logo**（Sidebar 里 `<img src="/favicon.svg">`）。控制台都只显示「favicon.svg 404」，无法区分。
+  - 前期默认按「标签页 favicon」处理：改后端 HTML 注入、nginx 代理、根路径重定向等，没有去查前端组件里是否还有硬编码的 `src="/favicon.svg"`。直到用户明确说「不是标签页的 favicon，是页面左侧状态栏 SPATIALxGENE 标题左边的 logo」「源码里看不到 href」，才去搜 Sidebar，发现 `<img src="/favicon.svg">` 需改成带 `API_BASE` 的路径。
+- **最有效的补充信息**：一开始就说清「是页面内容里的 logo（侧边栏/标题旁），不是浏览器标签页上的小图标」；或补充「这个图在网页源码里找不到地址」。
+- **下次提问要点**：见 4.1 中「针对 某个图片/图标/资源 404 或不显示」的提问要点。
+
 ### 4.3 项目规范与发布教训（Spatialxgene）
+
+- **服务器网络权限**
+  - 生产环境网络权限较严：**只能获得一个代理端口的权限**（例如 nginx 上仅能配置一个 `location /spatialxgene/` 反代到本应用）。不能为项目单独增加根路径或其它全局路由（如 `/favicon.svg`、`/api` 等）。
+  - 因此子路径部署时，所有静态资源与 API 必须都落在该唯一 location 下（如 `/spatialxgene/...`）。后端通过 `--api-base` / `SPATIALXGENE_API_BASE` 注入 base，前端 HTML 与组件（含 favicon、logo、assets、API）全部使用该 base，不依赖 nginx 侧再配其它 location。本地 nginx 测试配置（如 `docker/nginx-test-docker.conf`）也仅保留该一个 location，与生产一致。
 
 - **打包与 wheel**
   - 只上传 wheel 到 PyPI、不上传源码时，前端必须打进 wheel：用 `[tool.setuptools.package-data]` 包含预构建的 `frontend/dist/**`；打 wheel 前必须先 `npm run build`（如 Makefile 的 `publish`/`publish-test` 先 `make build-frontend`）。否则 pip 安装后 `spatialxgene launch` 会报 “Frontend not found”。

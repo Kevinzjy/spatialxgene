@@ -2,12 +2,24 @@
 Spatialxgene CLI: subcommands launch (browser viewer) and preprocess (QC + reduce + cluster).
 """
 import argparse
+import os
 import re
 import socket
 import subprocess
 import sys
 from pathlib import Path
 from typing import Optional
+
+# Env var for api-base (e.g. in Docker): SPATIALXGENE_API_BASE=spatialxgene so static/API paths use that prefix
+_API_BASE_ENV = "SPATIALXGENE_API_BASE"
+
+
+def _resolve_api_base(args: argparse.Namespace) -> str:
+    """CLI --api-base or SPATIALXGENE_API_BASE env; for use in launch/dev."""
+    from_cli = (getattr(args, "api_base", "") or "").strip()
+    if from_cli:
+        return from_cli
+    return (os.environ.get(_API_BASE_ENV) or "").strip()
 
 
 def _local_ipv4_addresses() -> list[str]:
@@ -181,10 +193,10 @@ def _cmd_launch(args: argparse.Namespace) -> None:
     set_static_dir(static_dir)
     set_debug(getattr(args, "debug", False))
     set_token(getattr(args, "token", None))
-    set_api_base(getattr(args, "api_base", "") or "")
+    set_api_base(_resolve_api_base(args))
     mount_static(static_dir)
 
-    api_base = getattr(args, "api_base", "") or ""
+    api_base = _resolve_api_base(args)
     base_path = f"/{api_base.strip('/')}" if api_base.strip() else ""
     url = _format_server_url(args.host, args.port)
     token = getattr(args, "token", None)
@@ -235,7 +247,7 @@ def _cmd_dev(args: argparse.Namespace) -> None:
     set_static_dir(static_dir)
     set_debug(getattr(args, "debug", False))
     set_token(getattr(args, "token", None))
-    set_api_base(getattr(args, "api_base", "") or "")
+    set_api_base(_resolve_api_base(args))
     mount_static(static_dir)
 
     def run_uvicorn():
@@ -245,7 +257,7 @@ def _cmd_dev(args: argparse.Namespace) -> None:
     server_thread.start()
 
     token = getattr(args, "token", None)
-    api_base = getattr(args, "api_base", "") or ""
+    api_base = _resolve_api_base(args)
     base_path = f"/{api_base.strip('/')}" if api_base.strip() else ""
     url = _append_token(_format_server_url(args.host, args.port), token)
     print(f"Spatialxgene dev: backend at {url}")
@@ -388,7 +400,7 @@ def main() -> None:
         "--api-base",
         type=str,
         default="",
-        help="Public base path when behind a reverse proxy (e.g. spatialxgene for location /spatialxgene/); empty = root",
+        help="Public base path when behind a reverse proxy (e.g. spatialxgene for location /spatialxgene/); empty = root. Can also set env SPATIALXGENE_API_BASE (e.g. in Docker).",
     )
     launch_p.set_defaults(func=_cmd_launch)
 
@@ -417,7 +429,7 @@ def main() -> None:
         "--api-base",
         type=str,
         default="",
-        help="Public base path when behind a reverse proxy (e.g. spatialxgene for location /spatialxgene/); empty = root",
+        help="Public base path when behind a reverse proxy (e.g. spatialxgene for location /spatialxgene/); empty = root. Can also set env SPATIALXGENE_API_BASE.",
     )
     dev_p.set_defaults(func=_cmd_dev)
 

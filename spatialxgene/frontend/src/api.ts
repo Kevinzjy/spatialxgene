@@ -4,7 +4,8 @@ declare global {
     __API_BASE__?: string;
   }
 }
-const API_BASE =
+/** Base path for API and static assets when behind a subpath (e.g. /spatialxgene); "" or "." for root. */
+export const API_BASE =
   typeof window !== "undefined" && window.__API_BASE__ !== undefined ? window.__API_BASE__ : ".";
 
 const AUTH_TOKEN_KEY = "spatialxgene_token";
