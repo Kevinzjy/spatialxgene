@@ -12,7 +12,7 @@ Recommended for portability and to avoid glibc/Python-version issues. From the p
 docker compose -f docker/docker-compose.yml up -d
 ```
 
-- **Data**: Default volume is `./data` → `/data` in the container; edit `volumes` in `docker/docker-compose.yml` to use another path.
+- **Data**: Default volume is `./data` → `/data` in the container; edit `volumes` in `docker/docker-compose.yml` to use another path. The viewer discovers `.h5ad` files in that directory and all subdirectories; dataset ids are relative paths without the `.h5ad` suffix (e.g. `subdir/sample`, `subdir/sample_v1.3`). Filenames with multiple dots (e.g. version numbers) are supported.
 - **Token**: Default `--token zhaoslab`. Override with `command: ["--token", "your-secret"]` or `command: ["--token", ""]` to disable.
 - **Port**: Default `5005`; change `ports` in the compose file if needed.
 

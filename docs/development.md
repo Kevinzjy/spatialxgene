@@ -22,9 +22,10 @@ Project layout, build and run from source, and where to find design/plan docs.
 │   └── tasks.md
 └── spatialxgene/
     ├── __init__.py        # __version__
-    ├── cli.py             # Subcommands: launch, dev, infer, preprocess
+    ├── cli.py             # Subcommands: launch, dev, infer, preprocess, visium2h5ad
     ├── preprocess.py      # QC, HVG, PCA, UMAP, Leiden
     ├── infer_spatial.py   # Infer/add spatial coords
+    ├── visium2h5ad.py     # Visium Space Ranger dir → h5ad (scanpy.read_visium)
     ├── server/            # FastAPI backend
     └── frontend/          # Vite + React UI (spatial plot, sidebar)
 ```

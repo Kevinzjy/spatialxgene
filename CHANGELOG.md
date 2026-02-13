@@ -6,17 +6,31 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed
+
+- **Preprocess output missing leiden/louvain and raw_counts**: `preprocess_file()` now uses the return value of `run_preprocess()` when writing the h5ad (previously it wrote the original adata, so dimred/cluster and layers were lost). When copying results back from the HVG subset to the full adata, both `leiden` and `louvain` are copied if present. `raw_counts` is saved in `adata.layers` **before** `normalize_total`/`log1p` so it reflects true raw counts. Logging added to confirm obs columns (leiden, louvain) and layers before write.
+- **Dataset path with multiple dots**: Filenames like `HCC_Stereo-seq_v1.3.h5ad` (dots in version) were resolved to `.../HCC_Stereo-seq_v1.h5ad` and caused "Dataset not found". Cause: `Path.with_suffix(".h5ad")` replaces the **last** suffix (e.g. `.3`), not only `.h5ad`. Fix: `_get_dataset_path` now appends `.h5ad` only when the id does not already end with `.h5ad` (i.e. `DATA_DIR / (dataset_id + ".h5ad")`), so names with dots work.
+- **Sidebar loading text**: Removed the "Loading…" line above the Dataset selector when loading a dataset; loading state is shown only in the main content area (progress bar / overlay).
+
 ### Added
 
 - **Subpath deployment (nginx)**: When the app is behind a reverse proxy at a path (e.g. `location /spatialxgene/`), use `--api-base spatialxgene` or env `SPATIALXGENE_API_BASE=spatialxgene` so the frontend requests favicon, assets, and API under that path. Backend injects `window.__API_BASE__` and rewrites favicon href in index.html; Sidebar logo and API use the same base. Works with a single nginx location (no extra `/favicon.svg` route).
 - **Local subpath test**: One-command `docker compose -f docker/docker-compose.nginx-test.yml up --build` runs nginx + spatialxgene; open http://localhost:8888/spatialxgene/ to test the same as production. Single config `docker/nginx-test.conf` (one location only).
 - **Dataset loading progress bar**: Step-based progress (25% per request: meta, spatial, obs, var) with a visible bar and "Loading dataset… X%". After all complete, progress stays at 100% for 400 ms so the user sees the full sequence instead of an abrupt switch to content.
+- **Gene expression loading progress**: When loading expression (single gene or co-expression), an overlay on the scatter plot shows "Loading expression for …" and an indeterminate progress bar, so slow networks do not look like "gene not expressed".
+- **No spatial/UMAP handling**: Datasets without plottable coordinates (spatial/UMAP/PCA/t-SNE) are detected quickly via lightweight h5py structure check (no full AnnData load). API returns 200 with `viewable: false`; frontend shows a clear message and lets the user re-select dataset.
+- **Categorical annotation edge cases**: When an annotation column has too many or too few unique categories (e.g. barcode-like), no popup; points are shown in a single default color and the legend shows "nan (too many categories)" or "nan (too few categories)".
+- **Multi-level H5AD directory**: `--data-dir` now discovers `.h5ad` in subdirectories (`rglob`); dataset id is the relative path (e.g. `subdir/foo`), so the dropdown lists nested files.
+- **Dataset dropdown shows extension**: The dataset selector displays the full relative path including `.h5ad` so users see the file type.
+- **visium2h5ad subcommand**: Convert Visium Space Ranger output directory to a single `.h5ad` file. Usage: `spatialxgene visium2h5ad -i path_to_visium -o h5ad_file`. Uses `scanpy.read_visium()`; auto-detects `filtered_feature_bc_matrix.h5` or `filtered_feature_bc_matrix/`; optional `--count-file` and `--no-images`; var names made unique before writing (anndata duplicate-name warning suppressed).
 
 ### Changed
 
 - **Docker deployment**: `docker/README.md` documents build → `docker save` → upload → on server `docker load` + `cd docker` + `docker compose up -d`. Compose example uses `image: spatialxgene:latest` and `command: ["--token", "...", "--api-base", "spatialxgene"]`.
 - **Backend when `--api-base` set**: Serves the app at both `/` (for nginx that strips the path) and at the subpath (for direct open). Serves `/favicon.svg` at root directly (no redirect) to avoid redirect loop behind nginx.
-- **RULES.md**: Server has only one proxy port; all assets/API must live under that location. Favicon/logo 404: distinguish tab icon vs in-page logo; ask clearly to get the right fix first time.
+- **Annotation type label**: "Numeric" renamed to "Numerical" in the UI to match "Categorical" grammatically.
+- **Backend viewable check**: `get_dataset_meta` uses `_check_viewable_h5()` (h5py) before loading full AnnData when the dataset has no spatial/UMAP, for fast response.
+- **RULES.md**: Server has only one proxy port; all assets/API must live under that location. Favicon/logo 404: distinguish tab icon vs in-page logo; ask clearly to get the right fix first time. Added lessons: viewable fast check, categorical too many/few, useMemo deps.
 
 ## [0.2.3] - 2026-02-12
 

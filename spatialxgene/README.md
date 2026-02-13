@@ -42,21 +42,36 @@ spatialxgene launch [--data-dir DIR] [--port N] [--no-browser] [--build]
 **Viewer (spatial plot)**  
 Canvas-based plot in data coordinates. Point radius from grid spacing; zoom (wheel, cursor-centered) and pan (drag); toolbar has zoom in/out and reset. Color by annotation or gene; unselected mode shows all points in gray. Optional tissue background (hires/lowres) when embedding is Spatial; sidebar can toggle Spatial/UMAP (background image hidden in UMAP). Gene mode: continuous palette and reverse option. Hover shows spot index and annotation/gene value; annotation legend (below Opacity) lists categories with counts, sorted by count. Dataset switch shows a loading overlay with a step-based progress bar (25% per request) and a brief hold at 100% so the user sees the full sequence; layout fills the viewport (no scrollbar).
 
-### preprocess — QC, reduce, cluster (expression only)
+### visium2h5ad — Convert Visium Space Ranger to h5ad
 
-Preprocess the expression matrix only: QC, normalize, log, HVG, PCA, neighbors, UMAP, Leiden. **Does not add or modify spatial coordinates**; run `spatialxgene infer` first if needed.
+Convert a Visium Space Ranger output directory (with `spatial/` and `filtered_feature_bc_matrix` or `filtered_feature_bc_matrix.h5`) to a single `.h5ad` file for use with `launch` or downstream tools. Uses `scanpy.read_visium()`; var names are made unique before writing.
 
 ```bash
-# Directory: process all .h5ad, write to input/preprocessed/
-spatialxgene preprocess data/sample/STDS0000323
-
-# Single file
-spatialxgene preprocess path/to/raw.h5ad -o path/to/preprocessed.h5ad
+spatialxgene visium2h5ad /path/to/visium_sample
+spatialxgene visium2h5ad /path/to/visium_sample -o output.h5ad
 ```
 
-- **input** — Single `.h5ad` file or directory of `.h5ad` files.
-- **-o, --output** — Output file or directory. Default: same dir with `_preprocessed.h5ad` or `input/preprocessed/`.
-- **--exclude** — Skip input files whose name contains this (default: preprocessed).
+- **input** — (Positional) Path to the Visium sample directory (must contain `spatial/` and the count matrix).
+- **-o, --output** — Output `.h5ad` file path. Default: input path with `.h5ad` suffix (e.g. `a/b/c` → `a/b/c.h5ad`).
+- **--count-file** — Count matrix file or directory name under input (default: auto-detect `filtered_feature_bc_matrix.h5` or `filtered_feature_bc_matrix`).
+- **--no-images** — Do not load tissue images into the h5ad (smaller file).
+
+### preprocess — QC, normalize, reduce, cluster (expression only)
+
+Preprocess following scanpy tutorial: QC, normalize_total, log1p, HVG (marked but **not** used to subset genes); PCA, neighbors, UMAP, Leiden are run on HVG only; the **output h5ad keeps all genes** that passed QC (X = normalized log counts). Optional `raw_counts` layer saved before normalization. **Does not add or modify spatial coordinates**; run `spatialxgene infer` first if needed.
+
+```bash
+# Single file (default output: same dir, name_processed.h5ad)
+spatialxgene preprocess raw.h5ad
+spatialxgene preprocess raw.h5ad -o custom.h5ad
+
+# Directory: process all .h5ad, write to input/preprocessed/
+spatialxgene preprocess data/sample/STDS0000323 -o data/sample/STDS0000323/preprocessed
+```
+
+- **input** — (Positional) Single `.h5ad` file or directory of `.h5ad` files.
+- **-o, --output** — Output file or directory. Default: same dir with `_processed.h5ad` (e.g. `a/b/c.h5ad` → `a/b/c_processed.h5ad`) or `input/preprocessed/`.
+- **--exclude** — Skip input files whose name contains this (default: processed, so `*_processed.h5ad` are not re-processed).
 - **--min-genes, --min-cells, --n-top-genes, --n-pcs, --n-neighbors, --resolution** — Pipeline parameters (see `spatialxgene preprocess --help`).
 
 ## Data format (for launch)

@@ -7,6 +7,7 @@ import re
 from pathlib import Path
 from typing import Any, Callable, Optional
 
+import h5py
 import numpy as np
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -76,6 +77,69 @@ def set_api_base(value: str) -> None:
 _adata_cache: dict[str, Any] = {}
 
 
+def _get_dataset_path(dataset_id: str) -> Optional[Path]:
+    """Return path to the h5ad file for dataset_id, or None if not found. Supports subdirs (e.g. id 'subdir/file').
+    Appends .h5ad only when the id does not already end with .h5ad, so names with dots (e.g. sample_v1.3) work."""
+    if DATA_DIR is None or not DATA_DIR.exists():
+        return None
+    # Reject path traversal and absolute-like segments
+    if ".." in dataset_id or dataset_id.startswith("/") or "\\" in dataset_id:
+        return None
+    path = DATA_DIR / (dataset_id if dataset_id.endswith(".h5ad") else f"{dataset_id}.h5ad")
+    try:
+        path = path.resolve()
+        data_dir_resolved = DATA_DIR.resolve()
+        if not path.is_file():
+            return None
+        # Ensure path is under DATA_DIR
+        path.relative_to(data_dir_resolved)
+        return path
+    except (ValueError, OSError):
+        return None
+
+
+def _obsm_entry_has_at_least_2_cols(obsm: Any, key: str) -> bool:
+    """Return True if obsm[key] exists and has shape (_, n) with n >= 2 (without loading data)."""
+    if obsm is None or key not in obsm:
+        return False
+    elem = obsm[key]
+    if hasattr(elem, "shape") and getattr(elem, "shape", None) is not None:
+        shape = elem.shape
+        return len(shape) >= 2 and shape[1] >= 2
+    if hasattr(elem, "attrs"):
+        shape = list(elem.attrs.get("shape", [0, 0]))
+        return len(shape) >= 2 and shape[1] >= 2
+    return False
+
+
+def _check_viewable_h5(path: Path) -> tuple[bool, bool, bool, bool]:
+    """
+    Check if the h5ad has spatial/UMAP/PCA/tsne by reading only structure (obsm keys, obs columns)
+    via h5py. Returns (has_spatial, has_umap, has_pca, has_tsne). Does not load full AnnData.
+    """
+    has_spatial = False
+    has_umap = False
+    has_pca = False
+    has_tsne = False
+    try:
+        with h5py.File(path, "r") as f:
+            obsm = f.get("obsm")
+            if obsm is not None:
+                has_spatial = _obsm_entry_has_at_least_2_cols(obsm, "spatial") or _obsm_entry_has_at_least_2_cols(
+                    obsm, "X_spatial"
+                )
+                has_umap = _obsm_entry_has_at_least_2_cols(obsm, "X_umap")
+                has_pca = _obsm_entry_has_at_least_2_cols(obsm, "X_pca")
+                has_tsne = _obsm_entry_has_at_least_2_cols(obsm, "X_tsne")
+            if not has_spatial:
+                obs = f.get("obs")
+                if obs is not None and isinstance(obs, h5py.Group):
+                    has_spatial = "x" in obs and "y" in obs
+    except Exception:
+        pass
+    return (has_spatial, has_umap, has_pca, has_tsne)
+
+
 def set_data_dir(path: Path) -> None:
     global DATA_DIR
     DATA_DIR = path
@@ -104,12 +168,7 @@ def _get_adata(dataset_id: str):
         raise HTTPException(status_code=500, detail="Data directory not configured")
     if dataset_id in _adata_cache:
         return _adata_cache[dataset_id]
-    # Dataset id is the stem of the h5ad file (e.g. HCC_S42_preprocessed)
-    path = None
-    for p in DATA_DIR.glob("*.h5ad"):
-        if p.stem == dataset_id:
-            path = p
-            break
+    path = _get_dataset_path(dataset_id)
     if path is None:
         raise HTTPException(status_code=404, detail=f"Dataset {dataset_id} not found")
     adata = ad.read_h5ad(path)
@@ -143,6 +202,8 @@ class DatasetMeta(BaseModel):
     image_keys: list[str]  # keys for background images in uns['spatial'] (e.g. hires, lowres); empty if none
     image_info: dict[str, ImageInfo]  # key -> scale_factor, width, height for alignment
     layer_keys: list[str]  # keys in adata.layers (e.g. raw_counts, logcounts); use "X" for adata.X
+    viewable: bool = True  # False when dataset has no spatial/UMAP/PCA/t-SNE (frontend should show message and not load)
+    viewable_reason: Optional[str] = None  # e.g. "no_spatial_or_umap" when viewable is False
 
 
 class SpatialResponse(BaseModel):
@@ -174,58 +235,21 @@ def get_config():
 
 @app.get("/api/datasets")
 def list_datasets():
-    """List available h5ad datasets (by filename stem)."""
+    """List available h5ad datasets (recursively under data dir; id = relative path without .h5ad)."""
     if DATA_DIR is None or not DATA_DIR.exists():
         return []
     datasets = []
-    for p in sorted(DATA_DIR.glob("*.h5ad")):
-        datasets.append({"id": p.stem, "name": p.stem, "path": str(p.name)})
+    for p in sorted(DATA_DIR.rglob("*.h5ad")):
+        if not p.is_file():
+            continue
+        try:
+            rel = p.relative_to(DATA_DIR)
+        except ValueError:
+            continue
+        did = str(rel.with_suffix("")).replace("\\", "/")
+        rel_str = str(rel).replace("\\", "/")
+        datasets.append({"id": did, "name": did, "path": rel_str})
     return datasets
-
-
-@app.get("/api/datasets/{dataset_id}", response_model=DatasetMeta)
-def get_dataset_meta(dataset_id: str):
-    """Get dataset metadata: dimensions, obs/var columns, plot bounds, image keys."""
-    adata = _get_adata(dataset_id)
-    x, y, layout = _get_plot_coordinates(adata)
-    has_spatial = _has_spatial(adata)
-    has_umap = "X_umap" in adata.obsm and adata.obsm["X_umap"].shape[1] >= 2
-    has_pca = "X_pca" in adata.obsm and adata.obsm["X_pca"].shape[1] >= 2
-    has_tsne = "X_tsne" in adata.obsm and adata.obsm["X_tsne"].shape[1] >= 2
-    try:
-        image_keys = _get_image_keys(adata)
-        image_info = {}
-        for k in image_keys:
-            try:
-                info = _get_image_info(adata, k)
-                if info is not None:
-                    image_info[k] = ImageInfo(**info)
-            except Exception:
-                pass
-    except Exception:
-        image_keys = []
-        image_info = {}
-    layer_keys = list(adata.layers.keys()) if hasattr(adata, "layers") and adata.layers else []
-    return DatasetMeta(
-        id=dataset_id,
-        name=dataset_id,
-        n_obs=adata.n_obs,
-        n_vars=adata.n_vars,
-        obs_columns=list(adata.obs.columns),
-        var_index=list(adata.var.index.astype(str)),
-        x_min=float(np.nanmin(x)),
-        x_max=float(np.nanmax(x)),
-        y_min=float(np.nanmin(y)),
-        y_max=float(np.nanmax(y)),
-        layout=layout,
-        has_spatial=has_spatial,
-        has_umap=has_umap,
-        has_pca=has_pca,
-        has_tsne=has_tsne,
-        image_keys=image_keys,
-        image_info=image_info,
-        layer_keys=layer_keys,
-    )
 
 
 def _get_spatial_nested(adata):
@@ -357,7 +381,7 @@ def _get_plot_coordinates(adata):
     raise ValueError("No spatial coordinates or UMAP in adata (need obsm['spatial'] or obs x/y or obsm['X_umap'])")
 
 
-@app.get("/api/datasets/{dataset_id}/spatial", response_model=SpatialResponse)
+@app.get("/api/datasets/{dataset_id:path}/spatial", response_model=SpatialResponse)
 def get_spatial(dataset_id: str, layout: Optional[str] = None):
     """
     Get plot coordinates (x, y) for all cells.
@@ -412,7 +436,13 @@ def get_spatial(dataset_id: str, layout: Optional[str] = None):
         x = np.asarray(tsne[:, 0], dtype=np.float64)
         y = np.asarray(tsne[:, 1], dtype=np.float64)
     else:
-        x, y, _ = _get_plot_coordinates(adata)
+        try:
+            x, y, _ = _get_plot_coordinates(adata)
+        except ValueError as e:
+            raise HTTPException(
+                status_code=404,
+                detail="No spatial coordinates or UMAP in this dataset. Please select another dataset.",
+            ) from e
 
     return SpatialResponse(
         x=x.tolist(),
@@ -420,7 +450,7 @@ def get_spatial(dataset_id: str, layout: Optional[str] = None):
     )
 
 
-@app.get("/api/datasets/{dataset_id}/obs", response_model=ObsResponse)
+@app.get("/api/datasets/{dataset_id:path}/obs", response_model=ObsResponse)
 def get_obs(dataset_id: str):
     """Get obs table as columnar: { column_name: [values] }."""
     adata = _get_adata(dataset_id)
@@ -434,7 +464,7 @@ def get_obs(dataset_id: str):
     return ObsResponse(columns=list(adata.obs.columns), data=data)
 
 
-@app.get("/api/datasets/{dataset_id}/expression/{gene}")
+@app.get("/api/datasets/{dataset_id:path}/expression/{gene}")
 def get_expression(dataset_id: str, gene: str, layer: Optional[str] = None):
     """Get expression vector for one gene (var index or gene name). Use adata.X if layer is None or 'X', else adata.layers[layer]."""
     adata = _get_adata(dataset_id)
@@ -457,14 +487,14 @@ def get_expression(dataset_id: str, gene: str, layer: Optional[str] = None):
     return np.asarray(vec, dtype=np.float64).tolist()
 
 
-@app.get("/api/datasets/{dataset_id}/var")
+@app.get("/api/datasets/{dataset_id:path}/var")
 def get_var_index(dataset_id: str):
     """Get gene list (var index) for dropdown."""
     adata = _get_adata(dataset_id)
     return list(adata.var.index.astype(str))
 
 
-@app.get("/api/datasets/{dataset_id}/images/{image_key}", response_class=Response)
+@app.get("/api/datasets/{dataset_id:path}/images/{image_key}", response_class=Response)
 def get_dataset_image(dataset_id: str, image_key: str):
     """Get background image as PNG for the given image key (e.g. hires, lowres)."""
     adata = _get_adata(dataset_id)
@@ -481,6 +511,79 @@ def get_dataset_image(dataset_id: str, image_key: str):
     pil.save(buf, format="PNG")
     buf.seek(0)
     return Response(content=buf.read(), media_type="image/png")
+
+
+@app.get("/api/datasets/{dataset_id:path}", response_model=DatasetMeta)
+def get_dataset_meta(dataset_id: str):
+    """Get dataset metadata: dimensions, obs/var columns, plot bounds, image keys."""
+    path = _get_dataset_path(dataset_id)
+    if path is None:
+        raise HTTPException(status_code=404, detail=f"Dataset {dataset_id} not found")
+    # Fast path: check viewable via h5py (no full anndata load). Skip 5–10s read for non-viewable datasets.
+    has_spatial, has_umap, has_pca, has_tsne = _check_viewable_h5(path)
+    if not (has_spatial or has_umap or has_pca or has_tsne):
+        return DatasetMeta(
+            id=dataset_id,
+            name=dataset_id,
+            n_obs=0,
+            n_vars=0,
+            obs_columns=[],
+            var_index=[],
+            x_min=0.0,
+            x_max=1.0,
+            y_min=0.0,
+            y_max=1.0,
+            layout="spatial",
+            has_spatial=False,
+            has_umap=False,
+            has_pca=False,
+            has_tsne=False,
+            image_keys=[],
+            image_info={},
+            layer_keys=[],
+            viewable=False,
+            viewable_reason="no_spatial_or_umap",
+        )
+    adata = _get_adata(dataset_id)
+    has_spatial = _has_spatial(adata)
+    has_umap = "X_umap" in adata.obsm and adata.obsm["X_umap"].shape[1] >= 2
+    has_pca = "X_pca" in adata.obsm and adata.obsm["X_pca"].shape[1] >= 2
+    has_tsne = "X_tsne" in adata.obsm and adata.obsm["X_tsne"].shape[1] >= 2
+    x, y, layout = _get_plot_coordinates(adata)
+    try:
+        image_keys = _get_image_keys(adata)
+        image_info = {}
+        for k in image_keys:
+            try:
+                info = _get_image_info(adata, k)
+                if info is not None:
+                    image_info[k] = ImageInfo(**info)
+            except Exception:
+                pass
+    except Exception:
+        image_keys = []
+        image_info = {}
+    layer_keys = list(adata.layers.keys()) if hasattr(adata, "layers") and adata.layers else []
+    return DatasetMeta(
+        id=dataset_id,
+        name=dataset_id,
+        n_obs=adata.n_obs,
+        n_vars=adata.n_vars,
+        obs_columns=list(adata.obs.columns),
+        var_index=list(adata.var.index.astype(str)),
+        x_min=float(np.nanmin(x)),
+        x_max=float(np.nanmax(x)),
+        y_min=float(np.nanmin(y)),
+        y_max=float(np.nanmax(y)),
+        layout=layout,
+        has_spatial=has_spatial,
+        has_umap=has_umap,
+        has_pca=has_pca,
+        has_tsne=has_tsne,
+        image_keys=image_keys,
+        image_info=image_info,
+        layer_keys=layer_keys,
+    )
 
 
 # Serve frontend static files when mounted

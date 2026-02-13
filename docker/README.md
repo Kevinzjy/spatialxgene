@@ -29,7 +29,7 @@
        command: ["--token", "zhaoslab", "--api-base", "spatialxgene"]
    ```
    - 若 nginx 反代路径不是 `/spatialxgene/`，把 `--api-base` 改成对应路径名。
-   - 数据目录按你服务器实际路径改 `volumes` 里的宿主机路径。
+   - 数据目录按你服务器实际路径改 `volumes` 里的宿主机路径；容器内会递归扫描该目录及子目录下的所有 `.h5ad`，下拉框显示带扩展名的相对路径。文件名中含多个点（如 `sample_v1.3.h5ad`）也支持。
 
 ---
 

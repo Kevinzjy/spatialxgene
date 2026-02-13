@@ -9,6 +9,10 @@ import {
   getPaletteGradientCss,
   getCategoricalPaletteGradientCss,
   type CoexpressionPalette,
+  ANNOTATION_MAX_CATEGORIES,
+  ANNOTATION_MIN_CATEGORIES,
+  LABEL_NAN_TOO_MANY,
+  LABEL_NAN_TOO_FEW,
 } from "../colorScale";
 
 function formatExpr(v: number): string {
@@ -93,7 +97,6 @@ type SidebarProps = {
   /** Embedding mode for plotting: spatial vs UMAP (when both exist). */
   embeddingMode: "spatial" | "umap" | "pca" | "tsne";
   onEmbeddingModeChange: (mode: "spatial" | "umap" | "pca" | "tsne") => void;
-  loading?: boolean;
   onObsValueTypeChange: (t: "categorical" | "numeric") => void;
 };
 
@@ -145,7 +148,6 @@ export function Sidebar({
   onBackgroundOpacityChange,
   embeddingMode,
   onEmbeddingModeChange,
-  loading,
   onObsValueTypeChange,
 }: SidebarProps) {
   const [geneSearch, setGeneSearch] = useState("");
@@ -167,9 +169,14 @@ export function Sidebar({
     return genes.filter((g) => g.toLowerCase().includes(q)).slice(0, 200);
   }, [genes, geneSearch2]);
 
+  // Prefer known cluster columns (leiden, louvain) at the top so they are easy to find
+  const CLUSTER_COLS_FIRST = ["leiden", "louvain"];
   const obsColumns = useMemo(() => {
     if (!obs?.columns) return [];
-    return obs.columns.slice();
+    const cols = obs.columns.slice();
+    const rest = cols.filter((c) => !CLUSTER_COLS_FIRST.includes(c));
+    const first = CLUSTER_COLS_FIRST.filter((c) => cols.includes(c));
+    return [...first, ...rest];
   }, [obs]);
 
   const selectedObsStats = useMemo(() => {
@@ -228,6 +235,19 @@ export function Sidebar({
     const valsRaw = obs.data[selectedObsCol];
     if (!valsRaw) return [];
     const vals = valsRaw.map(String);
+    const uniq = new Set(vals).size;
+
+    // Too many or too few categories: show single "nan (too many/too few categories)" in legend, no popup
+    if (obsValueType === "categorical") {
+      if (uniq > ANNOTATION_MAX_CATEGORIES) {
+        const colorMap = getCategoricalColors([LABEL_NAN_TOO_MANY], categoricalPalette, continuousPaletteReverse);
+        return [{ label: LABEL_NAN_TOO_MANY, count: vals.length, color: colorMap.get(LABEL_NAN_TOO_MANY) ?? "#888888" }];
+      }
+      if (uniq < ANNOTATION_MIN_CATEGORIES) {
+        const colorMap = getCategoricalColors([LABEL_NAN_TOO_FEW], categoricalPalette, continuousPaletteReverse);
+        return [{ label: LABEL_NAN_TOO_FEW, count: vals.length, color: colorMap.get(LABEL_NAN_TOO_FEW) ?? "#888888" }];
+      }
+    }
 
     // Count spots per label
     const counts = new Map<string, number>();
@@ -248,7 +268,7 @@ export function Sidebar({
       count,
       color: colorMap.get(label) ?? "#888888",
     }));
-  }, [obs, selectedObsCol, categoricalPalette, continuousPaletteReverse]);
+  }, [obs, selectedObsCol, obsValueType, categoricalPalette, continuousPaletteReverse]);
 
   const [paletteDropdownOpen, setPaletteDropdownOpen] = useState(false);
   const paletteDropdownRef = useRef<HTMLDivElement>(null);
@@ -294,11 +314,6 @@ export function Sidebar({
         />
         <span>SPATIALxGENE</span>
       </div>
-      {loading && (
-        <div style={{ padding: 12, fontSize: 13, color: "#888" }}>
-          Loading…
-        </div>
-      )}
       <div style={{ padding: 12, display: "flex", flexDirection: "column", gap: 12, overflow: "auto" }}>
         <label style={{ fontSize: 12, fontWeight: 600, color: "#a0a0a0" }}>Dataset</label>
         <select
@@ -316,7 +331,7 @@ export function Sidebar({
           <option value="">Select…</option>
           {datasets.map((d) => (
             <option key={d.id} value={d.id}>
-              {d.name}
+              {d.path}
             </option>
           ))}
         </select>
@@ -556,16 +571,7 @@ export function Sidebar({
                     <div style={{ display: "flex", gap: 8, marginBottom: 4 }}>
                       <button
                         type="button"
-                        onClick={() => {
-                          const { uniq } = selectedObsStats;
-                          if (uniq > 50) {
-                            window.alert(
-                              "Too many distinct values to use as categorical (more than 50). Please use numeric mode instead."
-                            );
-                            return;
-                          }
-                          onObsValueTypeChange("categorical");
-                        }}
+                        onClick={() => onObsValueTypeChange("categorical")}
                         style={{
                           padding: "4px 8px",
                           borderRadius: 6,
@@ -591,7 +597,7 @@ export function Sidebar({
                           cursor: "pointer",
                         }}
                       >
-                        Numeric
+                        Numerical
                       </button>
                     </div>
                   </>

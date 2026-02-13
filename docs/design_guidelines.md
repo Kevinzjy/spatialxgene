@@ -95,7 +95,7 @@
 | 注释 | 下拉框列出分类列（唯一值 2–50）；默认优先 `leiden`。 |
 | 基因 | 搜索框 + 列表（当前最多 200 条）；点击即着色，选中项高亮；Gene 模式下可设连续配色（palette 下拉 + Reverse 开关）与表达百分位范围（pmin/pmax）。 |
 | Annotation legend | 在 Opacity 下方：仅 Annotation 模式且已选列时显示；按该列每类 spot 数量从高到低排序，每行色块 + 标签 + 数量；区域可滚动（如 maxHeight 320px）。 |
-| Loading | 数据集加载中在侧栏顶部显示「Loading…」；切换数据集时主区域显示「Loading dataset…」占位，避免旧图残留。 |
+| Loading | 数据集加载中仅在主区域显示「Loading dataset…」进度条/占位，侧栏 Dataset 上方不显示 Loading；切换数据集时主区域占位避免旧图残留。 |
 
 ### 4.3 错误与空状态
 

@@ -12,7 +12,7 @@
 
 1. **数据与 CLI**
    - 约定输入/输出为 h5ad；实现 `infer`（空间推断）与 `preprocess`（表达流水线）。
-   - CLI 子命令：`infer`、`preprocess`、`launch`、`dev`，参数与默认值在 `cli.py` 中集中管理。
+   - CLI 子命令：`infer`、`preprocess`、`launch`、`dev`、`visium2h5ad`，参数与默认值在 `cli.py` 中集中管理。
 
 2. **API 与数据服务**
    - FastAPI 服务：`/api/datasets`、`/api/datasets/{id}`（含 meta：`image_keys`、`image_info`）、`/api/datasets/{id}/spatial`、`/api/datasets/{id}/obs`、`/api/datasets/{id}/expression/{gene}`、`/api/datasets/{id}/var`、`/api/datasets/{id}/images/{key}`（PNG 组织图）。
@@ -50,8 +50,8 @@
 | 概念 | 说明 |
 |------|------|
 | **数据目录** | 由 `--data-dir` 指定，例如 `./data/sample/STDS0000323/preprocessed`。 |
-| **数据集** | 目录下每个 `*.h5ad` 视为一个数据集；API 用**文件名 stem**（无扩展名）作为 `dataset_id`。 |
-| **发现方式** | 启动时扫描 `DATA_DIR` 下所有 `.h5ad`，列表通过 `/api/datasets` 返回。 |
+| **数据集** | 目录下每个 `*.h5ad` 视为一个数据集；API 用**相对路径去掉 `.h5ad` 后缀**作为 `dataset_id`（如 `subdir/sample_v1.3`），故文件名中含多个点（如版本号 `v1.3`）也支持。 |
+| **发现方式** | 启动时递归扫描 `DATA_DIR` 下所有 `.h5ad`（含子目录），列表通过 `/api/datasets` 返回。 |
 
 ### 2.2 单文件结构（h5ad / AnnData）
 
@@ -66,7 +66,7 @@
 | 元信息 | `uns` | 如 `spatial_platform`、`spatial_scale` 等，供后续扩展。 |
 | 组织图 | `uns['spatial'][sample]['images']` + `scalefactors` | 可选；如 `hires`、`lowres`，Visium 风格；API 返回 `image_keys`、`image_info` 及 PNG 端点。 |
 
-服务端**不**修改 h5ad 内容；infer/preprocess 由 **CLI 写新文件**（如 `*_preprocessed.h5ad`），查看器只读。
+服务端**不**修改 h5ad 内容；infer/preprocess 由 **CLI 写新文件**（如 `*_processed.h5ad`），查看器只读。
 
 ### 2.3 服务端状态与缓存
 

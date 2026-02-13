@@ -48,6 +48,18 @@ export const CATEGORICAL_PALETTE_LABELS: Record<string, string> = {
   Paired: "Paired",
 };
 
+/** Categorical column is only shown as categories when 2 <= unique count <= this. */
+export const ANNOTATION_MAX_CATEGORIES = 50;
+/** Categorical column with fewer than this many unique values is treated as "too few" (show as nan in legend). */
+export const ANNOTATION_MIN_CATEGORIES = 2;
+
+/** Label shown in legend when column has too many distinct values for categorical. */
+export const LABEL_NAN_TOO_MANY = "nan (too many categories)";
+/** Label shown in legend when column has too few distinct values for categorical. */
+export const LABEL_NAN_TOO_FEW = "nan (too few categories)";
+
+const GRAY_FOR_NAN = "#888888";
+
 export function getCategoricalColors(
   labels: string[],
   paletteId: string = "default",
@@ -63,11 +75,14 @@ export function getCategoricalColors(
     const s = String(l).trim().toLowerCase();
     return s === "nan" || s === "" || s === "none" || s === "null";
   };
-  const paletteLabels = uniq.filter((l) => !isNaNLabel(l));
+  const isInvalidCategoryLabel = (l: string) =>
+    l === LABEL_NAN_TOO_MANY || l === LABEL_NAN_TOO_FEW;
+  const paletteLabels = uniq.filter((l) => !isNaNLabel(l) && !isInvalidCategoryLabel(l));
   const nanLabels = uniq.filter((l) => isNaNLabel(l));
+  const invalidCategoryLabels = uniq.filter((l) => isInvalidCategoryLabel(l));
   paletteLabels.forEach((l, i) => m.set(l, colors[i % colors.length]));
-  // Assign a fixed light gray color for NaN / missing-like labels, without consuming palette slots.
   nanLabels.forEach((l) => m.set(l, "#d3d3d3"));
+  invalidCategoryLabels.forEach((l) => m.set(l, GRAY_FOR_NAN));
   return m;
 }
 

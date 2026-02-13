@@ -75,6 +75,9 @@ export type DatasetMeta = {
   image_info?: Record<string, { scale_factor: number; width: number; height: number }>;
   /** Keys in adata.layers (e.g. raw_counts, logcounts); use "X" for adata.X */
   layer_keys?: string[];
+  /** False when dataset has no spatial/UMAP/PCA/t-SNE; frontend should show message and not load spatial/obs/var */
+  viewable?: boolean;
+  viewable_reason?: string;
 };
 
 export type SpatialResponse = { x: number[]; y: number[] };

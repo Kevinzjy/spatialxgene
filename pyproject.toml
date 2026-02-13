@@ -9,15 +9,17 @@ description = "Browser-based spatial transcriptomics viewer (cellxgene-style)"
 readme = "README.md"
 requires-python = ">=3.9"
 dependencies = [
+    "numpy<2",
+    "setuptools>=61,<81",
     "scanpy>=1.9",
     "anndata>=0.9",
     "leidenalg",
     "pandas",
-    "numpy",
     "h5py",
     "fastapi>=0.100",
     "uvicorn[standard]>=0.22",
     "Pillow>=9.0",
+    "louvain>=0.7.1",
 ]
 
 [project.optional-dependencies]

@@ -10,7 +10,16 @@ import {
   datasetImageUrl,
 } from "./api";
 import type { DatasetItem, DatasetMeta, ObsResponse } from "./api";
-import { DEFAULT_CONTINUOUS_PALETTE, DEFAULT_COEXPRESSION_PALETTE, coexpressionToHex, type CoexpressionPalette } from "./colorScale";
+import {
+  DEFAULT_CONTINUOUS_PALETTE,
+  DEFAULT_COEXPRESSION_PALETTE,
+  coexpressionToHex,
+  type CoexpressionPalette,
+  ANNOTATION_MAX_CATEGORIES,
+  ANNOTATION_MIN_CATEGORIES,
+  LABEL_NAN_TOO_MANY,
+  LABEL_NAN_TOO_FEW,
+} from "./colorScale";
 import { setDebugMode, debugLog } from "./debug";
 import { percentile } from "./utils/percentile";
 import { Sidebar } from "./components/Sidebar";
@@ -123,11 +132,16 @@ export default function App() {
       setLoadProgress(Math.min(completed * 25, 100));
     };
     try {
-      const [metaRes, spatialRes, obsRes, varRes] = await Promise.all([
-        fetchDatasetMeta(id, signal).then((r) => {
-          onStep();
-          return r;
-        }),
+      // Fetch meta first; backend returns 200 with viewable=false when no spatial/UMAP (no 404/exception path)
+      const metaRes = await fetchDatasetMeta(id, signal);
+      onStep();
+      if (selectedIdRef.current !== id) return;
+      if (metaRes.viewable === false) {
+        setError("该数据集没有空间坐标或 UMAP，请重新选择数据集。");
+        setSelectedDatasetId(null);
+        return;
+      }
+      const [spatialRes, obsRes, varRes] = await Promise.all([
         fetchSpatial(id, signal).then((r) => {
           onStep();
           return r;
@@ -313,7 +327,17 @@ export default function App() {
     if (!spatial) return [];
     const n = spatial.x.length;
     if (colorMode === "annotation" && selectedObsCol && obs?.data[selectedObsCol]) {
-      return obs.data[selectedObsCol].slice(0, n);
+      const raw = obs.data[selectedObsCol].slice(0, n);
+      if (obsValueType === "categorical") {
+        const uniq = new Set(raw.map(String)).size;
+        if (uniq > ANNOTATION_MAX_CATEGORIES) {
+          return new Array(n).fill(LABEL_NAN_TOO_MANY) as (string | number)[];
+        }
+        if (uniq < ANNOTATION_MIN_CATEGORIES) {
+          return new Array(n).fill(LABEL_NAN_TOO_FEW) as (string | number)[];
+        }
+      }
+      return raw;
     }
     if (colorMode === "gene" && expression) {
       return expression.slice(0, n);
@@ -336,7 +360,7 @@ export default function App() {
     }
     // No annotation/gene selected: still show all points (color decided by plotColorMode).
     return new Array(n).fill(0);
-  }, [obs, spatial, colorMode, selectedObsCol, expression, expression1, expression2, coexpressionPalette, coexpressionLogScale]);
+  }, [obs, spatial, colorMode, selectedObsCol, obsValueType, expression, expression1, expression2, coexpressionPalette, coexpressionLogScale]);
 
   const plotColorMode: ColorMode = React.useMemo(() => {
     if (!spatial) return "none";
@@ -554,7 +578,6 @@ export default function App() {
         onBackgroundOpacityChange={setBackgroundOpacity}
         embeddingMode={embeddingMode}
         onEmbeddingModeChange={handleEmbeddingModeChange}
-        loading={loading}
         onObsValueTypeChange={setObsValueType}
       />
       <div style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0 }}>
