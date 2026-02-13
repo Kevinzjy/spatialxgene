@@ -609,7 +609,7 @@ export function SpatialPlot({
   );
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", flex: 1, minHeight: 0 }}>
+    <div style={{ display: "flex", flexDirection: "column", flex: 1, minHeight: 0, minWidth: 0 }}>
       {(title || true) && (
         <div
           style={{
@@ -620,10 +620,21 @@ export function SpatialPlot({
             alignItems: "center",
             justifyContent: "space-between",
             gap: 8,
+            minWidth: 0,
           }}
         >
-          <div>{title}</div>
-          <div style={{ display: "flex", gap: 6 }}>
+          <div
+            style={{
+              flex: 1,
+              minWidth: 0,
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+            }}
+          >
+            {title}
+          </div>
+          <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
             <button
               type="button"
               onClick={() => handleZoomButton(1 / 1.2)}

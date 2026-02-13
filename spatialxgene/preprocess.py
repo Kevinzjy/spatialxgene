@@ -57,7 +57,8 @@ def run_preprocess(
     adata
         Input AnnData (will be modified in place; also return value).
     min_genes
-        Minimum number of genes per cell; cells below are filtered out.
+        Minimum number of genes per cell; cells below are filtered out. Skipped when
+        ``obs['in_tissue']`` exists (e.g. Visium), so on-tissue spots are not removed.
     min_cells
         Minimum number of cells per gene; genes below are filtered out.
     n_top_genes
@@ -103,9 +104,13 @@ def run_preprocess(
     sc_pp.calculate_qc_metrics(adata, inplace=True)
     logger.info("calculate_qc_metrics done (%.1fs)", time.perf_counter() - t0)
 
-    # Filter cells by number of genes
+    # Filter cells by number of genes. Skip for Visium-like data with in_tissue so we do not
+    # remove on-tissue spots (would lose many visible spots on the tissue).
     t0 = time.perf_counter()
-    if min_genes > 0 and "n_genes_by_counts" in adata.obs.columns:
+    has_in_tissue = "in_tissue" in adata.obs.columns
+    if has_in_tissue:
+        logger.info("skip cell filter (in_tissue present); n_obs=%s", adata.n_obs)
+    elif min_genes > 0 and "n_genes_by_counts" in adata.obs.columns:
         adata = adata[adata.obs["n_genes_by_counts"] >= min_genes].copy()
     if had_spatial:
         _check_spatial_preserved(adata, "QC filter (min_genes)")

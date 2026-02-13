@@ -622,7 +622,16 @@ export default function App() {
             </div>
           </div>
         ) : spatial ? (
-          <div style={{ position: "relative", flex: 1, display: "flex", minWidth: 0 }}>
+          <div
+            style={{
+              position: "relative",
+              flex: 1,
+              display: "flex",
+              flexDirection: "column",
+              minWidth: 0,
+              minHeight: 0,
+            }}
+          >
             <SpatialPlot
               x={spatial.x}
               y={spatial.y}

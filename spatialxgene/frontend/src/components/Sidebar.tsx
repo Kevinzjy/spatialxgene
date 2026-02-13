@@ -270,6 +270,7 @@ export function Sidebar({
     }));
   }, [obs, selectedObsCol, obsValueType, categoricalPalette, continuousPaletteReverse]);
 
+  const [collapsed, setCollapsed] = useState(false);
   const [paletteDropdownOpen, setPaletteDropdownOpen] = useState(false);
   const paletteDropdownRef = useRef<HTMLDivElement>(null);
   const closePaletteDropdown = useCallback(() => setPaletteDropdownOpen(false), []);
@@ -283,38 +284,93 @@ export function Sidebar({
     return () => document.removeEventListener("mousedown", handle);
   }, [paletteDropdownOpen, closePaletteDropdown]);
 
+  const SIDEBAR_WIDTH = 280;
+  const SIDEBAR_COLLAPSED_WIDTH = 48;
+
   return (
     <div
       style={{
-        width: 280,
-        minWidth: 280,
+        width: collapsed ? SIDEBAR_COLLAPSED_WIDTH : SIDEBAR_WIDTH,
+        minWidth: collapsed ? SIDEBAR_COLLAPSED_WIDTH : SIDEBAR_WIDTH,
         background: "#16213e",
         color: "#eee",
         display: "flex",
         flexDirection: "column",
         overflow: "hidden",
         borderRight: "1px solid #0f3460",
+        transition: "width 0.2s ease, min-width 0.2s ease",
       }}
     >
       <div
         style={{
-          padding: "12px 14px",
+          padding: collapsed ? "12px 8px" : "12px 14px",
           borderBottom: "1px solid #0f3460",
           fontWeight: 600,
           fontSize: 15,
           display: "flex",
           alignItems: "center",
+          justifyContent: collapsed ? "center" : "flex-start",
           gap: 8,
+          flexShrink: 0,
         }}
       >
-        <img
-          src={API_BASE === "." ? "./favicon.svg" : `${API_BASE}/favicon.svg`}
-          alt="SPATIALxGENE"
-          style={{ width: 18, height: 18, borderRadius: 4, flexShrink: 0 }}
-        />
-        <span>SPATIALxGENE</span>
+        {collapsed ? (
+          <button
+            type="button"
+            onClick={() => setCollapsed(false)}
+            title="Expand sidebar"
+            style={{
+              padding: 8,
+              borderRadius: 6,
+              border: "1px solid #0f3460",
+              background: "#1a1a2e",
+              color: "#eee",
+              cursor: "pointer",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+            }}
+          >
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+              <path d="M9 18l6-6-6-6" />
+            </svg>
+          </button>
+        ) : (
+          <>
+            <img
+              src={API_BASE === "." ? "./favicon.svg" : `${API_BASE}/favicon.svg`}
+              alt="SPATIALxGENE"
+              style={{ width: 18, height: 18, borderRadius: 4, flexShrink: 0 }}
+            />
+            <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+              SPATIALxGENE
+            </span>
+            <button
+              type="button"
+              onClick={() => setCollapsed(true)}
+              title="Collapse sidebar"
+              style={{
+                padding: 6,
+                borderRadius: 6,
+                border: "1px solid #0f3460",
+                background: "#1a1a2e",
+                color: "#eee",
+                cursor: "pointer",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                flexShrink: 0,
+              }}
+            >
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                <path d="M15 18l-6-6 6-6" />
+              </svg>
+            </button>
+          </>
+        )}
       </div>
-      <div style={{ padding: 12, display: "flex", flexDirection: "column", gap: 12, overflow: "auto" }}>
+      {!collapsed && (
+      <div style={{ padding: 12, display: "flex", flexDirection: "column", gap: 12, overflow: "auto", flex: 1, minHeight: 0 }}>
         <label style={{ fontSize: 12, fontWeight: 600, color: "#a0a0a0" }}>Dataset</label>
         <select
           value={selectedDatasetId ?? ""}
@@ -1129,6 +1185,7 @@ export function Sidebar({
           </>
         )}
       </div>
+      )}
     </div>
   );
 }
