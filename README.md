@@ -1,6 +1,6 @@
 # Spatialxgene
 
-**v0.2.2** — Browser-based spatial transcriptomics viewer and preprocessing (cellxgene-style). Launch the viewer to explore spatial plots (zoom/pan, color by gene or annotation, optional tissue image), or run **infer** / **preprocess** on raw h5ad.
+**v0.2.3** — Browser-based spatial transcriptomics viewer and preprocessing (cellxgene-style). Launch the viewer to explore spatial plots (zoom/pan, color by **annotation**, **gene**, or **co-expression**; optional tissue image; expression from `X` or `adata.layers`), or run **infer** / **preprocess** on raw h5ad.
 
 ## Requirements
 
@@ -29,7 +29,7 @@ pip install spatialxgene
    spatialxgene launch --data-dir /path/to/preprocessed/h5ad/dir
    ```
 
-   Opens http://127.0.0.1:5005 by default (use `--host` and `--port` to change). Use the sidebar to pick a dataset, color by annotation or gene, choose a tissue background image (if present), and zoom/pan the plot.
+   Opens http://127.0.0.1:5005 by default (use `--host` and `--port` to change). Use the sidebar to pick a dataset; color by **Annotation**, **Gene**, or **Co-expression** (two genes, 2D palette); choose a **Layer** (X or adata.layers) when coloring by gene; choose a tissue background image (if present); zoom/pan the plot. Optional `--token` (default `zhaoslab`) enables simple auth — open the app with `?token=zhaoslab` in the URL once. Use `--token ""` to disable.
 
 2. **Infer spatial** (when raw h5ad has no coordinates)
 
@@ -54,5 +54,6 @@ Preprocessed h5ad for `launch` should have:
 - **Expression**: `X`, `var` index = gene names.
 - **Annotations** (optional): e.g. `obs['leiden']` for coloring.
 - **Tissue images** (optional): Visium-style `uns['spatial'][sample]['images']` (e.g. `hires`, `lowres`) and `scalefactors`.
+- **Layers** (optional): For gene/co-expression coloring, `adata.layers` (e.g. raw_counts, logcounts) are listed; default is `X`.
 
-For all options: `spatialxgene launch --help`, `spatialxgene infer --help`, `spatialxgene preprocess --help`.
+For all options: `spatialxgene launch --help`, `spatialxgene infer --help`, `spatialxgene preprocess --help`. To run as a long-lived service on Linux, see [docs/deployment.md](docs/deployment.md).

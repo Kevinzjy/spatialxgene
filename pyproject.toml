@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "spatialxgene"
-version = "0.2.2"
+version = "0.2.3"
 description = "Browser-based spatial transcriptomics viewer (cellxgene-style)"
 readme = "README.md"
 requires-python = ">=3.9"

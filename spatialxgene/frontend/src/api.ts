@@ -1,4 +1,27 @@
-const API_BASE = "";
+// Set by backend via index.html when run with --api-base (e.g. nginx location /spatialxgene/); else relative "."
+declare global {
+  interface Window {
+    __API_BASE__?: string;
+  }
+}
+const API_BASE =
+  typeof window !== "undefined" && window.__API_BASE__ !== undefined ? window.__API_BASE__ : ".";
+
+const AUTH_TOKEN_KEY = "spatialxgene_token";
+
+function getAuthToken(): string | null {
+  try {
+    return sessionStorage.getItem(AUTH_TOKEN_KEY);
+  } catch {
+    return null;
+  }
+}
+
+/** Headers to send for token auth (X-Token); empty if no token stored. */
+function authHeaders(): Record<string, string> {
+  const t = getAuthToken();
+  return t ? { "X-Token": t } : {};
+}
 
 /** Parse error body from FastAPI (detail) or fallback to statusText. */
 async function throwApiError(r: Response): Promise<never> {
@@ -9,10 +32,15 @@ async function throwApiError(r: Response): Promise<never> {
   throw new Error(detail || r.statusText);
 }
 
-export type ConfigResponse = { debug: boolean };
+export type ConfigResponse = {
+  debug: boolean;
+  anndata_ok?: boolean;
+  anndata_error?: string;
+  anndata_hint?: string;
+};
 
 export async function fetchConfig(): Promise<ConfigResponse> {
-  const r = await fetch(`${API_BASE}/api/config`);
+  const r = await fetch(`${API_BASE}/api/config`, { headers: authHeaders() });
   if (!r.ok) return { debug: false };
   return r.json();
 }
@@ -44,6 +72,8 @@ export type DatasetMeta = {
   image_keys?: string[];
   /** Per-key scale and size: image in data space spans (0,0) to (width/scale_factor, height/scale_factor) */
   image_info?: Record<string, { scale_factor: number; width: number; height: number }>;
+  /** Keys in adata.layers (e.g. raw_counts, logcounts); use "X" for adata.X */
+  layer_keys?: string[];
 };
 
 export type SpatialResponse = { x: number[]; y: number[] };
@@ -51,13 +81,16 @@ export type SpatialResponse = { x: number[]; y: number[] };
 export type ObsResponse = { columns: string[]; data: Record<string, (string | number)[]> };
 
 export async function fetchDatasets(): Promise<DatasetItem[]> {
-  const r = await fetch(`${API_BASE}/api/datasets`);
+  const r = await fetch(`${API_BASE}/api/datasets`, { headers: authHeaders() });
   if (!r.ok) await throwApiError(r);
   return r.json();
 }
 
 export async function fetchDatasetMeta(id: string, signal?: AbortSignal): Promise<DatasetMeta> {
-  const r = await fetch(`${API_BASE}/api/datasets/${encodeURIComponent(id)}`, { signal });
+  const r = await fetch(`${API_BASE}/api/datasets/${encodeURIComponent(id)}`, {
+    signal,
+    headers: authHeaders(),
+  });
   if (!r.ok) await throwApiError(r);
   return r.json();
 }
@@ -70,13 +103,17 @@ export async function fetchSpatial(
   const qs = layout ? `?layout=${encodeURIComponent(layout)}` : "";
   const r = await fetch(`${API_BASE}/api/datasets/${encodeURIComponent(id)}/spatial${qs}`, {
     signal,
+    headers: authHeaders(),
   });
   if (!r.ok) await throwApiError(r);
   return r.json();
 }
 
 export async function fetchObs(id: string, signal?: AbortSignal): Promise<ObsResponse> {
-  const r = await fetch(`${API_BASE}/api/datasets/${encodeURIComponent(id)}/obs`, { signal });
+  const r = await fetch(`${API_BASE}/api/datasets/${encodeURIComponent(id)}/obs`, {
+    signal,
+    headers: authHeaders(),
+  });
   if (!r.ok) await throwApiError(r);
   return r.json();
 }
@@ -84,23 +121,30 @@ export async function fetchObs(id: string, signal?: AbortSignal): Promise<ObsRes
 export async function fetchExpression(
   id: string,
   gene: string,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  layer?: string
 ): Promise<number[]> {
+  const qs = layer && layer !== "X" ? `?layer=${encodeURIComponent(layer)}` : "";
   const r = await fetch(
-    `${API_BASE}/api/datasets/${encodeURIComponent(id)}/expression/${encodeURIComponent(gene)}`,
-    { signal }
+    `${API_BASE}/api/datasets/${encodeURIComponent(id)}/expression/${encodeURIComponent(gene)}${qs}`,
+    { signal, headers: authHeaders() }
   );
   if (!r.ok) await throwApiError(r);
   return r.json();
 }
 
 export async function fetchVarIndex(id: string, signal?: AbortSignal): Promise<string[]> {
-  const r = await fetch(`${API_BASE}/api/datasets/${encodeURIComponent(id)}/var`, { signal });
+  const r = await fetch(`${API_BASE}/api/datasets/${encodeURIComponent(id)}/var`, {
+    signal,
+    headers: authHeaders(),
+  });
   if (!r.ok) await throwApiError(r);
   return r.json();
 }
 
-/** URL for dataset background image (PNG). Use when meta.image_keys contains the key. */
+/** URL for dataset background image (PNG). Use when meta.image_keys contains the key. Appends ?token= when token auth is used. */
 export function datasetImageUrl(datasetId: string, imageKey: string): string {
-  return `${API_BASE}/api/datasets/${encodeURIComponent(datasetId)}/images/${encodeURIComponent(imageKey)}`;
+  const base = `${API_BASE}/api/datasets/${encodeURIComponent(datasetId)}/images/${encodeURIComponent(imageKey)}`;
+  const t = getAuthToken();
+  return t ? `${base}?token=${encodeURIComponent(t)}` : base;
 }

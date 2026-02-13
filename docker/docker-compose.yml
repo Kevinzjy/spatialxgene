@@ -1,0 +1,16 @@
+services:
+  spatialxgene:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    ports:
+      - "5005:5005"
+    volumes:
+      - ../data:/data
+    command: ["--token", "zhaoslab"]
+
+    # Override token: use command or environment; default is --token zhaoslab
+    # command: ["--token", "your-secret"]
+    # command: ["--token", ""]   # disable token
+    # For nginx subpath (e.g. /spatialxgene/): add --api-base
+    # command: ["--api-base", "spatialxgene", "--token", "zhaoslab"]

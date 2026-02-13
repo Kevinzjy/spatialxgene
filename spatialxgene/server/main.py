@@ -2,25 +2,50 @@
 FastAPI backend for spatialxgene: serve h5ad spatial data and expression to the frontend.
 """
 import io
+import json
+import re
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Callable, Optional
 
 import numpy as np
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, Response
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.requests import Request
 
 # Lazy import anndata so server can start without it for static-only
+_ad_import_error: Optional[str] = None
 try:
     import anndata as ad
-except ImportError:
+except ImportError as e:
     ad = None
+    _ad_import_error = str(e)
 
 from spatialxgene import __version__
 
 app = FastAPI(title="Spatialxgene API", version=__version__)
+
+
+class TokenAuthMiddleware(BaseHTTPMiddleware):
+    """Require X-Token header, Authorization: Bearer <token>, or ?token= when TOKEN is set (for /api/*)."""
+
+    async def dispatch(self, request: Request, call_next: Callable) -> Response:
+        if not TOKEN or not request.url.path.startswith("/api/"):
+            return await call_next(request)
+        provided = (
+            request.headers.get("x-token")
+            or (request.headers.get("authorization") or "").replace("Bearer ", "").strip()
+            or request.query_params.get("token")
+        )
+        if provided != TOKEN:
+            return JSONResponse(status_code=401, content={"detail": "Invalid or missing token"})
+        return await call_next(request)
+
+
+app.add_middleware(TokenAuthMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -33,6 +58,20 @@ app.add_middleware(
 DATA_DIR: Optional[Path] = None
 # Debug mode: when True, frontend can enable verbose console logs (see /api/config)
 DEBUG: bool = False
+# Optional token for simple auth: if set, /api/* requests must send X-Token, Authorization: Bearer <token>, or ?token=
+TOKEN: Optional[str] = None
+# API/base path when behind a reverse proxy subpath (e.g. /spatialxgene); empty string = root
+API_BASE: str = ""
+
+
+def set_api_base(value: str) -> None:
+    """Set the public base path (e.g. spatialxgene or /spatialxgene). Normalized to leading slash, no trailing."""
+    global API_BASE
+    if not value or not value.strip():
+        API_BASE = ""
+        return
+    p = value.strip().strip("/")
+    API_BASE = "/" + p if p else ""
 # Cache loaded adata by dataset id to avoid reloading
 _adata_cache: dict[str, Any] = {}
 
@@ -47,9 +86,20 @@ def set_debug(enabled: bool) -> None:
     DEBUG = enabled
 
 
+def set_token(token: Optional[str]) -> None:
+    """Set optional auth token; empty string or None disables token auth."""
+    global TOKEN
+    TOKEN = token if token and token.strip() else None
+
+
 def _get_adata(dataset_id: str):
     if ad is None:
-        raise HTTPException(status_code=500, detail="anndata not installed")
+        msg = "anndata not installed"
+        if _ad_import_error:
+            msg += f": {_ad_import_error}"
+            if "GLIBC" in _ad_import_error or "glibc" in _ad_import_error:
+                msg += ". Your system glibc is older than required. Use a server with glibc 2.27+ or run via Docker (see docs/deployment.md)."
+        raise HTTPException(status_code=500, detail=msg)
     if DATA_DIR is None:
         raise HTTPException(status_code=500, detail="Data directory not configured")
     if dataset_id in _adata_cache:
@@ -92,6 +142,7 @@ class DatasetMeta(BaseModel):
     has_tsne: bool  # True if adata has t-SNE embedding (obsm["X_tsne"])
     image_keys: list[str]  # keys for background images in uns['spatial'] (e.g. hires, lowres); empty if none
     image_info: dict[str, ImageInfo]  # key -> scale_factor, width, height for alignment
+    layer_keys: list[str]  # keys in adata.layers (e.g. raw_counts, logcounts); use "X" for adata.X
 
 
 class SpatialResponse(BaseModel):
@@ -106,8 +157,19 @@ class ObsResponse(BaseModel):
 
 @app.get("/api/config")
 def get_config():
-    """Frontend config: debug enables verbose console logging."""
-    return {"debug": DEBUG}
+    """Frontend config: debug enables verbose console logging; anndata_ok / anndata_error for backend status."""
+    out: dict[str, Any] = {"debug": DEBUG}
+    if ad is not None:
+        out["anndata_ok"] = True
+    else:
+        out["anndata_ok"] = False
+        if _ad_import_error:
+            out["anndata_error"] = _ad_import_error
+            if "GLIBC" in _ad_import_error or "glibc" in _ad_import_error:
+                out["anndata_hint"] = (
+                    "System glibc is too old. Use a server with glibc 2.27+ or run via Docker (see docs/deployment.md)."
+                )
+    return out
 
 
 @app.get("/api/datasets")
@@ -143,6 +205,7 @@ def get_dataset_meta(dataset_id: str):
     except Exception:
         image_keys = []
         image_info = {}
+    layer_keys = list(adata.layers.keys()) if hasattr(adata, "layers") and adata.layers else []
     return DatasetMeta(
         id=dataset_id,
         name=dataset_id,
@@ -161,6 +224,7 @@ def get_dataset_meta(dataset_id: str):
         has_tsne=has_tsne,
         image_keys=image_keys,
         image_info=image_info,
+        layer_keys=layer_keys,
     )
 
 
@@ -371,8 +435,8 @@ def get_obs(dataset_id: str):
 
 
 @app.get("/api/datasets/{dataset_id}/expression/{gene}")
-def get_expression(dataset_id: str, gene: str):
-    """Get expression vector for one gene (var index or gene name)."""
+def get_expression(dataset_id: str, gene: str, layer: Optional[str] = None):
+    """Get expression vector for one gene (var index or gene name). Use adata.X if layer is None or 'X', else adata.layers[layer]."""
     adata = _get_adata(dataset_id)
     if gene not in adata.var.index:
         # Try as string match
@@ -380,7 +444,12 @@ def get_expression(dataset_id: str, gene: str):
         if not matches:
             raise HTTPException(status_code=404, detail=f"Gene {gene} not found")
         gene = matches[0]
-    vec = adata[:, gene].X
+    if layer and layer != "X":
+        if not hasattr(adata, "layers") or adata.layers is None or layer not in adata.layers:
+            raise HTTPException(status_code=404, detail=f"Layer {layer!r} not found")
+        vec = adata[:, gene].layers[layer]
+    else:
+        vec = adata[:, gene].X
     if hasattr(vec, "toarray"):
         vec = vec.toarray().flatten()
     else:
@@ -425,10 +494,29 @@ def set_static_dir(path: Path) -> None:
 
 @app.get("/")
 def index():
-    """Serve frontend index."""
-    if STATIC_DIR is not None and (STATIC_DIR / "index.html").exists():
-        return FileResponse(STATIC_DIR / "index.html")
-    return {"message": "Spatialxgene API. Build frontend and set static dir, or use frontend dev server."}
+    """Serve frontend index, injecting window.__API_BASE__ when --api-base is set."""
+    if STATIC_DIR is None or not (STATIC_DIR / "index.html").exists():
+        return {"message": "Spatialxgene API. Build frontend and set static dir, or use frontend dev server."}
+    html_path = STATIC_DIR / "index.html"
+    raw = html_path.read_text(encoding="utf-8")
+    # Inject so frontend can prefix API and asset paths when behind a subpath (e.g. nginx location /spatialxgene/)
+    inj = f'<script>window.__API_BASE__={json.dumps(API_BASE)};</script>'
+    if "</head>" in raw:
+        raw = raw.replace("</head>", f"{inj}\n</head>", 1)
+    else:
+        raw = inj + "\n" + raw
+    # Favicon href: use absolute path with API_BASE so it works at subpath (./favicon.svg resolves wrong when URL has no trailing slash)
+    favicon_href = f"{API_BASE}/favicon.svg"
+    raw = re.sub(
+        r'<link\s+rel="icon"[^>]*\shref="[^"]*"[^>]*/?\s*>',
+        f'<link rel="icon" type="image/svg+xml" href="{favicon_href}">',
+        raw,
+        count=1,
+    )
+    return HTMLResponse(
+        raw,
+        headers={"Cache-Control": "no-store"},
+    )
 
 
 @app.get("/favicon.svg")
@@ -442,7 +530,7 @@ def favicon_svg():
     if STATIC_DIR is not None:
         svg_path = STATIC_DIR / "favicon.svg"
         if svg_path.exists():
-            return FileResponse(svg_path)
+            return FileResponse(svg_path, media_type="image/svg+xml")
     raise HTTPException(status_code=404, detail="favicon.svg not found")
 
 

@@ -49,6 +49,7 @@
 - [x] 四份项目文档：master_plan、implementation_plan、design_guidelines、tasks。
 - [x] **v0.1 查看器**：后端提供 `image_keys`、`image_info` 与 `/api/datasets/{id}/images/{key}`；前端背景图（hires/lowres）、与 spot 对齐；侧栏 Dataset → Background image → Color by → Annotation/Gene → Spot size → Opacity；Gene 模式配色与百分位范围；loadDataset 使用 AbortController；文档与 CHANGELOG 更新至 v0.1。
 - [x] **v0.2 查看器**：Embedding 切换（Spatial/UMAP），UMAP 下隐藏背景图；favicon 与侧栏 logo；spot 悬停 tooltip（Spot # + annotation/gene）；Annotation legend（按数量排序、显示 spot count）；画布工具栏 − / + / Reset；缩放以光标为中心；未选 annotation/gene 时全点灰色显示；切换数据集时主区域 Loading overlay；响应式全屏无滚动条；percentile 直方图法避免爆栈；Safari/Firefox 性能优化（rAF 节流、DPR 上限、Firefox LOD）；文档与 CHANGELOG 更新至 v0.2。
+- [x] **v0.2.3**：Co-expression 模式（双基因、四角调色板、log scale）；Layer 选项（X + adata.layers）；Token 认证（--token，默认 zhaoslab）；启动时打印带 token 的 Access URL；host `::` 支持与 IPv6 Access 行；docs/deployment.md（systemd、Nginx）；README/CHANGELOG 更新。
 
 ---
 

@@ -54,6 +54,9 @@ type SidebarProps = {
   onCoexpressionPaletteChange: (palette: CoexpressionPalette) => void;
   coexpressionLogScale: boolean;
   onCoexpressionLogScaleChange: (v: boolean) => void;
+  /** Expression layer: "X" for adata.X, or a key from adata.layers (gene / co-expression mode). */
+  selectedLayer: string;
+  onLayerChange: (layer: string) => void;
   /** Spot size scale 0.2–1.2 (default 0.8 = 80% of defined size) */
   spotSizeScale: number;
   onSpotSizeScaleChange: (value: number) => void;
@@ -115,6 +118,8 @@ export function Sidebar({
   onCoexpressionPaletteChange,
   coexpressionLogScale,
   onCoexpressionLogScaleChange,
+  selectedLayer,
+  onLayerChange,
   spotSizeScale,
   onSpotSizeScaleChange,
   spotOpacity,
@@ -284,10 +289,10 @@ export function Sidebar({
       >
         <img
           src="/favicon.svg"
-          alt="Spatialxgene"
+          alt="SPATIALxGENE"
           style={{ width: 18, height: 18, borderRadius: 4, flexShrink: 0 }}
         />
-        <span>Spatialxgene</span>
+        <span>SPATIALxGENE</span>
       </div>
       {loading && (
         <div style={{ padding: 12, fontSize: 13, color: "#888" }}>
@@ -492,6 +497,32 @@ export function Sidebar({
                 Co-expression
               </button>
             </div>
+
+            {(colorMode === "gene" || colorMode === "coexpression") && (
+              <>
+                <label style={{ fontSize: 12, fontWeight: 600, color: "#a0a0a0" }}>Layer</label>
+                <select
+                  value={selectedLayer}
+                  onChange={(e) => onLayerChange(e.target.value)}
+                  style={{
+                    padding: "8px 10px",
+                    borderRadius: 6,
+                    border: "1px solid #0f3460",
+                    background: "#1a1a2e",
+                    color: "#eee",
+                    fontSize: 13,
+                    width: "100%",
+                  }}
+                >
+                  <option value="X">X</option>
+                  {(meta?.layer_keys ?? []).map((key) => (
+                    <option key={key} value={key}>
+                      {key}
+                    </option>
+                  ))}
+                </select>
+              </>
+            )}
 
             {colorMode === "annotation" && (
               <>

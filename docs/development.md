@@ -15,6 +15,7 @@ Project layout, build and run from source, and where to find design/plan docs.
 │   └── references/
 ├── docs/                  # Design and development docs
 │   ├── development.md     # This file
+│   ├── deployment.md      # Run as systemd service, token, Nginx
 │   ├── master_plan.md
 │   ├── implementation_plan.md
 │   ├── design_guidelines.md
@@ -51,6 +52,8 @@ Project layout, build and run from source, and where to find design/plan docs.
    spatialxgene launch --data-dir ./data/sample/STDS0000323/preprocessed
    ```
 
+   Optional: `--token zhaoslab` (default) enables token auth; use `--token ""` to disable. `--host 0.0.0.0` or `--host ::` to bind all interfaces; startup will print Access URLs (with token appended when set). See [deployment.md](deployment.md) for production deployment.
+
 ## Development workflow
 
 - **Backend + frontend watch**: run `spatialxgene dev --data-dir <dir>`. One process runs the backend and watches `spatialxgene/frontend/`; saving a file triggers a rebuild. Refresh the browser to see changes. No need to run `npm run build` manually.
@@ -67,6 +70,7 @@ Project layout, build and run from source, and where to find design/plan docs.
 | `make launch` | Run viewer only |
 | `make test` | Python tests (pytest) |
 | `make clean` | Remove venv, node_modules, build artifacts |
+| `make wheel` | Build wheel only (output in `dist/`) |
 | `make publish-test` | Build frontend, build wheel, upload to TestPyPI |
 | `make publish` | Build frontend, build wheel, upload to PyPI |
 
@@ -78,6 +82,7 @@ Bump in sync: `spatialxgene/__init__.py` (`__version__`), `pyproject.toml` (`ver
 
 ## Other docs
 
+- [deployment.md](deployment.md) — Run as a systemd service on Linux
 - [master_plan.md](master_plan.md) — Goals and scope
 - [implementation_plan.md](implementation_plan.md) — Implementation order and data design
 - [design_guidelines.md](design_guidelines.md) — UI/UX: colors, fonts, interaction

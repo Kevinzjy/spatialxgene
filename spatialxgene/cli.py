@@ -2,9 +2,153 @@
 Spatialxgene CLI: subcommands launch (browser viewer) and preprocess (QC + reduce + cluster).
 """
 import argparse
+import re
+import socket
 import subprocess
 import sys
 from pathlib import Path
+from typing import Optional
+
+
+def _local_ipv4_addresses() -> list[str]:
+    """Return list of IPv4 addresses this machine can be reached at (127.0.0.1 first, then others).
+    Uses interface enumeration so all NICs (e.g. LAN 192.168.x, VPN, etc.) are listed, not only
+    the hostname-resolved IP(s) from gethostbyname_ex().
+    """
+    seen: set[str] = set()
+    result: list[str] = []
+
+    def add(addr: str) -> None:
+        if not addr or ":" in addr or addr in seen:
+            return
+        seen.add(addr)
+        result.append(addr)
+
+    add("127.0.0.1")
+
+    # Linux: hostname -I returns all IPv4 addrs (space-separated) from all interfaces
+    if sys.platform == "linux":
+        try:
+            out = subprocess.run(
+                ["hostname", "-I"],
+                capture_output=True,
+                text=True,
+                timeout=2,
+                check=False,
+            )
+            if out.returncode == 0 and out.stdout:
+                for part in out.stdout.strip().split():
+                    add(part)
+        except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
+            pass
+
+    # macOS: ifconfig gives inet <addr> per interface
+    if sys.platform == "darwin":
+        try:
+            out = subprocess.run(
+                ["ifconfig"],
+                capture_output=True,
+                text=True,
+                timeout=2,
+                check=False,
+            )
+            if out.returncode == 0 and out.stdout:
+                for m in re.finditer(r"inet (\d+\.\d+\.\d+\.\d+)", out.stdout):
+                    add(m.group(1))
+        except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
+            pass
+
+    # Fallback (and Windows): hostname resolution; often only one non-loopback IP
+    if len(result) <= 1:
+        try:
+            _, _, ip_list = socket.gethostbyname_ex(socket.gethostname())
+            for addr in ip_list:
+                add(addr)
+        except (socket.gaierror, OSError):
+            pass
+
+    # Keep 127.0.0.1 first, sort rest by address for stable order
+    if len(result) > 1:
+        others = [a for a in result if a != "127.0.0.1"]
+        others.sort(key=lambda s: tuple(int(x) for x in s.split(".")))
+        result = (["127.0.0.1"] if "127.0.0.1" in seen else []) + others
+    return result
+
+
+def _local_ipv6_addresses() -> list[str]:
+    """Return list of IPv6 addresses this machine can be reached at (::1 first, then others)."""
+    seen: set[str] = set()
+    result: list[str] = []
+
+    def add(addr: str) -> None:
+        addr = addr.strip().split("%")[0]  # drop zone id e.g. fe80::1%eth0
+        if not addr or addr in seen:
+            return
+        seen.add(addr)
+        result.append(addr)
+
+    add("::1")
+
+    # Linux: ip -6 addr show
+    if sys.platform == "linux":
+        try:
+            out = subprocess.run(
+                ["ip", "-6", "addr", "show"],
+                capture_output=True,
+                text=True,
+                timeout=2,
+                check=False,
+            )
+            if out.returncode == 0 and out.stdout:
+                for m in re.finditer(r"inet6 ([0-9a-f:]+)/\d+", out.stdout, re.IGNORECASE):
+                    add(m.group(1))
+        except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
+            pass
+
+    # macOS: ifconfig has inet6 <addr> ...
+    if sys.platform == "darwin":
+        try:
+            out = subprocess.run(
+                ["ifconfig"],
+                capture_output=True,
+                text=True,
+                timeout=2,
+                check=False,
+            )
+            if out.returncode == 0 and out.stdout:
+                for m in re.finditer(r"inet6 ([0-9a-f:]+)", out.stdout, re.IGNORECASE):
+                    add(m.group(1))
+        except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
+            pass
+
+    # Keep ::1 first, then sort others (e.g. stable order)
+    if len(result) > 1:
+        others = [a for a in result if a != "::1"]
+        others.sort(key=lambda s: (s.startswith("fe80"), s))  # link-local last
+        result = (["::1"] if "::1" in seen else []) + others
+    return result
+
+
+def _host_is_listen_all(host: str) -> bool:
+    """True if host means listen on all interfaces (IPv4 or IPv6)."""
+    h = (host or "").strip().lower()
+    return h in ("0.0.0.0", "::", "::0")
+
+
+def _format_server_url(host: str, port: int) -> str:
+    """Format host:port as http URL; IPv6 addresses are wrapped in brackets."""
+    h = host or "0.0.0.0"
+    if ":" in h:
+        return f"http://[{h}]:{port}"
+    return f"http://{h}:{port}"
+
+
+def _append_token(url: str, token: Optional[str]) -> str:
+    """Append ?token= to URL when token is set (for display and browser open)."""
+    if not token or not token.strip():
+        return url
+    sep = "&" if "?" in url else "?"
+    return f"{url}{sep}token={token.strip()}"
 
 
 def _cmd_launch(args: argparse.Namespace) -> None:
@@ -31,21 +175,35 @@ def _cmd_launch(args: argparse.Namespace) -> None:
         sys.exit(1)
 
     import uvicorn
-    from spatialxgene.server.main import app, set_data_dir, set_static_dir, set_debug, mount_static
+    from spatialxgene.server.main import app, set_data_dir, set_static_dir, set_debug, set_token, set_api_base, mount_static
 
     set_data_dir(args.data_dir.resolve())
     set_static_dir(static_dir)
     set_debug(getattr(args, "debug", False))
+    set_token(getattr(args, "token", None))
+    set_api_base(getattr(args, "api_base", "") or "")
     mount_static(static_dir)
 
-    url = f"http://{args.host}:{args.port}"
+    url = _format_server_url(args.host, args.port)
+    token = getattr(args, "token", None)
     print(f"Spatialxgene serving at {url}")
+    if _host_is_listen_all(args.host):
+        addrs = _local_ipv4_addresses()
+        if addrs:
+            access_urls = [_append_token(f"http://{a}:{args.port}", token) for a in addrs]
+            print("  Access:", ", ".join(access_urls))
+        if args.host.strip().lower() in ("::", "::0"):
+            ipv6_addrs = _local_ipv6_addresses()
+            if ipv6_addrs:
+                ipv6_urls = [_append_token(_format_server_url(a, args.port), token) for a in ipv6_addrs]
+                print("  Access (IPv6):", ", ".join(ipv6_urls))
     print(f"Data directory: {args.data_dir}")
     if getattr(args, "debug", False):
         print("Debug mode: on (browser console will show verbose logs)")
     if not args.no_browser:
         import webbrowser
-        webbrowser.open(url)
+        open_url = f"http://127.0.0.1:{args.port}" if _host_is_listen_all(args.host) else url
+        webbrowser.open(_append_token(open_url, token))
 
     uvicorn.run(app, host=args.host, port=args.port, log_level="info")
 
@@ -65,11 +223,13 @@ def _cmd_dev(args: argparse.Namespace) -> None:
 
     import threading
     import uvicorn
-    from spatialxgene.server.main import app, set_data_dir, set_static_dir, set_debug, mount_static
+    from spatialxgene.server.main import app, set_data_dir, set_static_dir, set_debug, set_token, set_api_base, mount_static
 
     set_data_dir(args.data_dir.resolve())
     set_static_dir(static_dir)
     set_debug(getattr(args, "debug", False))
+    set_token(getattr(args, "token", None))
+    set_api_base(getattr(args, "api_base", "") or "")
     mount_static(static_dir)
 
     def run_uvicorn():
@@ -78,7 +238,8 @@ def _cmd_dev(args: argparse.Namespace) -> None:
     server_thread = threading.Thread(target=run_uvicorn, daemon=True)
     server_thread.start()
 
-    url = f"http://{args.host}:{args.port}"
+    token = getattr(args, "token", None)
+    url = _append_token(_format_server_url(args.host, args.port), token)
     print(f"Spatialxgene dev: backend at {url}")
     if getattr(args, "debug", False):
         print("Debug mode: on (browser console will show verbose logs)")
@@ -196,11 +357,28 @@ def main() -> None:
         default=Path.cwd(),
         help="Directory containing preprocessed h5ad files",
     )
-    launch_p.add_argument("--host", type=str, default="0.0.0.0", help="Bind host")
+    launch_p.add_argument(
+        "--host",
+        type=str,
+        default="0.0.0.0",
+        help="Bind host (e.g. 0.0.0.0 for all IPv4, :: for all IPv6)",
+    )
     launch_p.add_argument("--port", type=int, default=5005, help="Port")
+    launch_p.add_argument(
+        "--token",
+        type=str,
+        default="zhaoslab",
+        help="Auth token required for /api/* (default: zhaoslab); use empty string to disable",
+    )
     launch_p.add_argument("--no-browser", action="store_true", help="Do not open browser")
     launch_p.add_argument("--build", action="store_true", help="Build frontend before starting")
     launch_p.add_argument("--debug", action="store_true", help="Enable debug mode: verbose console logs in browser")
+    launch_p.add_argument(
+        "--api-base",
+        type=str,
+        default="",
+        help="Public base path when behind a reverse proxy (e.g. spatialxgene for location /spatialxgene/); empty = root",
+    )
     launch_p.set_defaults(func=_cmd_launch)
 
     # ---- dev ----
@@ -216,8 +394,20 @@ def main() -> None:
     )
     dev_p.add_argument("--host", type=str, default="127.0.0.1", help="Bind host")
     dev_p.add_argument("--port", type=int, default=5005, help="Port")
+    dev_p.add_argument(
+        "--token",
+        type=str,
+        default="zhaoslab",
+        help="Auth token required for /api/* (default: zhaoslab); use empty string to disable",
+    )
     dev_p.add_argument("--no-browser", action="store_true", help="Do not open browser")
     dev_p.add_argument("--debug", action="store_true", help="Enable debug mode: verbose console logs in browser")
+    dev_p.add_argument(
+        "--api-base",
+        type=str,
+        default="",
+        help="Public base path when behind a reverse proxy (e.g. spatialxgene for location /spatialxgene/); empty = root",
+    )
     dev_p.set_defaults(func=_cmd_dev)
 
     # ---- infer ----

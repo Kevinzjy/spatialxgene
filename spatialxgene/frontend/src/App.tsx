@@ -62,6 +62,7 @@ export default function App() {
   const [expression2, setExpression2] = useState<number[] | null>(null);
   const [coexpressionPalette, setCoexpressionPalette] = useState<CoexpressionPalette>(DEFAULT_COEXPRESSION_PALETTE);
   const [coexpressionLogScale, setCoexpressionLogScale] = useState(false);
+  const [selectedLayer, setSelectedLayer] = useState<string>("X");
   const [selectedObsCol, setSelectedObsCol] = useState<string | null>(null);
   const [obsValueType, setObsValueType] = useState<"categorical" | "numeric">("categorical");
   const [spotSizeScale, setSpotSizeScale] = useState(SPOT_SIZE_DEFAULT_SCALE);
@@ -76,6 +77,7 @@ export default function App() {
   const [backgroundOpacity, setBackgroundOpacity] = useState(1);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [anndataError, setAnndataError] = useState<string | null>(null);
   const [embeddingMode, setEmbeddingMode] = useState<"spatial" | "umap" | "pca" | "tsne">("spatial");
   const selectedIdRef = useRef<string | null>(null);
   const loadAbortRef = useRef<AbortController | null>(null);
@@ -85,7 +87,14 @@ export default function App() {
   }, [selectedDatasetId]);
 
   useEffect(() => {
-    fetchConfig().then((c) => setDebugMode(c.debug));
+    fetchConfig().then((c) => {
+      setDebugMode(c.debug);
+      if (c.anndata_ok === false) {
+        setAnndataError(c.anndata_hint || c.anndata_error || "anndata not installed");
+      } else {
+        setAnndataError(null);
+      }
+    });
   }, []);
 
   useEffect(() => {
@@ -140,6 +149,7 @@ export default function App() {
       setRangeMinInput("p0");
       setRangeMaxInput("p100");
       setBackgroundImageKey(null);
+      setSelectedLayer("X");
       setBackgroundOpacity(1);
       // Default embedding: prefer spatial, then UMAP, then PCA, then t-SNE.
       const hasSpatial = metaRes.has_spatial ?? metaRes.layout === "spatial";
@@ -200,6 +210,7 @@ export default function App() {
       setSelectedGene2(null);
       setExpression1(null);
       setExpression2(null);
+      setSelectedLayer("X");
       setBackgroundImageKey(null);
       setEmbeddingMode("spatial");
     }
@@ -211,8 +222,8 @@ export default function App() {
       return;
     }
     const ac = new AbortController();
-    debugLog("fetchExpression", { datasetId: selectedDatasetId, gene: selectedGene });
-    fetchExpression(selectedDatasetId, selectedGene, ac.signal)
+    debugLog("fetchExpression", { datasetId: selectedDatasetId, gene: selectedGene, layer: selectedLayer });
+    fetchExpression(selectedDatasetId, selectedGene, ac.signal, selectedLayer)
       .then((arr) => {
         debugLog("fetchExpression done", { gene: selectedGene, len: arr.length });
         setExpression(arr);
@@ -223,7 +234,7 @@ export default function App() {
         setExpression(null);
       });
     return () => ac.abort();
-  }, [selectedDatasetId, selectedGene]);
+  }, [selectedDatasetId, selectedGene, selectedLayer]);
 
   // Fetch both genes for co-expression mode
   useEffect(() => {
@@ -234,10 +245,10 @@ export default function App() {
     }
     const ac = new AbortController();
     const signal = ac.signal;
-    debugLog("fetchCoexpression", { datasetId: selectedDatasetId, gene1: selectedGene1, gene2: selectedGene2 });
+    debugLog("fetchCoexpression", { datasetId: selectedDatasetId, gene1: selectedGene1, gene2: selectedGene2, layer: selectedLayer });
     Promise.all([
-      fetchExpression(selectedDatasetId, selectedGene1, signal),
-      fetchExpression(selectedDatasetId, selectedGene2, signal),
+      fetchExpression(selectedDatasetId, selectedGene1, signal, selectedLayer),
+      fetchExpression(selectedDatasetId, selectedGene2, signal, selectedLayer),
     ])
       .then(([arr1, arr2]) => {
         debugLog("fetchCoexpression done", { len1: arr1.length, len2: arr2.length });
@@ -251,7 +262,7 @@ export default function App() {
         setExpression2(null);
       });
     return () => ac.abort();
-  }, [selectedDatasetId, selectedGene1, selectedGene2]);
+  }, [selectedDatasetId, selectedGene1, selectedGene2, selectedLayer]);
 
   const colorByValues = React.useMemo(() => {
     if (!spatial) return [];
@@ -399,7 +410,21 @@ export default function App() {
   );
 
   return (
-    <div style={{ display: "flex", flex: 1, minHeight: 0, overflow: "hidden" }}>
+    <div style={{ display: "flex", flexDirection: "column", flex: 1, minHeight: 0, overflow: "hidden" }}>
+      {anndataError && (
+        <div
+          style={{
+            padding: "8px 12px",
+            background: "#c0392b",
+            color: "#fff",
+            fontSize: "13px",
+            flexShrink: 0,
+          }}
+        >
+          Backend: {anndataError}
+        </div>
+      )}
+      <div style={{ display: "flex", flex: 1, minHeight: 0, overflow: "hidden" }}>
       <Sidebar
         datasets={datasets}
         selectedDatasetId={selectedDatasetId}
@@ -420,6 +445,7 @@ export default function App() {
             setSelectedGene(null);
             setSelectedGene1(null);
             setSelectedGene2(null);
+            setSelectedLayer("X");
             setBackgroundImageKey(null);
             loadDataset(next);
           }
@@ -451,6 +477,8 @@ export default function App() {
         onCoexpressionPaletteChange={setCoexpressionPalette}
         coexpressionLogScale={coexpressionLogScale}
         onCoexpressionLogScaleChange={setCoexpressionLogScale}
+        selectedLayer={selectedLayer}
+        onLayerChange={setSelectedLayer}
         spotSizeScale={spotSizeScale}
         onSpotSizeScaleChange={setSpotSizeScale}
         spotOpacity={spotOpacity}
@@ -587,6 +615,7 @@ export default function App() {
                 : "Select an annotation or gene to color the plot"}
           </div>
         )}
+      </div>
       </div>
     </div>
   );

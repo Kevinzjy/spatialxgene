@@ -68,6 +68,30 @@ Preprocessed h5ad should have:
 - **Annotations** (optional): e.g. `obs['leiden']` for coloring.
 - **Tissue images** (optional): Visium-style `uns['spatial'][sample]['images']` (e.g. `hires`, `lowres`) and `scalefactors`; the viewer uses them for background and aligns with spot coordinates (hires extent as reference for lowres).
 
+## Deploying under a subpath (e.g. nginx)
+
+One build works at the site root or any subpath. When the app is behind a reverse proxy at a path like `/spatialxgene/`, start the server with the same base so the frontend can prefix API requests correctly:
+
+```bash
+spatialxgene launch --api-base spatialxgene
+# or any path, e.g. --api-base viewer
+```
+
+Nginx example (path can be anything; keep it in sync with `--api-base`):
+
+```nginx
+location /spatialxgene/ {
+    proxy_pass http://127.0.0.1:5005/;
+    proxy_http_version 1.1;
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+}
+```
+
+Access the app at `https://your-domain/spatialxgene/`. For root access, run without `--api-base`.
+
 ## Development
 
 For project layout, `spatialxgene dev`, and build/run from source, see the project repository.
