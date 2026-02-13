@@ -8,7 +8,7 @@ HOST     ?= 192.168.31.101
 PORT     ?= 5005
 DEBUG    ?= 0
 
-.PHONY: help install build test clean wheel publish publish-test docker
+.PHONY: help install build test clean wheel publish publish-test docker docker-test
 
 help:
 	@echo "Spatialxgene Makefile targets:"
@@ -20,6 +20,7 @@ help:
 	@echo "  make publish-test    - Build wheel and upload to TestPyPI (needs TESTPYPI_USERNAME/TESTPYPI_PASSWORD)"
 	@echo "  make publish         - Build wheel and upload to PyPI (needs PYPI_TOKEN)"
 	@echo "  make docker          - Build docker images"
+	@echo "  make docker-test     - Run test under docker environment"
 
 install:
 	@echo "Installing dependencies..."
@@ -72,3 +73,7 @@ docker:
 	@echo "Building docker images..."
 	cd docker && docker compose build
 	docker save -o docker/spatialxgene.tar docker-spatialxgene:latest
+
+docker-test:
+	@echo "Test docker deployment..."
+	docker compose -f docker/docker-compose.nginx-test.yml up --build

@@ -76,6 +76,7 @@ export default function App() {
   const [backgroundImageKey, setBackgroundImageKey] = useState<string | null>(null);
   const [backgroundOpacity, setBackgroundOpacity] = useState(1);
   const [loading, setLoading] = useState(false);
+  const [loadProgress, setLoadProgress] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [anndataError, setAnndataError] = useState<string | null>(null);
   const [embeddingMode, setEmbeddingMode] = useState<"spatial" | "umap" | "pca" | "tsne">("spatial");
@@ -110,13 +111,31 @@ export default function App() {
     const signal = ac.signal;
     debugLog("loadDataset start", { id });
     setLoading(true);
+    setLoadProgress(0);
     setError(null);
+    let completed = 0;
+    const onStep = () => {
+      completed += 1;
+      setLoadProgress(Math.min(completed * 25, 100));
+    };
     try {
       const [metaRes, spatialRes, obsRes, varRes] = await Promise.all([
-        fetchDatasetMeta(id, signal),
-        fetchSpatial(id, signal),
-        fetchObs(id, signal),
-        fetchVarIndex(id, signal),
+        fetchDatasetMeta(id, signal).then((r) => {
+          onStep();
+          return r;
+        }),
+        fetchSpatial(id, signal).then((r) => {
+          onStep();
+          return r;
+        }),
+        fetchObs(id, signal).then((r) => {
+          onStep();
+          return r;
+        }),
+        fetchVarIndex(id, signal).then((r) => {
+          onStep();
+          return r;
+        }),
       ]);
       if (selectedIdRef.current !== id) {
         debugLog("loadDataset stale, ignore", { id, current: selectedIdRef.current });
@@ -173,6 +192,10 @@ export default function App() {
       } else {
         setEmbeddingMode("spatial");
       }
+      // Keep progress at 100% briefly so the user sees the bar complete before content appears
+      setLoadProgress(100);
+      await new Promise<void>((resolve) => setTimeout(resolve, 400));
+      if (selectedIdRef.current !== id) return;
     } catch (e) {
       if (e instanceof Error && e.name === "AbortError") {
         debugLog("loadDataset aborted", { id });
@@ -185,9 +208,11 @@ export default function App() {
       const msg = e instanceof Error ? e.message : String(e);
       debugLog("loadDataset error", { id, error: msg });
       setError(msg);
+      setLoadProgress(0);
     } finally {
       if (selectedIdRef.current === id) {
         setLoading(false);
+        setLoadProgress(0);
       }
       debugLog("loadDataset done", { id, loading: selectedIdRef.current === id ? false : "(unchanged)" });
     }
@@ -523,14 +548,35 @@ export default function App() {
             style={{
               flex: 1,
               display: "flex",
+              flexDirection: "column",
               alignItems: "center",
               justifyContent: "center",
+              gap: 16,
               background: "#1a1a2e",
               color: "#666",
               fontSize: 14,
             }}
           >
-            Loading dataset…
+            <span>Loading dataset… {loadProgress}%</span>
+            <div
+              style={{
+                width: 280,
+                height: 6,
+                background: "#0f3460",
+                borderRadius: 3,
+                overflow: "hidden",
+              }}
+            >
+              <div
+                style={{
+                  width: `${loadProgress}%`,
+                  height: "100%",
+                  background: "#e94560",
+                  borderRadius: 3,
+                  transition: "width 0.2s ease-out",
+                }}
+              />
+            </div>
           </div>
         ) : spatial ? (
           <SpatialPlot
