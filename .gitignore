@@ -76,6 +76,7 @@ logs/
 
 # Demo data
 data/
+tests/h5ad
 
 # Docker images
 docker/*.tar

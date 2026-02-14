@@ -4,14 +4,26 @@
 
 ## Requirements
 
-- **Python ≥3.9**
-- No Node.js or other runtimes required; the frontend is included in the package.
+- [pixi](https://pixi.sh/) (recommended) or Python ≥3.9 + Node.js for building the frontend. The packaged app includes the built frontend.
 
 ## Install
 
+### From source with pixi (recommended)
+
 ```bash
-pip install spatialxgene
+git clone <repo> && cd spatialxgene
+pixi run install
 ```
+
+Then run `spatialxgene` from the pixi env (e.g. `pixi run launch` or `pixi run spatialxgene launch`). Default data dir for the viewer is `./tests/h5ad`; put preprocessed h5ad there or pass `--data-dir /path`.
+
+Or, install globally:
+
+```bash
+pixi global install .
+```
+
+Then `spatialxgene` are exposed to $PATH
 
 ## Commands
 
@@ -26,8 +38,10 @@ pip install spatialxgene
 1. **Launch the viewer**
 
    ```bash
-   spatialxgene launch --data-dir /path/to/preprocessed/h5ad/dir
+   pixi run launch
+   # or: spatialxgene launch --data-dir /path/to/h5ad
    ```
+   Default data dir is `./tests/h5ad`. Put preprocessed h5ad there, or override with `--data-dir`.
 
    Opens http://127.0.0.1:5005 by default (use `--host` and `--port` to change). Use the sidebar to pick a dataset (h5ad files are discovered in the data directory and all subdirectories; the dropdown shows paths including `.h5ad`; filenames with dots, e.g. `sample_v1.3.h5ad`, are supported); color by **Annotation**, **Gene**, or **Co-expression** (two genes, 2D palette); choose a **Layer** (X or adata.layers) when coloring by gene; choose a tissue background image (if present); zoom/pan the plot. Optional `--token` (default `zhaoslab`) enables simple auth — open the app with `?token=zhaoslab` in the URL once. Use `--token ""` to disable. When behind nginx at a subpath (e.g. `/spatialxgene/`), use `--api-base spatialxgene` so assets and API use that path.
 

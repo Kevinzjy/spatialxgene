@@ -7,8 +7,16 @@ import re
 import socket
 import subprocess
 import sys
+import warnings
 from pathlib import Path
 from typing import Optional
+
+# Suppress louvain's pkg_resources deprecation warning (setuptools>=81; RULES.md: we pin setuptools<81)
+warnings.filterwarnings(
+    "ignore",
+    message=".*pkg_resources is deprecated.*",
+    category=UserWarning,
+)
 
 # Env var for api-base (e.g. in Docker): SPATIALXGENE_API_BASE=spatialxgene so static/API paths use that prefix
 _API_BASE_ENV = "SPATIALXGENE_API_BASE"

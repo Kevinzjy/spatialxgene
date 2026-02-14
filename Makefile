@@ -2,28 +2,25 @@
 # Override: make test DATA_DIR=... HOST=... PORT=... or make test DEBUG=1
 
 PIXI    := $(HOME)/.pixi/bin/pixi
-DATA_DIR ?= ./data
+DATA_DIR ?= ./tests/h5ad
 HOST     ?= 192.168.31.101
 PORT     ?= 5005
 DEBUG    ?= 0
 
 export DATA_DIR HOST PORT DEBUG
 
-.PHONY: help install build test clean wheel publish publish-test docker docker-test launch
+.PHONY: help install build test clean docker docker-test launch
 
 help:
 	@echo "Spatialxgene Makefile (delegates to pixi):"
-	@echo "  make install       - pixi run install (uv sync, npm install, build, pip install -e .)"
-	@echo "  make build         - pixi run build"
-	@echo "  make test          - pixi run test (launch with debug; override DATA_DIR, HOST, PORT)"
-	@echo "  make launch        - pixi run launch"
-	@echo "  make clean         - pixi run clean"
-	@echo "  make wheel         - pixi run wheel"
-	@echo "  make publish-test  - pixi run publish-test"
-	@echo "  make publish       - pixi run publish"
-	@echo "  make docker        - pixi run docker"
-	@echo "  make docker-test   - pixi run docker-test"
-	@echo "  List all tasks:    $(PIXI) task list"
+	@echo "  make install       - pixi run install (npm install, build, pip install -e . --no-deps)"
+	@echo "  make build        - pixi run build"
+	@echo "  make test         - pixi run test (extract tar → visium2h5ad → preprocess → launch; override HOST, PORT)"
+	@echo "  make launch       - pixi run launch"
+	@echo "  make clean        - pixi run clean"
+	@echo "  make docker       - pixi run docker"
+	@echo "  make docker-test  - pixi run docker-test"
+	@echo "  List all tasks:   $(PIXI) task list"
 
 install:
 	$(PIXI) run install
@@ -39,15 +36,6 @@ launch:
 
 clean:
 	$(PIXI) run clean
-
-wheel:
-	$(PIXI) run wheel
-
-publish-test:
-	$(PIXI) run publish-test
-
-publish:
-	$(PIXI) run publish
 
 docker:
 	$(PIXI) run docker

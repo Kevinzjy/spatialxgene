@@ -25,11 +25,11 @@
        ports:
          - "5005:5005"
        volumes:
-         - /data/zhao/filebrowser/srv/users/spatial:/data
+         - /path/on/host/to/h5ad:/data
        command: ["--token", "zhaoslab", "--api-base", "spatialxgene"]
    ```
    - 若 nginx 反代路径不是 `/spatialxgene/`，把 `--api-base` 改成对应路径名。
-   - 数据目录按你服务器实际路径改 `volumes` 里的宿主机路径；容器内会递归扫描该目录及子目录下的所有 `.h5ad`，下拉框显示带扩展名的相对路径。文件名中含多个点（如 `sample_v1.3.h5ad`）也支持。
+   - 数据目录：宿主机路径挂载到容器内 `/data`；仓库内默认用 `../tests/h5ad`（见 docker-compose.yml）。容器会递归扫描该目录及子目录下的所有 `.h5ad`；文件名中含多个点（如 `sample_v1.3.h5ad`）也支持。
 
 ---
 
@@ -41,4 +41,4 @@
 docker compose -f docker/docker-compose.nginx-test.yml up --build
 ```
 
-浏览器打开 http://localhost:8888/spatialxgene/ 。数据目录为 `./data`。
+浏览器打开 http://localhost:8888/spatialxgene/ 。数据目录为 `./tests/h5ad`。

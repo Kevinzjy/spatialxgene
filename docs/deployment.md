@@ -12,7 +12,7 @@ Recommended for portability and to avoid glibc/Python-version issues. From the p
 docker compose -f docker/docker-compose.yml up -d
 ```
 
-- **Data**: Default volume is `./data` → `/data` in the container; edit `volumes` in `docker/docker-compose.yml` to use another path. The viewer discovers `.h5ad` files in that directory and all subdirectories; dataset ids are relative paths without the `.h5ad` suffix (e.g. `subdir/sample`, `subdir/sample_v1.3`). Filenames with multiple dots (e.g. version numbers) are supported.
+- **Data**: Default volume is `./tests/h5ad` → `/data` in the container (see `docker/docker-compose.yml`); edit `volumes` to use another path. The viewer discovers `.h5ad` files in that directory and all subdirectories; dataset ids are relative paths without the `.h5ad` suffix (e.g. `subdir/sample`, `subdir/sample_v1.3`). Filenames with multiple dots (e.g. version numbers) are supported.
 - **Token**: Default `--token zhaoslab`. Override with `command: ["--token", "your-secret"]` or `command: ["--token", ""]` to disable.
 - **Port**: Default `5005`; change `ports` in the compose file if needed.
 
@@ -25,29 +25,21 @@ See [docker/README.md](../docker/README.md) for more options. If you only have a
 ### Prerequisites
 
 - **Linux** with systemd (e.g. Debian, Ubuntu, RHEL, Rocky).
-- **Python 3.9+** and `pip` or [uv](https://github.com/astral-sh/uv).
+- **Python 3.9+** and [pixi](https://pixi.sh/) (or `pip` if not using pixi).
 - A **data directory** containing preprocessed h5ad files (or empty; you can add data later).
 - A **non-root user** to run the service (e.g. `www-data`, `spatialxgene`, or your app user).
 
 ## Install Spatialxgene
 
-Either install from PyPI:
-
-```bash
-pip install spatialxgene
-# or: uv pip install spatialxgene
-```
-
-Or from source (e.g. in `/opt/spatialxgene`):
+From source (e.g. in `/opt/spatialxgene`) with pixi:
 
 ```bash
 cd /opt/spatialxgene
-uv sync
-# Build frontend so the packaged app serves the UI
-cd spatialxgene/frontend && npm install && npm run build && cd ../..
+pixi run install
+# or: pixi install && cd spatialxgene/frontend && npm install && npm run build && cd ../.. && pip install -e . --no-deps
 ```
 
-Ensure the `spatialxgene` (or `uv run spatialxgene`) command is on the `PATH` for the service user, or use an absolute path in the unit file.
+Ensure the `spatialxgene` command is on the `PATH` for the service user (e.g. use the pixi env: `~/.pixi/envs/default/bin/spatialxgene` or `/opt/spatialxgene/.pixi/envs/default/bin/spatialxgene`), or use an absolute path in the unit file.
 
 ## systemd unit template
 
@@ -78,20 +70,20 @@ WantedBy=multi-user.target
 |-------------|---------|
 | `User`, `Group` | User and group to run the process (e.g. `www-data`, `spatialxgene`). Do not use root. |
 | `WorkingDirectory` | Directory to run in; use project root if from source, or any stable path if installed via pip. |
-| `ExecStart` | Full command. Use absolute path to `spatialxgene` if needed (e.g. `/opt/spatialxgene/.venv/bin/spatialxgene` or `uv run spatialxgene` with correct `WorkingDirectory`). |
+| `ExecStart` | Full command. Use absolute path to `spatialxgene` if needed (e.g. `/opt/spatialxgene/.pixi/envs/default/bin/spatialxgene` when using pixi). |
 | `--data-dir` | Path to the folder containing your h5ad files. |
 | `--host` | `0.0.0.0` to accept connections on all IPv4 interfaces; use `127.0.0.1` if you put a reverse proxy in front. |
 | `--port` | Port to listen on (default 5005). |
 | `--no-browser` | Required on headless servers so the process does not try to open a browser. |
 | `--token` | Optional auth token; if set, all `/api/*` requests must send this token (default: `zhaoslab`). Use `--token ""` to disable. Users open the app with `?token=YOUR_TOKEN` in the URL once to store it. |
 
-### Example: from source with uv
+### Example: from source with pixi
 
-If you run from source and use `uv`:
+If you run from source with pixi:
 
 ```ini
 WorkingDirectory=/opt/spatialxgene
-ExecStart=/opt/spatialxgene/.venv/bin/spatialxgene launch --data-dir /data/spatialxgene/data --host 0.0.0.0 --port 5005 --token zhaoslab --no-browser
+ExecStart=/opt/spatialxgene/.pixi/envs/default/bin/spatialxgene launch --data-dir /data/spatialxgene/data --host 0.0.0.0 --port 5005 --token zhaoslab --no-browser
 ```
 
 ### Example: bind IPv6 only

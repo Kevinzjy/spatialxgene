@@ -13,6 +13,9 @@ import warnings
 from pathlib import Path
 from typing import Optional
 
+import anndata as ad
+import pandas as pd
+
 # Count file names used by Space Ranger
 _COUNT_H5 = "filtered_feature_bc_matrix.h5"
 _COUNT_MTX_DIR = "filtered_feature_bc_matrix"
@@ -96,5 +99,23 @@ def visium_to_h5ad(
     if output_path.suffix.lower() != ".h5ad":
         output_path = output_path.with_suffix(".h5ad")
 
-    adata.write_h5ad(output_path)
+    # anndata >=0.11: opt-in to writing pd.arrays.StringArray; anndata <0.11: no settings, convert to object
+    if getattr(ad, "settings", None) is not None and hasattr(
+        ad.settings, "allow_write_nullable_strings"
+    ):
+        prev = ad.settings.allow_write_nullable_strings
+        try:
+            ad.settings.allow_write_nullable_strings = True
+            adata.write_h5ad(output_path)
+        finally:
+            ad.settings.allow_write_nullable_strings = prev
+    else:
+        # anndata <0.11: convert nullable string columns and index so h5ad write succeeds
+        for frame in (adata.obs, adata.var):
+            if getattr(frame.index.dtype, "name", None) == "string":
+                frame.index = pd.Index(frame.index.astype(object), name=frame.index.name)
+            for col in list(frame.columns):
+                if getattr(frame[col].dtype, "name", None) == "string":
+                    frame[col] = frame[col].astype(object)
+        adata.write_h5ad(output_path)
     return output_path

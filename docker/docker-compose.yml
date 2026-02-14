@@ -6,7 +6,7 @@ services:
     ports:
       - "5005:5005"
     volumes:
-      - ../data:/data
+      - ../tests/h5ad:/data
     # When nginx proxies e.g. location /spatialxgene/ to this port, set so favicon/API/assets use that path
     environment:
       - SPATIALXGENE_API_BASE=spatialxgene

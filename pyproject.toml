@@ -22,17 +22,12 @@ dependencies = [
     "louvain>=0.7.1",
 ]
 
-[project.optional-dependencies]
-# Install with: uv sync --extra publish (or pip install -e ".[publish]")
-# Used by: make publish, make publish-test
-publish = ["twine>=4.0"]
-
 [project.scripts]
 spatialxgene = "spatialxgene.cli:main"
 
 [tool.setuptools.packages.find]
 include = ["spatialxgene*"]
 
-# Pre-built frontend (run "make build" before "uv build" / "make publish*")
+# Pre-built frontend (run "pixi run build" before packaging)
 [tool.setuptools.package-data]
 spatialxgene = ["frontend/dist/*", "frontend/dist/**/*"]

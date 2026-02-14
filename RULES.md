@@ -6,8 +6,8 @@
 
 ## 0. 当前状态（简要）
 
-- **已完成**：子路径部署、数据集/表达加载进度、无空间或 UMAP 时的快速提示、Annotation 类别过多/过少时的稳健展示（不弹窗、图例显示 nan 说明）、多级 data-dir 扫描、下拉框显示 .h5ad、UI 文案 Numerical/Categorical 统一；preprocess 输出正确写入 leiden/louvain 与 counts layer；Sidebar 加载数据集时不再在 Dataset 上方显示 Loading；含多个点的 h5ad 文件名可正确解析；preprocess 对有 in_tissue 的数据跳过 spot 过滤、对 adata.raw 写入 layers['counts'] 后清空 raw 避免写盘报错；统一使用 layers['counts'] 命名。详见 CHANGELOG [Unreleased]。
-- **待做**：无（`visium2h5ad` 已实现：`spatialxgene visium2h5ad -i path_to_visium -o h5ad_file`）。
+- **已完成**：子路径部署、数据集/表达加载进度、无空间或 UMAP 时的快速提示、Annotation 类别过多/过少时的稳健展示（不弹窗、图例显示 nan 说明）、多级 data-dir 扫描、下拉框显示 .h5ad、UI 文案 Numerical/Categorical 统一；preprocess 输出正确写入 leiden/louvain 与 counts layer；Sidebar 加载数据集时不再在 Dataset 上方显示 Loading；含多个点的 h5ad 文件名可正确解析；preprocess 对有 in_tissue 的数据跳过 spot 过滤、对 adata.raw 写入 layers['counts'] 后清空 raw 避免写盘报错；统一使用 layers['counts'] 命名。**pixi 迁移完成**：依赖与任务均在 pixi.toml，CLI 统一为 `spatialxgene`；测试数据在 `tests/`（Visium 用 `tests/HCC1R.tar`），日常 launch 默认数据目录 `tests/h5ad`；Docker 挂载 `tests/h5ad:/data`。详见 CHANGELOG [Unreleased]。
+- **待做**：无。
 
 ---
 
@@ -65,7 +65,7 @@
 
 - **复现命令**：完整命令（含参数），例如：`make dev DATA_DIR=... HOST=... PORT=...`
 - **完整输出**：从第一行到最后一行的报错（含 stacktrace）
-- **环境信息**：OS、Python 版本、Node 版本、uv 版本（如相关）
+- **环境信息**：OS、Python 版本、Node 版本、pixi 版本（如相关）
 - **改动范围**：最近修改了哪些文件/功能（如果我知道）
 - **期望行为**：我希望最终看到什么结果（例如页面显示、API 返回、构建通过）
 
@@ -81,6 +81,12 @@
 > 每次“反复修改后才解决”的问题，都要在此追加一条记录。
 
 - **问题**：<简述现象与报错>
+
+#### pixi 迁移与测试数据统一（2026-02）
+
+- **背景**：依赖与开发/生产统一由 pixi 管理；测试与示例数据从 data/ 迁到 tests/，便于与自动化测试一致。
+- **约定**：① 依赖在 pixi.toml 中锁定为具体版本（`==x.y.z`），不发布 PyPI。② CLI 统一用 `spatialxgene`，不在任务中混用 `python -m spatialxgene.cli`。③ 测试数据：Visium 以 `tests/HCC1R.tar` 存放，`pixi run test` 解压→visium2h5ad→preprocess→launch，退出后删除生成的 h5ad。④ 日常 launch 默认 DATA_DIR=`./tests/h5ad`；Docker 挂载 `../tests/h5ad:/data`。⑤ clean 任务不再删除 `.venv`（pixi 环境在 .pixi/ 下）。
+- **文档**：RULES §0 与 §4.3、development.md、deployment.md、docker/README、README、Makefile 的默认 DATA_DIR 与目录说明需与上述约定一致。
 - **根因**：<信息缺失/边界条件/环境差异/实现错误/工具链问题等>
 - **最有效的补充信息**：<如果一开始就提供，会更快解决的内容>
 - **下次提问要点**：<可复制的提问模板>
@@ -98,10 +104,16 @@
 
 ### 4.3 项目规范与发布教训（Spatialxgene）
 
-- **开发环境（pixi + uv + Python）**
-  - 整体环境由 **pixi** 管理（推荐安装到 `~/.pixi/bin/pixi`）；pixi 提供 uv、nodejs、r-base，便于后续加 R 依赖。Python 包仍由 **uv** 与 pyproject.toml 管理（在项目里执行 `uv sync`、`uv run`）。日常开发可用 `pixi run install`、`pixi run launch`，或通过 Makefile 调用（`make install` → `pixi run install`）。任务定义在 `pixi.toml` 的 `[tasks]`。
-  - 若环境中为 **NumPy 2.x**（如 `uv run python -c "import numpy; print(numpy.__version__)"` 显示 2.x），scanpy 及其依赖（如 numba）可能尚未兼容，会报 `numpy.core.multiarray failed to import` 或 `_ARRAY_API not found`。此时需在 pyproject.toml 中约束 `numpy<2`（或使用满足 numpy 1.x 的虚拟环境）后再 `uv sync`，否则依赖 scanpy 的子命令会失败。新增依赖时注意与 NumPy 2 的兼容性，必要时在文档或依赖中写明。
+- **开发环境（pixi + Python conda-forge）**
+  - 整体环境由 **pixi** 管理（推荐安装到 `~/.pixi/bin/pixi`）。Python 依赖在 pixi.toml 中锁定（conda-forge）；pyproject.toml 保留包元数据与 setuptools，用于 `pip install -e . --no-deps`。pixi 提供 python、nodejs、r-base；日常用 `pixi run install`、`pixi run launch`、`pixi run test`。**CLI 统一**：所有任务通过 `spatialxgene` 命令调用（不再混用 `python -m spatialxgene.cli`）。
+  - 若环境中为 **NumPy 2.x**，scanpy 及其依赖（如 numba）可能尚未兼容，会报 `numpy.core.multiarray failed to import` 或 `_ARRAY_API not found`。pixi.toml 已约束 numpy 为 1.x（如 1.26.4）；新增依赖时注意与 NumPy 2 的兼容性。
   - **visium2h5ad**：使用 `scanpy.read_visium()` 读取 Visium 目录并写出 h5ad。需保证 setuptools<81（见上）及可用的 numba/scanpy，否则可回退为不依赖 scanpy 的自实现（见 git 历史）。
+  - **Conda 包运行依赖（`[package.run-dependencies]`）**：打出的 conda 包（`pixi build`）的 run 依赖必须与 `[dependencies]` 中**运行时所需**的包版本一致（使用明确版本号 `==x.y.z`），以便 `mamba install spatialxgene-*.conda` 时自动安装相同版本。**约定**：`[package.run-dependencies]` 与 `[dependencies]` 中除 nodejs、r-base 外的运行时依赖保持版本一致；升级任一处时需同步另一处。当前明确版本（与 pixi.toml 一致）：python 3.9.23、numpy 1.26.4、setuptools 80.9.0、scanpy 1.10.3、anndata 0.10.9、leidenalg 0.10.2、pandas 2.3.1、h5py 3.14.0、fastapi 0.116.1、uvicorn 0.35.0、pillow 11.3.0、louvain 0.8.2。
+
+- **测试数据与目录约定**
+  - **tests/**：测试与示例数据所在目录。Visium 原始数据以 tar 存放（如 `tests/HCC1R.tar`），`pixi run test` 会解压到 `tests/HCC1R`、跑 visium2h5ad → preprocess、用 `--data-dir ./tests` 启动 viewer，退出后删除生成的 `tests/HCC1R*.h5ad`。
+  - **tests/h5ad/**：日常 launch 的默认数据目录（pixi.toml 中 launch 的 DATA_DIR）。将预处理的 h5ad 放在此目录，`pixi run launch` 即可在侧边栏看到。Docker 默认挂载 `../tests/h5ad:/data`，与本地一致。
+  - 不再使用 `data/` 作为默认数据目录；若需自建目录，可通过 `DATA_DIR=... pixi run launch` 或 compose 的 volumes 覆盖。
 
 - **服务器网络权限**
   - 生产环境网络权限较严：**只能获得一个代理端口的权限**（例如 nginx 上仅能配置一个 `location /spatialxgene/` 反代到本应用）。不能为项目单独增加根路径或其它全局路由（如 `/favicon.svg`、`/api` 等）。
@@ -110,16 +122,15 @@
 - **数据集加载进度条**
   - 采用按步骤的进度（4 个请求：meta / spatial / obs / var，每完成一个 +25%），避免用户误以为页面卡死。全部完成后保持 100% 约 400ms 再关闭 loading，避免“到 75% 就突然结束”的体感；若在等待期间用户切换了数据集则直接 return，由 finally 收尾。
 
-- **打包与 wheel**
-  - 只上传 wheel 到 PyPI、不上传源码时，前端必须打进 wheel：用 `[tool.setuptools.package-data]` 包含预构建的 `frontend/dist/**`；打 wheel 前必须先 `npm run build`（如 Makefile 的 `publish`/`publish-test` 先 `make build-frontend`）。否则 pip 安装后 `spatialxgene launch` 会报 “Frontend not found”。
-  - 仅发布时需要的依赖（如 twine）放在 `[project.optional-dependencies]` 的 `publish` 里；发布前 `uv sync --extra publish`，普通用户安装不会带上。
+- **打包与前端**
+  - 若需打包（如 Docker 或本地安装），前端必须打进包：用 `[tool.setuptools.package-data]` 包含预构建的 `frontend/dist/**`；打包前必须先 `pixi run build`。否则 `spatialxgene launch` 会报 “Frontend not found”。项目不发布到 PyPI，依赖与部署均由 pixi 管理。
 
-- **PyPI 上的 README**
-  - README.md 会作为 PyPI 项目页的说明，面向的是只做 `pip install` 的用户，没有源码、没有 repo 里的路径。不要写 “from source”、“docs/…”、“spatialxgene/frontend”、“make” 等；只保留：Requirements、Install（pip only）、Commands、Quick start、Data format、`--help` 提示。链接只保留相对锚点或必要的外部链接，不要链到 repo 内 docs。
+- **README**
+  - 项目不发布 PyPI，README 面向从源码/仓库使用或部署的用户。可包含 Requirements、Install（pixi 从源码）、Commands、Quick start、Data format、`--help` 提示；可链到 docs、make、pixi 等。
 
 - **发布与版本文档**
   - 发布说明统一放在 CHANGELOG.md；不再维护单独的 `docs/release_notes_*.md`，避免两处不一致。新版本在 CHANGELOG 增加条目，重要版本可在条目下用 “Release notes (merged)” 子段概括 scope 与教训。
-  - **版本号必须三处同步**：每次发版前同时修改 `spatialxgene/__init__.py`（`__version__`）、`pyproject.toml`（`version`）、`spatialxgene/frontend/package.json`（`version`），以及 `spatialxgene/frontend/package-lock.json` 中顶层和 `""` 包的 `version`；否则 API/前端显示的版本会与 PyPI 不一致。
+  - **版本号必须三处同步**：发版时同时修改 `spatialxgene/__init__.py`（`__version__`）、`pyproject.toml`（`version`）、`spatialxgene/frontend/package.json`（`version`），以及 `spatialxgene/frontend/package-lock.json` 中顶层和 `""` 包的 `version`；否则 API/前端显示的版本会不一致。
   - 默认配置（如 host/port）若在代码中修改，需同步改文档（README、docs/development.md、前端 vite proxy 等），避免文档与行为不一致。
 
 - **前端：大数组不要用 spread 展开**

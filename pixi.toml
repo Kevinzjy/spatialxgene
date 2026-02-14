@@ -1,5 +1,7 @@
-# Spatialxgene: pixi manages the project environment (uv for Python, node for frontend, R for future use).
+# Spatialxgene: pixi manages the project environment (Python from conda-forge, node, R).
 # Run with: ~/.pixi/bin/pixi run <task>  or add ~/.pixi/bin to PATH and use pixi run <task>
+# Conda package: enable pixi-build, then run `pixi run build` (frontend) before `pixi build`.
+# See https://pixi.prefix.dev/latest/reference/pixi_manifest and docs/build/backends/pixi-build-python.md
 
 [workspace]
 name = "spatialxgene"
@@ -7,41 +9,75 @@ version = "0.2.3"
 description = "Browser-based spatial transcriptomics viewer (cellxgene-style)"
 channels = ["conda-forge"]
 platforms = ["linux-64", "osx-arm64", "osx-64", "win-64"]
+preview = ["pixi-build"]
+
+[package]
+name = "spatialxgene"
+version = "0.2.3"
+description = "Browser-based spatial transcriptomics viewer (cellxgene-style)"
+
+[package.build]
+[package.build.backend]
+name = "pixi-build-python"
+version = "*"
+channels = ["conda-forge"]
+# setuptools/wheel required by pyproject.toml build-system
+[package.host-dependencies]
+setuptools = ">=61"
+wheel = "*"
+# Include built frontend so conda package contains UI (run `pixi run build` before `pixi build`)
+# ignore-pypi-mapping = false so backend adds run deps from pyproject.toml; [package.run-dependencies] then overrides with exact versions.
+[package.build.config]
+extra-input-globs = ["spatialxgene/frontend/dist/**"]
+ignore-pypi-mapping = false
+
+# Runtime deps: exact versions must match [dependencies] (RULES §4.3). Installed when user does mamba/conda install spatialxgene-*.conda.
+[package.run-dependencies]
+python = "==3.9.23"
+numpy = "==1.26.4"
+setuptools = "==80.9.0"
+scanpy = "==1.10.3"
+anndata = "==0.10.9"
+leidenalg = "==0.10.2"
+pandas = "==2.3.1"
+h5py = "==3.14.0"
+fastapi = "==0.116.1"
+uvicorn = "==0.35.0"
+pillow = "==11.3.0"
+louvain = "==0.8.2"
 
 [dependencies]
-# Python for the environment; project's actual Python deps are in pyproject.toml (uv sync)
-python = ">=3.9,<3.13"
-# uv from conda-forge for Python dependency management (uses pyproject.toml; run uv sync in project)
-uv = ">=0.4"
-# Node.js for frontend (npm install, npm run build)
-nodejs = ">=20"
-# R for future R dependencies (optional analyses / integrations)
-r-base = ">=4.3"
+# Pinned to exact versions from current working env (pixi.lock / conda-forge). RULES.md: numpy<2, setuptools<81.
+python = "==3.9.23"
+numpy = "==1.26.4"
+setuptools = "==80.9.0"
+scanpy = "==1.10.3"
+anndata = "==0.10.9"
+leidenalg = "==0.10.2"
+pandas = "==2.3.1"
+h5py = "==3.14.0"
+fastapi = "==0.116.1"
+uvicorn = "==0.35.0"
+pillow = "==11.3.0"
+louvain = "==0.8.2"
+nodejs = "==25.2.1"
+r-base = "==4.5.2"
 
 [tasks]
-# One-shot: uv sync, npm install, build frontend, pip install -e .
-install = "uv sync && cd spatialxgene/frontend && npm install && npm run build && cd ../.. && uv pip install -e ."
+# One-shot: npm install + build frontend, then install package in pixi env (deps from pixi; --no-deps to avoid re-installing from pyproject)
+install = "cd spatialxgene/frontend && npm install && npm run build && cd ../.. && pip install -e . --no-deps"
 
 # Build frontend only (required before first launch or after frontend changes)
 build = { cmd = "cd spatialxgene/frontend && npm run build", cwd = "." }
 
-# Launch viewer (depends on build so frontend is present). Override: DATA_DIR=... HOST=... PORT=... pixi run test
-test = { cmd = "uv run spatialxgene launch --data-dir $DATA_DIR --host $HOST --port $PORT --debug", env = { DATA_DIR = "./data", HOST = "0.0.0.0", PORT = "5005" }, depends-on = ["build"] }
+# Visium→h5ad, preprocess (QC), then launch viewer with tests/ as data dir. Override: HOST=... PORT=... pixi run test
+test = { cmd = "tar -xvf tests/HCC1R.tar -C ./tests && spatialxgene visium2h5ad tests/HCC1R && rm -r tests/HCC1R && spatialxgene preprocess tests/HCC1R.h5ad && spatialxgene launch --data-dir ./tests --host $HOST --port $PORT --debug && rm tests/HCC1R*.h5ad", env = { HOST = "0.0.0.0", PORT = "5005" }, depends-on = ["build"] }
 
 # Launch viewer only (no auto-open browser by default). Override: DATA_DIR=... HOST=... PORT=... pixi run launch
-launch = { cmd = "uv run spatialxgene launch --data-dir $DATA_DIR --host $HOST --port $PORT", env = { DATA_DIR = "./data", HOST = "0.0.0.0", PORT = "5005" }, depends-on = ["build"] }
+launch = { cmd = "spatialxgene launch --data-dir $DATA_DIR --host $HOST --port $PORT", env = { DATA_DIR = "./tests/h5ad", HOST = "0.0.0.0", PORT = "5005" }, depends-on = ["build"] }
 
 # Remove .venv, node_modules, dist, caches
-clean = "rm -rf .venv build spatialxgene/frontend/node_modules spatialxgene/frontend/dist spatialxgene/__pycache__ spatialxgene/*/__pycache__ .pytest_cache .ruff_cache .mypy_cache spatialxgene/frontend/tsconfig.tsbuildinfo"
-
-# Build wheel (output: dist/*.whl). Run build first so frontend is included.
-wheel = { cmd = "uv build --wheel", depends-on = ["build"] }
-
-# Upload to TestPyPI (needs TESTPYPI_USERNAME / TESTPYPI_PASSWORD or token). Runs wheel first, then sync publish deps and upload.
-publish-test = { cmd = "uv sync --extra publish && uv run -m twine upload --repository testpypi dist/*", depends-on = ["wheel"] }
-
-# Upload to PyPI (needs PYPI_TOKEN or credentials). Runs wheel first, then sync publish deps and upload.
-publish = { cmd = "uv sync --extra publish && uv run -m twine upload --repository pypi dist/*", depends-on = ["wheel"] }
+clean = "rm -rf build spatialxgene/frontend/node_modules spatialxgene/frontend/dist spatialxgene/__pycache__ spatialxgene/*/__pycache__ .pytest_cache .ruff_cache .mypy_cache spatialxgene/frontend/tsconfig.tsbuildinfo"
 
 # Build docker image and save to docker/spatialxgene.tar (image name from compose: docker-spatialxgene:latest)
 docker = "cd docker && docker compose build && docker save -o spatialxgene.tar docker-spatialxgene:latest"

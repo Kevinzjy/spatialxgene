@@ -2,15 +2,15 @@
 
 Project layout, build and run from source, and where to find design/plan docs.
 
-## Environment: pixi + uv
+## Environment: pixi (Python from conda-forge)
 
-The project uses **[pixi](https://pixi.sh/)** for overall environment management (install at `~/.pixi/bin/pixi` or ensure `pixi` is on PATH). Pixi provides:
+The project uses **[pixi](https://pixi.sh/)** for environment management (install at `~/.pixi/bin/pixi` or ensure `pixi` is on PATH). Pixi provides:
 
-- **uv** — Python dependency management (uses `pyproject.toml`; run `uv sync` in the project)
+- **Python and Python packages** — From conda-forge (numpy, scanpy, anndata, fastapi, uvicorn, etc.); versions are pinned in `pixi.toml`.
 - **nodejs** — Frontend (npm install, npm run build)
 - **r-base** — R runtime for future R dependencies
 
-Python packages are still defined in `pyproject.toml`; pixi supplies uv and node so you can run `uv sync` and `npm` without installing them system-wide. Add more R or conda packages in `pixi.toml` as needed.
+Run `pixi run launch` or `pixi run spatialxgene launch`; the install task runs `pip install -e . --no-deps` so the package uses pixi-installed deps. Add more R or conda packages in `pixi.toml` as needed.
 
 The **Makefile** is a thin wrapper: each target runs `pixi run <task>`. You can run tasks directly with `pixi run <task>` (e.g. `pixi run install`, `pixi run launch`).
 
@@ -18,14 +18,14 @@ The **Makefile** is a thin wrapper: each target runs `pixi run <task>`. You can 
 
 ```
 <project root>/
-├── README.md              # PyPI project page (user-only; no repo/source paths)
-├── pyproject.toml         # Python package: name = "spatialxgene"
-├── pixi.toml             # Pixi project: deps (uv, nodejs, r-base), tasks
+├── README.md
+├── pyproject.toml         # Python package metadata; pip install -e . --no-deps
+├── pixi.toml              # Pixi: deps (python, nodejs, r-base), tasks
 ├── CHANGELOG.md
 ├── Makefile               # Thin wrapper: make X → pixi run X
-├── data/
-│   ├── sample/            # Sample data (e.g. STDS0000323)
-│   └── references/
+├── tests/                 # Test data and default launch data dir
+│   ├── HCC1R.tar          # Visium sample (tar); test task extracts and runs pipeline
+│   └── h5ad/              # Default DATA_DIR for launch; put preprocessed h5ad here
 ├── docs/                  # Design and development docs
 │   ├── development.md     # This file
 │   ├── deployment.md      # Run as systemd service, token, Nginx
@@ -51,7 +51,7 @@ The **Makefile** is a thin wrapper: each target runs `pixi run <task>`. You can 
    # or: make install
    ```
 
-   This runs `uv sync`, installs frontend npm deps, builds the frontend, and `uv pip install -e .`.
+   This installs pixi deps, builds the frontend, and `pip install -e . --no-deps`.
 
 2. Launch the viewer:
 
@@ -60,29 +60,31 @@ The **Makefile** is a thin wrapper: each target runs `pixi run <task>`. You can 
    # or: make launch
    ```
 
-   With custom data dir / host / port: `DATA_DIR=/path HOST=0.0.0.0 PORT=5005 pixi run launch`. Optional: `--token zhaoslab` (default); use `--token ""` to disable. See [deployment.md](deployment.md) for production deployment.
+   Default data dir is `./tests/h5ad` (see pixi.toml). Override: `DATA_DIR=/path HOST=0.0.0.0 PORT=5005 pixi run launch`. Optional: `--token zhaoslab` (default); use `--token ""` to disable. See [deployment.md](deployment.md) for production deployment.
 
 ## Development workflow
 
-- **Backend only**: `uv run uvicorn spatialxgene.server.main:app --reload --host 127.0.0.1 --port 5005` (from a pixi shell or after `uv sync`).
+- **Backend only**: `pixi run python -m uvicorn spatialxgene.server.main:app --reload --host 127.0.0.1 --port 5005`.
 - **Frontend only**: In `spatialxgene/frontend`, `npm run dev` (Vite proxies `/api` to 5005); run the backend separately on port 5005.
 
 ## Pixi tasks / Makefile targets
 
 | Task | Description |
 |------|-------------|
-| `pixi run install` / `make install` | uv sync, npm install, build frontend, pip install -e . |
+| `pixi run install` / `make install` | Pixi install, npm install, build frontend, pip install -e . --no-deps |
 | `pixi run build` / `make build` | Build frontend only |
-| `pixi run launch` / `make launch` | Run viewer (env: DATA_DIR, HOST, PORT) |
-| `pixi run test` / `make test` | Launch viewer with --debug (same env overrides) |
+| `pixi run launch` / `make launch` | Run viewer; default DATA_DIR=./tests/h5ad (env: DATA_DIR, HOST, PORT) |
+| `pixi run test` / `make test` | Extract tests/HCC1R.tar → visium2h5ad → preprocess → launch (data-dir ./tests); on exit removes generated h5ad. Override HOST/PORT. |
 | `pixi run clean` / `make clean` | Remove .venv, node_modules, dist, caches |
-| `pixi run wheel` / `make wheel` | Build wheel (depends on build) |
-| `pixi run publish-test` / `make publish-test` | Build wheel, upload to TestPyPI |
-| `pixi run publish` / `make publish` | Build wheel, upload to PyPI |
 | `pixi run docker` / `make docker` | Build docker image, save to docker/spatialxgene.tar |
 | `pixi run docker-test` / `make docker-test` | Run nginx + spatialxgene for subpath test |
 
-List all tasks: `pixi task list`. Publish tasks install the `publish` extra (twine) and run the wheel task first.
+List all tasks: `pixi task list`.
+
+## Test data
+
+- **tests/HCC1R.tar**: Visium Space Ranger output (tar). `pixi run test` extracts it to `tests/HCC1R`, runs `spatialxgene visium2h5ad` and `spatialxgene preprocess`, then launches the viewer with `--data-dir ./tests`. When you stop the server, the task removes the generated `tests/HCC1R.h5ad` and `tests/HCC1R_processed.h5ad`.
+- **tests/h5ad/**: Default data directory for `pixi run launch`. Place preprocessed h5ad files here for daily use. Docker compose mounts this as `/data` in the container.
 
 ## Versioning
 
