@@ -1,0 +1,50 @@
+# Spatialxgene: pixi manages the project environment (uv for Python, node for frontend, R for future use).
+# Run with: ~/.pixi/bin/pixi run <task>  or add ~/.pixi/bin to PATH and use pixi run <task>
+
+[workspace]
+name = "spatialxgene"
+version = "0.2.3"
+description = "Browser-based spatial transcriptomics viewer (cellxgene-style)"
+channels = ["conda-forge"]
+platforms = ["linux-64", "osx-arm64", "osx-64", "win-64"]
+
+[dependencies]
+# Python for the environment; project's actual Python deps are in pyproject.toml (uv sync)
+python = ">=3.9,<3.13"
+# uv from conda-forge for Python dependency management (uses pyproject.toml; run uv sync in project)
+uv = ">=0.4"
+# Node.js for frontend (npm install, npm run build)
+nodejs = ">=20"
+# R for future R dependencies (optional analyses / integrations)
+r-base = ">=4.3"
+
+[tasks]
+# One-shot: uv sync, npm install, build frontend, pip install -e .
+install = "uv sync && cd spatialxgene/frontend && npm install && npm run build && cd ../.. && uv pip install -e ."
+
+# Build frontend only (required before first launch or after frontend changes)
+build = { cmd = "cd spatialxgene/frontend && npm run build", cwd = "." }
+
+# Launch viewer (depends on build so frontend is present). Override: DATA_DIR=... HOST=... PORT=... pixi run test
+test = { cmd = "uv run spatialxgene launch --data-dir $DATA_DIR --host $HOST --port $PORT --debug", env = { DATA_DIR = "./data", HOST = "0.0.0.0", PORT = "5005" }, depends-on = ["build"] }
+
+# Launch viewer only (no auto-open browser by default). Override: DATA_DIR=... HOST=... PORT=... pixi run launch
+launch = { cmd = "uv run spatialxgene launch --data-dir $DATA_DIR --host $HOST --port $PORT", env = { DATA_DIR = "./data", HOST = "0.0.0.0", PORT = "5005" }, depends-on = ["build"] }
+
+# Remove .venv, node_modules, dist, caches
+clean = "rm -rf .venv build spatialxgene/frontend/node_modules spatialxgene/frontend/dist spatialxgene/__pycache__ spatialxgene/*/__pycache__ .pytest_cache .ruff_cache .mypy_cache spatialxgene/frontend/tsconfig.tsbuildinfo"
+
+# Build wheel (output: dist/*.whl). Run build first so frontend is included.
+wheel = { cmd = "uv build --wheel", depends-on = ["build"] }
+
+# Upload to TestPyPI (needs TESTPYPI_USERNAME / TESTPYPI_PASSWORD or token). Runs wheel first, then sync publish deps and upload.
+publish-test = { cmd = "uv sync --extra publish && uv run -m twine upload --repository testpypi dist/*", depends-on = ["wheel"] }
+
+# Upload to PyPI (needs PYPI_TOKEN or credentials). Runs wheel first, then sync publish deps and upload.
+publish = { cmd = "uv sync --extra publish && uv run -m twine upload --repository pypi dist/*", depends-on = ["wheel"] }
+
+# Build docker image and save to docker/spatialxgene.tar (image name from compose: docker-spatialxgene:latest)
+docker = "cd docker && docker compose build && docker save -o spatialxgene.tar docker-spatialxgene:latest"
+
+# Run local nginx + spatialxgene for subpath testing
+docker-test = "docker compose -f docker/docker-compose.nginx-test.yml up --build"

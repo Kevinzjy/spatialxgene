@@ -11,15 +11,15 @@
 ### 1.1 后端先行（已完成主体）
 
 1. **数据与 CLI**
-   - 约定输入/输出为 h5ad；实现 `infer`（空间推断）与 `preprocess`（表达流水线）。
-   - CLI 子命令：`infer`、`preprocess`、`launch`、`dev`、`visium2h5ad`，参数与默认值在 `cli.py` 中集中管理。
+   - 约定输入/输出为 h5ad；实现 `preprocess`（表达流水线）。
+   - CLI 子命令：`preprocess`、`launch`、`visium2h5ad`，参数与默认值在 `cli.py` 中集中管理。
 
 2. **API 与数据服务**
    - FastAPI 服务：`/api/datasets`、`/api/datasets/{id}`（含 meta：`image_keys`、`image_info`）、`/api/datasets/{id}/spatial`、`/api/datasets/{id}/obs`、`/api/datasets/{id}/expression/{gene}`、`/api/datasets/{id}/var`、`/api/datasets/{id}/images/{key}`（PNG 组织图）。
    - 数据目录由 launch 时 `--data-dir` 注入，无独立数据库；API 从文件系统读 h5ad 并可选内存缓存。
 
 3. **静态资源**
-   - 前端构建产物（如 `spatialxgene/frontend/dist/`）由 FastAPI 挂载，`launch` / `dev` 时一并提供。
+   - 前端构建产物（如 `spatialxgene/frontend/dist/`）由 FastAPI 挂载，`launch` 时一并提供。
 
 ### 1.2 前端随后（已完成主体）
 
@@ -35,7 +35,7 @@
 
 ### 1.3 后续可做
 
-- 测试：后端 pytest（API + preprocess/infer），前端单元/集成测试。
+- 测试：后端 pytest（API + preprocess），前端单元/集成测试。
 - 性能：大数据下缓存策略、降采样或 WebGL。
 - 体验：Expression 加载态、空数据提示、无障碍与键盘支持等（见 [design_guidelines.md](design_guidelines.md) 与 [tasks.md](tasks.md)）。
 
@@ -66,7 +66,7 @@
 | 元信息 | `uns` | 如 `spatial_platform`、`spatial_scale` 等，供后续扩展。 |
 | 组织图 | `uns['spatial'][sample]['images']` + `scalefactors` | 可选；如 `hires`、`lowres`，Visium 风格；API 返回 `image_keys`、`image_info` 及 PNG 端点。 |
 
-服务端**不**修改 h5ad 内容；infer/preprocess 由 **CLI 写新文件**（如 `*_processed.h5ad`），查看器只读。
+服务端**不**修改 h5ad 内容；preprocess 由 **CLI 写新文件**（如 `*_processed.h5ad`），查看器只读。
 
 ### 2.3 服务端状态与缓存
 
@@ -90,7 +90,7 @@
 
 | 层 | 职责 |
 |------|------|
-| **CLI** | 参数解析、infer/preprocess 调用、launch/dev 时启动 FastAPI 与前端构建/watch。 |
+| **CLI** | 参数解析、preprocess 调用、launch 时启动 FastAPI 与前端构建。 |
 | **FastAPI** | 提供 REST API；读 h5ad、返回 JSON；挂载静态前端。 |
 | **前端** | 请求 API、维护 UI 状态、Canvas 绘制与交互；不直接读文件。 |
 

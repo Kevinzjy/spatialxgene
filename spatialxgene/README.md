@@ -4,28 +4,6 @@ Spatial transcriptomics viewer and preprocessing. Use the `spatialxgene` CLI. Th
 
 ## Subcommands
 
-### infer — Infer spatial coordinates
-
-Check if h5ad has spatial coordinates; if not, infer and add them (known Stereo-seq grid, factorized grid from n_obs, or proxy). If already present, skip.
-
-```bash
-spatialxgene infer path/to/file.h5ad              # overwrite in place
-spatialxgene infer path/to/dir -o path/to/out     # write to output dir
-```
-
-- **input** — Single `.h5ad` or directory of `.h5ad`.
-- **-o** — Output file or directory (default: in place).
-- **--bin-scale-um** — Bin size in micron (default 1.0).
-- **--exclude** — Skip files whose name contains this (default: preprocessed).
-
-### dev — Backend + frontend watch (for development)
-
-One command: backend runs and frontend is watched. Saving a frontend file triggers a rebuild; refresh the browser to see changes. No need to run `npm run build` manually.
-
-```bash
-spatialxgene dev [--data-dir DIR] [--port N] [--no-browser]
-```
-
 ### launch — Browser visualization (production build)
 
 Start the web app to explore preprocessed h5ad with spatial coordinates.
@@ -35,7 +13,7 @@ spatialxgene launch [--data-dir DIR] [--port N] [--no-browser] [--build]
 ```
 
 - **--data-dir** — Directory of preprocessed `.h5ad` files.
-- **--port** — Port (default 5005). **--host** — Bind host (default 0.0.0.0 for launch, 127.0.0.1 for dev).
+- **--port** — Port (default 5005). **--host** — Bind host (default 0.0.0.0).
 - **--no-browser** — Do not open the browser.
 - **--build** — Rebuild frontend before starting (only when running from source).
 
@@ -58,7 +36,7 @@ spatialxgene visium2h5ad /path/to/visium_sample -o output.h5ad
 
 ### preprocess — QC, normalize, reduce, cluster (expression only)
 
-Preprocess following scanpy tutorial: QC, normalize_total, log1p, HVG (marked but **not** used to subset genes); PCA, neighbors, UMAP, Leiden are run on HVG only; the **output h5ad keeps all genes** that passed QC (X = normalized log counts). Optional `raw_counts` layer saved before normalization. **Does not add or modify spatial coordinates**; run `spatialxgene infer` first if needed.
+Preprocess following scanpy tutorial: QC, normalize_total, log1p, HVG (marked but **not** used to subset genes); PCA, neighbors, UMAP, Leiden are run on HVG only; the **output h5ad keeps all genes** that passed QC (X = normalized log counts). Optional `counts` layer saved before normalization. **Does not add or modify spatial coordinates**.
 
 ```bash
 # Single file (default output: same dir, name_processed.h5ad)
@@ -111,4 +89,4 @@ Access the app at `https://your-domain/spatialxgene/`. For root access, run with
 
 ## Development
 
-For project layout, `spatialxgene dev`, and build/run from source, see the project repository.
+For project layout and build/run from source, see the project repository.

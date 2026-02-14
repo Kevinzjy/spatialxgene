@@ -73,7 +73,7 @@ export type DatasetMeta = {
   image_keys?: string[];
   /** Per-key scale and size: image in data space spans (0,0) to (width/scale_factor, height/scale_factor) */
   image_info?: Record<string, { scale_factor: number; width: number; height: number }>;
-  /** Keys in adata.layers (e.g. raw_counts, logcounts); use "X" for adata.X */
+  /** Keys in adata.layers (e.g. counts, logcounts); use "X" for adata.X */
   layer_keys?: string[];
   /** False when dataset has no spatial/UMAP/PCA/t-SNE; frontend should show message and not load spatial/obs/var */
   viewable?: boolean;

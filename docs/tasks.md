@@ -13,7 +13,7 @@
 - [ ] **Preprocess 输入校验**：`run_preprocess` 开头检查 `adata.X` 非空并提前报错。
 - [ ] **Infer platform 区分**：用户指定 `grid_shape` 时与「已知 Stereo-seq 网格」区分，在 `uns` 中写不同 platform/note。
 - [ ] **Launch 目录提示**：当 `--data-dir` 不存在时打印友好提示并列出当前 DATA_DIR。
-- [ ] **后端单测**：为 server 的 `list_datasets`、`get_dataset_meta`、`_get_plot_coordinates` 及 preprocess/infer 核心逻辑写 pytest。
+- [ ] **后端单测**：为 server 的 `list_datasets`、`get_dataset_meta`、`_get_plot_coordinates` 及 preprocess 核心逻辑写 pytest。
 
 ### 前端
 
@@ -27,7 +27,7 @@
 ### 工程与文档
 
 - [ ] **CI**：在 CI 中增加 `ruff check`、`tsc --noEmit`（及可选 mypy），保证 MR 通过。
-- [ ] **README 与 Makefile**：确保新成员可通过 `make install`、`make build`、`make dev` 完成本地开发（当前已具备，仅需随变更更新）。
+- [ ] **README 与 Makefile**：确保新成员可通过 `make install`、`make build`、`pixi run launch` 完成本地开发（当前已具备，仅需随变更更新）。
 
 ---
 
@@ -45,13 +45,16 @@
 - [x] SpatialPlot 使用 ResizeObserver 在容器 resize 时重绘。
 - [x] FastAPI version 从 `spatialxgene.__version__` 读取。
 - [x] 侧栏增加 Spot size 滑块，默认 80% 点大小。
-- [x] Makefile：install、build、dev、launch、test、clean、infer、preprocess。
+- [x] Makefile：install、build、launch、test、clean、preprocess（pixi 任务包装）。
 - [x] 四份项目文档：master_plan、implementation_plan、design_guidelines、tasks。
 - [x] **v0.1 查看器**：后端提供 `image_keys`、`image_info` 与 `/api/datasets/{id}/images/{key}`；前端背景图（hires/lowres）、与 spot 对齐；侧栏 Dataset → Background image → Color by → Annotation/Gene → Spot size → Opacity；Gene 模式配色与百分位范围；loadDataset 使用 AbortController；文档与 CHANGELOG 更新至 v0.1。
 - [x] **v0.2 查看器**：Embedding 切换（Spatial/UMAP），UMAP 下隐藏背景图；favicon 与侧栏 logo；spot 悬停 tooltip（Spot # + annotation/gene）；Annotation legend（按数量排序、显示 spot count）；画布工具栏 − / + / Reset；缩放以光标为中心；未选 annotation/gene 时全点灰色显示；切换数据集时主区域 Loading overlay；响应式全屏无滚动条；percentile 直方图法避免爆栈；Safari/Firefox 性能优化（rAF 节流、DPR 上限、Firefox LOD）；文档与 CHANGELOG 更新至 v0.2。
 - [x] **v0.2.3**：Co-expression 模式（双基因、四角调色板、log scale）；Layer 选项（X + adata.layers）；Token 认证（--token，默认 zhaoslab）；启动时打印带 token 的 Access URL；host `::` 支持与 IPv6 Access 行；docs/deployment.md（systemd、Nginx）；README/CHANGELOG 更新。
 - [x] **visium2h5ad**：子命令 `spatialxgene visium2h5ad -i path_to_visium -o h5ad_file`；使用 scanpy.read_visium；支持 --count-file、--no-images；自动 var_names_make_unique，抑制 anndata 重复名警告。
-- [x] **Preprocess 输出**：preprocess 写盘使用 `run_preprocess` 返回值，输出含 leiden/louvain 与 raw_counts（标准化前保存）；RULES 与 CHANGELOG 记录经验。
+- [x] **Preprocess 输出**：preprocess 写盘使用 `run_preprocess` 返回值，输出含 leiden/louvain 与 counts layer（标准化前保存）；RULES 与 CHANGELOG 记录经验。
+- [x] **Preprocess in_tissue**：有 `obs['in_tissue']` 时跳过按基因数的 spot 过滤，避免 Visium 等数据组织上点被滤掉。
+- [x] **Preprocess adata.raw**：写盘前若存在 `adata.raw`，将 `raw.X` 写入 `layers['counts']`（维度可对齐时），再清空 raw，避免 `raw.var` 含 `_index` 导致写盘报错。
+- [x] **Layers 命名**：统一使用 `layers['counts']`（替代 raw_counts），与常见约定一致；代码与文档已更新。
 - [x] **Sidebar Loading**：加载数据集时不再在 Dataset 上方显示「Loading…」，仅主区域显示进度条/占位。
 - [x] **含多个点的 h5ad 路径**：`_get_dataset_path` 改为按 id 拼接 `.h5ad` 而非 `with_suffix`，支持如 `sample_v1.3.h5ad` 等文件名。
 

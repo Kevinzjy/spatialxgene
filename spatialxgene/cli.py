@@ -1,5 +1,5 @@
 """
-Spatialxgene CLI: subcommands launch (browser viewer) and preprocess (QC + reduce + cluster).
+Spatialxgene CLI: subcommands launch (browser viewer), preprocess (QC + reduce + cluster), visium2h5ad.
 """
 import argparse
 import os
@@ -15,7 +15,7 @@ _API_BASE_ENV = "SPATIALXGENE_API_BASE"
 
 
 def _resolve_api_base(args: argparse.Namespace) -> str:
-    """CLI --api-base or SPATIALXGENE_API_BASE env; for use in launch/dev."""
+    """CLI --api-base or SPATIALXGENE_API_BASE env; for use in launch."""
     from_cli = (getattr(args, "api_base", "") or "").strip()
     if from_cli:
         return from_cli
@@ -226,100 +226,6 @@ def _cmd_launch(args: argparse.Namespace) -> None:
     uvicorn.run(get_app(), host=args.host, port=args.port, log_level="info")
 
 
-def _cmd_dev(args: argparse.Namespace) -> None:
-    """Run backend + frontend build watch: one command, frontend auto-rebuilds on save; refresh browser to see changes."""
-    root = Path(__file__).resolve().parent
-    frontend_dir = root / "frontend"
-    static_dir = frontend_dir / "dist"
-
-    if not (frontend_dir / "package.json").exists():
-        print("Frontend not found. Run from project root: npm install in spatialxgene/frontend/", file=sys.stderr)
-        sys.exit(1)
-    if not (static_dir / "index.html").exists():
-        print("Building frontend once...")
-        subprocess.run(["npm", "run", "build"], cwd=frontend_dir, check=True)
-
-    import threading
-    import uvicorn
-    from spatialxgene.server.main import get_app, set_data_dir, set_static_dir, set_debug, set_token, set_api_base, mount_static
-
-    set_data_dir(args.data_dir.resolve())
-    set_static_dir(static_dir)
-    set_debug(getattr(args, "debug", False))
-    set_token(getattr(args, "token", None))
-    set_api_base(_resolve_api_base(args))
-    mount_static(static_dir)
-
-    def run_uvicorn():
-        uvicorn.run(get_app(), host=args.host, port=args.port, log_level="info")
-
-    server_thread = threading.Thread(target=run_uvicorn, daemon=True)
-    server_thread.start()
-
-    token = getattr(args, "token", None)
-    api_base = _resolve_api_base(args)
-    base_path = f"/{api_base.strip('/')}" if api_base.strip() else ""
-    url = _append_token(_format_server_url(args.host, args.port), token)
-    print(f"Spatialxgene dev: backend at {url}")
-    if base_path:
-        print(f"  With --api-base: open {url.rstrip('/')}{base_path}/ to test subpath.")
-    if getattr(args, "debug", False):
-        print("Debug mode: on (browser console will show verbose logs)")
-    print("Frontend: watching spatialxgene/frontend/ — save any file to rebuild; refresh browser to see changes.")
-    print("Press Ctrl+C to stop.")
-    if not args.no_browser:
-        import webbrowser
-        open_url = url.rstrip("/") + base_path + "/" if base_path else url
-        webbrowser.open(open_url)
-    subprocess.run(["npm", "run", "build:watch"], cwd=frontend_dir)
-
-
-def _cmd_infer(args: argparse.Namespace) -> None:
-    """Infer and add spatial coordinates when missing; skip if already present."""
-    from spatialxgene.infer_spatial import infer_file, infer_directory
-
-    input_path = args.input.resolve()
-    output_path = args.output.resolve() if args.output else None
-    in_place = output_path is None
-    kwargs = dict(bin_scale_um=args.bin_scale_um)
-    flip_y = getattr(args, "flip_y", False)
-    grid_shape = tuple(args.grid) if getattr(args, "grid", None) else None
-
-    if input_path.is_file():
-        if input_path.suffix != ".h5ad":
-            print("Input must be a .h5ad file.", file=sys.stderr)
-            sys.exit(1)
-        out = output_path or input_path
-        added = infer_file(input_path, out, in_place=in_place, flip_y=flip_y, grid_shape=grid_shape, **kwargs)
-        if added:
-            print(f"Added spatial coordinates -> {out}")
-        else:
-            print(f"Already has spatial; skipped {input_path}")
-        return
-
-    if input_path.is_dir():
-        out_dir = output_path or input_path
-        if out_dir.is_file():
-            print("When input is a directory, output must be a directory.", file=sys.stderr)
-            sys.exit(1)
-        results = infer_directory(
-            input_path,
-            out_dir,
-            exclude_name_containing=args.exclude,
-            flip_y=flip_y,
-            grid_shape=grid_shape,
-            **kwargs,
-        )
-        for out_path, added in results:
-            status = "added spatial" if added else "had spatial, skipped"
-            print(f"  {out_path.name}: {status}")
-        print("Done.")
-        return
-
-    print(f"Input not found: {input_path}", file=sys.stderr)
-    sys.exit(1)
-
-
 def _cmd_preprocess(args: argparse.Namespace) -> None:
     """Preprocess raw h5ad: QC, normalize, reduce, cluster. Does not modify spatial."""
     import logging
@@ -453,58 +359,6 @@ def main() -> None:
     )
     launch_p.set_defaults(func=_cmd_launch)
 
-    # ---- dev ----
-    dev_p = subparsers.add_parser(
-        "dev",
-        help="Backend + frontend watch: one command; frontend auto-rebuilds on save, refresh browser to see changes.",
-    )
-    dev_p.add_argument(
-        "--data-dir",
-        type=Path,
-        default=Path("data/sample/STDS0000323/preprocessed"),
-        help="Directory containing preprocessed h5ad files",
-    )
-    dev_p.add_argument("--host", type=str, default="127.0.0.1", help="Bind host")
-    dev_p.add_argument("--port", type=int, default=5005, help="Port")
-    dev_p.add_argument(
-        "--token",
-        type=str,
-        default="zhaoslab",
-        help="Auth token required for /api/* (default: zhaoslab); use empty string to disable",
-    )
-    dev_p.add_argument("--no-browser", action="store_true", help="Do not open browser")
-    dev_p.add_argument("--debug", action="store_true", help="Enable debug mode: verbose console logs in browser")
-    dev_p.add_argument(
-        "--api-base",
-        type=str,
-        default="",
-        help="Public base path when behind a reverse proxy (e.g. spatialxgene for location /spatialxgene/); empty = root. Can also set env SPATIALXGENE_API_BASE.",
-    )
-    dev_p.set_defaults(func=_cmd_dev)
-
-    # ---- infer ----
-    infer_p = subparsers.add_parser(
-        "infer",
-        help="Infer and add spatial coordinates when missing; skip if data already has spatial.",
-    )
-    infer_p.add_argument(
-        "input",
-        type=Path,
-        help="Input: path to a single .h5ad file or a directory of .h5ad files",
-    )
-    infer_p.add_argument(
-        "-o",
-        "--output",
-        type=Path,
-        default=None,
-        help="Output file or directory (default: overwrite in place)",
-    )
-    infer_p.add_argument("--bin-scale-um", type=float, default=1.0, help="Bin size in micron for inferred grid (default 1.0)")
-    infer_p.add_argument("--flip-y", action="store_true", help="Flip y axis (y = n_rows-1 - y) so tissue orientation matches display")
-    infer_p.add_argument("--grid", type=int, nargs=2, metavar=("COLS", "ROWS"), default=None, help="Force grid shape for n_obs (e.g. 768 960 to swap 960x768). Must have COLS*ROWS=n_obs.")
-    infer_p.add_argument("--exclude", type=str, default="preprocessed", help="Skip input files whose name contains this (default: preprocessed)")
-    infer_p.set_defaults(func=_cmd_infer)
-
     # ---- preprocess ----
     preprocess_p = subparsers.add_parser(
         "preprocess",
@@ -532,7 +386,7 @@ def main() -> None:
     preprocess_p.add_argument(
         "--no-raw-layer",
         action="store_true",
-        help="Do not save raw counts in layers['raw_counts'] (saves memory on large datasets)",
+        help="Do not save raw counts in layers['counts'] (saves memory on large datasets)",
     )
     preprocess_p.add_argument(
         "--no-cluster",

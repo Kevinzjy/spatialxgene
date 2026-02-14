@@ -6,7 +6,7 @@
 
 ## 0. 当前状态（简要）
 
-- **已完成**：子路径部署、数据集/表达加载进度、无空间或 UMAP 时的快速提示、Annotation 类别过多/过少时的稳健展示（不弹窗、图例显示 nan 说明）、多级 data-dir 扫描、下拉框显示 .h5ad、UI 文案 Numerical/Categorical 统一；preprocess 输出正确写入 leiden/louvain 与 raw_counts；Sidebar 加载数据集时不再在 Dataset 上方显示 Loading；含多个点的 h5ad 文件名（如 `HCC_Stereo-seq_v1.3.h5ad`）可正确解析。详见 CHANGELOG [Unreleased]。
+- **已完成**：子路径部署、数据集/表达加载进度、无空间或 UMAP 时的快速提示、Annotation 类别过多/过少时的稳健展示（不弹窗、图例显示 nan 说明）、多级 data-dir 扫描、下拉框显示 .h5ad、UI 文案 Numerical/Categorical 统一；preprocess 输出正确写入 leiden/louvain 与 counts layer；Sidebar 加载数据集时不再在 Dataset 上方显示 Loading；含多个点的 h5ad 文件名可正确解析；preprocess 对有 in_tissue 的数据跳过 spot 过滤、对 adata.raw 写入 layers['counts'] 后清空 raw 避免写盘报错；统一使用 layers['counts'] 命名。详见 CHANGELOG [Unreleased]。
 - **待做**：无（`visium2h5ad` 已实现：`spatialxgene visium2h5ad -i path_to_visium -o h5ad_file`）。
 
 ---
@@ -98,8 +98,8 @@
 
 ### 4.3 项目规范与发布教训（Spatialxgene）
 
-- **开发环境（uv + Python）**
-  - 本项目的 Python 环境由 **uv** 管理（`uv sync`、`uv run`）。日常开发与运行命令统一用 `uv run spatialxgene ...` 或 `uv run python`，保证与 pyproject.toml 一致。
+- **开发环境（pixi + uv + Python）**
+  - 整体环境由 **pixi** 管理（推荐安装到 `~/.pixi/bin/pixi`）；pixi 提供 uv、nodejs、r-base，便于后续加 R 依赖。Python 包仍由 **uv** 与 pyproject.toml 管理（在项目里执行 `uv sync`、`uv run`）。日常开发可用 `pixi run install`、`pixi run launch`，或通过 Makefile 调用（`make install` → `pixi run install`）。任务定义在 `pixi.toml` 的 `[tasks]`。
   - 若环境中为 **NumPy 2.x**（如 `uv run python -c "import numpy; print(numpy.__version__)"` 显示 2.x），scanpy 及其依赖（如 numba）可能尚未兼容，会报 `numpy.core.multiarray failed to import` 或 `_ARRAY_API not found`。此时需在 pyproject.toml 中约束 `numpy<2`（或使用满足 numpy 1.x 的虚拟环境）后再 `uv sync`，否则依赖 scanpy 的子命令会失败。新增依赖时注意与 NumPy 2 的兼容性，必要时在文档或依赖中写明。
   - **visium2h5ad**：使用 `scanpy.read_visium()` 读取 Visium 目录并写出 h5ad。需保证 setuptools<81（见上）及可用的 numba/scanpy，否则可回退为不依赖 scanpy 的自实现（见 git 历史）。
 
@@ -145,12 +145,23 @@
   - 凡由用户切换控制的计算（如 Annotation 的 Numerical/Categorical），**切换状态（如 obsValueType）必须放进 useMemo 的依赖数组**。否则切换后图例更新而图上颜色不更新（闭包用了旧的 computed 值）。
 
 - **Preprocess 管道：返回值与 layers**
-  - **问题**：preprocess 跑完后，前端 Annotation 下拉里没有 leiden/louvain；raw_counts 与 X 无区别（未在标准化前保存）。
-  - **根因**：① `preprocess_file()` 调用了 `run_preprocess(adata, **kwargs)` 但**没有用返回值**，写盘时写的是原始 adata，所以 dimred/cluster 和 layers 的修改都没进输出。② raw_counts 必须在 **normalize_total / log1p 之前** 执行 `adata.layers["raw_counts"] = adata.X.copy()`，否则 X 已被覆盖。
-  - **经验**：管道函数若返回「修改后的副本」，调用方**必须**用返回值写盘（如 `adata = run_preprocess(adata, **kwargs)`）；从 HVG 子集复制回完整 adata 时，**leiden 和 louvain 都要复制**（若存在），保证两个聚类列都出现在最终 h5ad 的 obs 里；保存 raw_counts 的时机固定为「filter 之后、normalize 之前」，并在代码中加注释说明。可在 `run_preprocess` 末尾和 `preprocess_file` 写盘前打日志（obs 含 leiden/louvain、layers 列表），便于排查。
+  - **问题**：preprocess 跑完后，前端 Annotation 下拉里没有 leiden/louvain；counts layer 与 X 无区别（未在标准化前保存）。
+  - **根因**：① `preprocess_file()` 调用了 `run_preprocess(adata, **kwargs)` 但**没有用返回值**，写盘时写的是原始 adata，所以 dimred/cluster 和 layers 的修改都没进输出。② counts 必须在 **normalize_total / log1p 之前** 执行 `adata.layers["counts"] = adata.X.copy()`，否则 X 已被覆盖。
+  - **经验**：管道函数若返回「修改后的副本」，调用方**必须**用返回值写盘（如 `adata = run_preprocess(adata, **kwargs)`）；从 HVG 子集复制回完整 adata 时，**leiden 和 louvain 都要复制**（若存在），保证两个聚类列都出现在最终 h5ad 的 obs 里；保存 counts layer 的时机固定为「filter 之后、normalize 之前」，并在代码中加注释说明。可在 `run_preprocess` 末尾和 `preprocess_file` 写盘前打日志（obs 含 leiden/louvain、layers 列表），便于排查。
 
 - **后端：dataset id 与含多个点的文件名**
   - **问题**：如 `2025_NC_SPATCH/HCC_Stereo-seq_v1.3.h5ad`，前端选后报 "Dataset 2025_NC_SPATCH/HCC_Stereo-seq_v1.3 not found"，其他 h5ad 正常。
   - **根因**：`_get_dataset_path` 用 `(DATA_DIR / dataset_id).with_suffix(".h5ad")` 拼路径。pathlib 的 `with_suffix` 只替换**最后一个**点及其后的「后缀」；对 `HCC_Stereo-seq_v1.3` 而言最后一个后缀是 `.3`，被换成 `.h5ad` 后得到错误路径 `.../HCC_Stereo-seq_v1.h5ad`。
   - **经验**：由 id 还原 h5ad 路径时，不要用 `Path.with_suffix(".h5ad")`；应判断 id 是否已以 `.h5ad` 结尾，否则用字符串拼接 `DATA_DIR / (dataset_id + ".h5ad")`，这样 `sample_v1.3`、`foo.v2.reprocessed` 等中间带点的文件名都能正确解析。列表接口里 `rel.with_suffix("")` 去掉的是整段路径的最后一个后缀（即 `.h5ad`），得到的 id 本身是正确的，无需改。
+
+- **Preprocess：in_tissue 时跳过 spot 过滤**
+  - **问题**：Visium 等数据有 `obs['in_tissue']`，若仍按 `min_genes` 过滤细胞，会删掉大量组织上的 spot，图上可见点变少。
+  - **经验**：若 `"in_tissue" in adata.obs.columns`，则**不**做按基因数的 cell 过滤（保留所有 spot）；仅在无 `in_tissue` 时执行 `min_genes` 过滤。基因过滤（min_cells）照常。
+
+- **Preprocess：adata.raw 与写盘**
+  - **问题**：CosMx 等流程会设置 `adata.raw`，且 `raw.var` 可能含保留列 `_index`，anndata 写 h5ad 时报 `ValueError: '_index' is a reserved name`。
+  - **经验**：写盘前若存在 `adata.raw`，先将 `raw.X` 写入 `layers['counts']`（当 `raw.n_obs == adata.n_obs` 且 var 可对齐时：同序或 adata.var_names ⊆ raw.var_names），再执行 `adata.raw = None`，既保留原始计数又避免写盘错误；viewer 只依赖 X 与 layers。
+
+- **Layers 命名约定**
+  - 未标准化计数层统一用 **`layers['counts']`**，与 scanpy/AnnData 常见用法一致，避免使用 `raw_counts` 等非主流命名。文档与日志、CLI 帮助、前端注释中的示例均使用 `counts`。
 

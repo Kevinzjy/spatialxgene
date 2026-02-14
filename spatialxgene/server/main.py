@@ -201,7 +201,7 @@ class DatasetMeta(BaseModel):
     has_tsne: bool  # True if adata has t-SNE embedding (obsm["X_tsne"])
     image_keys: list[str]  # keys for background images in uns['spatial'] (e.g. hires, lowres); empty if none
     image_info: dict[str, ImageInfo]  # key -> scale_factor, width, height for alignment
-    layer_keys: list[str]  # keys in adata.layers (e.g. raw_counts, logcounts); use "X" for adata.X
+    layer_keys: list[str]  # keys in adata.layers (e.g. counts, logcounts); use "X" for adata.X
     viewable: bool = True  # False when dataset has no spatial/UMAP/PCA/t-SNE (frontend should show message and not load)
     viewable_reason: Optional[str] = None  # e.g. "no_spatial_or_umap" when viewable is False
 
@@ -599,7 +599,7 @@ def set_static_dir(path: Path) -> None:
 def index():
     """Serve frontend index, injecting window.__API_BASE__ when --api-base is set."""
     if STATIC_DIR is None or not (STATIC_DIR / "index.html").exists():
-        return {"message": "Spatialxgene API. Build frontend and set static dir, or use frontend dev server."}
+        return {"message": "Spatialxgene API. Build frontend and set static dir."}
     html_path = STATIC_DIR / "index.html"
     raw = html_path.read_text(encoding="utf-8")
     # Inject so frontend can prefix API and asset paths when behind a subpath (e.g. nginx location /spatialxgene/)
@@ -631,7 +631,7 @@ def favicon_svg():
     """
     Serve the frontend favicon from the built static directory.
 
-    In dev mode (Vite) this is served by the dev server; in launch mode we
+    In launch mode we
     need an explicit route because we only mount /assets by default.
     """
     if STATIC_DIR is not None:

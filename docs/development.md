@@ -2,14 +2,27 @@
 
 Project layout, build and run from source, and where to find design/plan docs.
 
+## Environment: pixi + uv
+
+The project uses **[pixi](https://pixi.sh/)** for overall environment management (install at `~/.pixi/bin/pixi` or ensure `pixi` is on PATH). Pixi provides:
+
+- **uv** — Python dependency management (uses `pyproject.toml`; run `uv sync` in the project)
+- **nodejs** — Frontend (npm install, npm run build)
+- **r-base** — R runtime for future R dependencies
+
+Python packages are still defined in `pyproject.toml`; pixi supplies uv and node so you can run `uv sync` and `npm` without installing them system-wide. Add more R or conda packages in `pixi.toml` as needed.
+
+The **Makefile** is a thin wrapper: each target runs `pixi run <task>`. You can run tasks directly with `pixi run <task>` (e.g. `pixi run install`, `pixi run launch`).
+
 ## Project layout
 
 ```
 <project root>/
 ├── README.md              # PyPI project page (user-only; no repo/source paths)
 ├── pyproject.toml         # Python package: name = "spatialxgene"
+├── pixi.toml             # Pixi project: deps (uv, nodejs, r-base), tasks
 ├── CHANGELOG.md
-├── Makefile               # install, build, dev, launch, test, clean, publish*
+├── Makefile               # Thin wrapper: make X → pixi run X
 ├── data/
 │   ├── sample/            # Sample data (e.g. STDS0000323)
 │   └── references/
@@ -22,9 +35,8 @@ Project layout, build and run from source, and where to find design/plan docs.
 │   └── tasks.md
 └── spatialxgene/
     ├── __init__.py        # __version__
-    ├── cli.py             # Subcommands: launch, dev, infer, preprocess, visium2h5ad
+    ├── cli.py             # Subcommands: launch, preprocess, visium2h5ad
     ├── preprocess.py      # QC, HVG, PCA, UMAP, Leiden
-    ├── infer_spatial.py   # Infer/add spatial coords
     ├── visium2h5ad.py     # Visium Space Ranger dir → h5ad (scanpy.read_visium)
     ├── server/            # FastAPI backend
     └── frontend/          # Vite + React UI (spatial plot, sidebar)
@@ -32,50 +44,45 @@ Project layout, build and run from source, and where to find design/plan docs.
 
 ## Install and run from source
 
-1. Clone and create venv (recommended: [uv](https://github.com/astral-sh/uv)):
+1. Ensure pixi is installed (e.g. `~/.pixi/bin/pixi`). From project root:
 
    ```bash
-   uv sync
-   # or: python -m venv .venv && source .venv/bin/activate && pip install -e .
+   pixi run install
+   # or: make install
    ```
 
-2. Install frontend deps and build once:
+   This runs `uv sync`, installs frontend npm deps, builds the frontend, and `uv pip install -e .`.
+
+2. Launch the viewer:
 
    ```bash
-   cd spatialxgene/frontend && npm install && npm run build && cd ../..
+   pixi run launch
+   # or: make launch
    ```
 
-   Or from project root: `make install` (npm install in frontend), then `make build` (npm run build).
-
-3. Launch:
-
-   ```bash
-   spatialxgene launch --data-dir ./data/sample/STDS0000323/preprocessed
-   ```
-
-   Optional: `--token zhaoslab` (default) enables token auth; use `--token ""` to disable. `--host 0.0.0.0` or `--host ::` to bind all interfaces; startup will print Access URLs (with token appended when set). See [deployment.md](deployment.md) for production deployment.
+   With custom data dir / host / port: `DATA_DIR=/path HOST=0.0.0.0 PORT=5005 pixi run launch`. Optional: `--token zhaoslab` (default); use `--token ""` to disable. See [deployment.md](deployment.md) for production deployment.
 
 ## Development workflow
 
-- **Backend + frontend watch**: run `spatialxgene dev --data-dir <dir>`. One process runs the backend and watches `spatialxgene/frontend/`; saving a file triggers a rebuild. Refresh the browser to see changes. No need to run `npm run build` manually.
-- **Backend only**: `uvicorn spatialxgene.server.main:app --reload --host 127.0.0.1 --port 5005` (set data dir before mount or in code).
-- **Frontend only**: In `spatialxgene/frontend`, `npm run dev` (Vite dev server proxies `/api` to 5005); run the backend separately on port 5005.
+- **Backend only**: `uv run uvicorn spatialxgene.server.main:app --reload --host 127.0.0.1 --port 5005` (from a pixi shell or after `uv sync`).
+- **Frontend only**: In `spatialxgene/frontend`, `npm run dev` (Vite proxies `/api` to 5005); run the backend separately on port 5005.
 
-## Makefile targets
+## Pixi tasks / Makefile targets
 
-| Target | Description |
-|--------|-------------|
-| `make install` | Sync Python deps + install frontend npm deps |
-| `make build` | Build frontend (`npm run build` in frontend) |
-| `make dev` | Backend + frontend watch (override: `DATA_DIR`, `HOST`, `PORT`, `DEBUG=1`) |
-| `make launch` | Run viewer only |
-| `make test` | Python tests (pytest) |
-| `make clean` | Remove venv, node_modules, build artifacts |
-| `make wheel` | Build wheel only (output in `dist/`) |
-| `make publish-test` | Build frontend, build wheel, upload to TestPyPI |
-| `make publish` | Build frontend, build wheel, upload to PyPI |
+| Task | Description |
+|------|-------------|
+| `pixi run install` / `make install` | uv sync, npm install, build frontend, pip install -e . |
+| `pixi run build` / `make build` | Build frontend only |
+| `pixi run launch` / `make launch` | Run viewer (env: DATA_DIR, HOST, PORT) |
+| `pixi run test` / `make test` | Launch viewer with --debug (same env overrides) |
+| `pixi run clean` / `make clean` | Remove .venv, node_modules, dist, caches |
+| `pixi run wheel` / `make wheel` | Build wheel (depends on build) |
+| `pixi run publish-test` / `make publish-test` | Build wheel, upload to TestPyPI |
+| `pixi run publish` / `make publish` | Build wheel, upload to PyPI |
+| `pixi run docker` / `make docker` | Build docker image, save to docker/spatialxgene.tar |
+| `pixi run docker-test` / `make docker-test` | Run nginx + spatialxgene for subpath test |
 
-Publish targets require the optional `publish` extra (twine); they run `uv sync --extra publish` and `make build-frontend` before building the wheel so the frontend is included.
+List all tasks: `pixi task list`. Publish tasks install the `publish` extra (twine) and run the wheel task first.
 
 ## Versioning
 

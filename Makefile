@@ -1,79 +1,56 @@
-# Spatialxgene - install, run, test, clean
-# Override with: make test DATA_DIR=... HOST=... PORT=... or make test DEBUG=1 for console logs
+# Spatialxgene - thin wrapper around pixi tasks (~/.pixi/bin/pixi).
+# Override: make test DATA_DIR=... HOST=... PORT=... or make test DEBUG=1
 
-PYTHON   := uv run
-FRONTEND := spatialxgene/frontend
+PIXI    := $(HOME)/.pixi/bin/pixi
 DATA_DIR ?= ./data
 HOST     ?= 192.168.31.101
 PORT     ?= 5005
 DEBUG    ?= 0
 
-.PHONY: help install build test clean wheel publish publish-test docker docker-test
+export DATA_DIR HOST PORT DEBUG
+
+.PHONY: help install build test clean wheel publish publish-test docker docker-test launch
 
 help:
-	@echo "Spatialxgene Makefile targets:"
-	@echo "  make install         - Create venv (uv sync) and install package + frontend deps + build frontend + install spatialxgene"
-	@echo "  make build           - Build frontend (required before first launch)"
-	@echo "  make test            - Run test data (override: DATA_DIR, HOST, PORT, DEBUG=1)"
-	@echo "  make clean           - Remove .venv, node_modules, dist, caches"
-	@echo "  make wheel           - Build wheel (output: dist/*.whl)"
-	@echo "  make publish-test    - Build wheel and upload to TestPyPI (needs TESTPYPI_USERNAME/TESTPYPI_PASSWORD)"
-	@echo "  make publish         - Build wheel and upload to PyPI (needs PYPI_TOKEN)"
-	@echo "  make docker          - Build docker images"
-	@echo "  make docker-test     - Run test under docker environment"
+	@echo "Spatialxgene Makefile (delegates to pixi):"
+	@echo "  make install       - pixi run install (uv sync, npm install, build, pip install -e .)"
+	@echo "  make build         - pixi run build"
+	@echo "  make test          - pixi run test (launch with debug; override DATA_DIR, HOST, PORT)"
+	@echo "  make launch        - pixi run launch"
+	@echo "  make clean         - pixi run clean"
+	@echo "  make wheel         - pixi run wheel"
+	@echo "  make publish-test  - pixi run publish-test"
+	@echo "  make publish       - pixi run publish"
+	@echo "  make docker        - pixi run docker"
+	@echo "  make docker-test   - pixi run docker-test"
+	@echo "  List all tasks:    $(PIXI) task list"
 
 install:
-	@echo "Installing dependencies..."
-	uv sync
-	@echo "Installing npm packages..."
-	cd $(FRONTEND) && npm install
-	$(MAKE) build
-	@echo "Installing spatialxgene..."
-	uv pip install -e .
+	$(PIXI) run install
 
 build:
-	@echo "Building frontend..."
-	cd $(FRONTEND) && npm run build
+	$(PIXI) run build
 
-test: build
-	@echo "Launching spatialxgene..."
-	$(PYTHON) spatialxgene launch --data-dir ./data --debug
+test:
+	$(PIXI) run test
+
+launch:
+	$(PIXI) run launch
 
 clean:
-	rm -rf .venv
-	rm -rf build
-	rm -rf $(FRONTEND)/node_modules $(FRONTEND)/dist
-	rm -rf spatialxgene/__pycache__ spatialxgene/**/__pycache__
-	rm -rf .pytest_cache .ruff_cache .mypy_cache
-	rm -f $(FRONTEND)/tsconfig.tsbuildinfo
-	@echo "Cleaned. Run 'make install' to reinstall."
+	$(PIXI) run clean
 
-# Build wheel and upload to TestPyPI (needs twine from optional deps)
 wheel:
-	@echo "Building wheel with uv..."
-	uv build --wheel
+	$(PIXI) run wheel
 
 publish-test:
-	@echo "Installing extra dependencies for publish..."
-	uv sync --extra publish
-	$(MAKE) build
-	$(MAKE) wheel
-	@echo "Uploading to TestPyPI..."
-	$(PYTHON) -m twine upload --repository testpypi dist/*
+	$(PIXI) run publish-test
 
 publish:
-	@echo "Installing extra dependencies for publish..."
-	uv sync --extra publish
-	$(MAKE) build
-	$(MAKE) wheel
-	@echo "Uploading to PyPI..."
-	$(PYTHON) -m twine upload --repository pypi dist/*
+	$(PIXI) run publish
 
 docker:
-	@echo "Building docker images..."
-	cd docker && docker compose build
-	docker save -o docker/spatialxgene.tar docker-spatialxgene:latest
+	$(PIXI) run docker
 
 docker-test:
-	@echo "Test docker deployment..."
-	docker compose -f docker/docker-compose.nginx-test.yml up --build
+	$(PIXI) run docker-test

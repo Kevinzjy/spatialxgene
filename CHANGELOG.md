@@ -8,9 +8,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Fixed
 
-- **Preprocess output missing leiden/louvain and raw_counts**: `preprocess_file()` now uses the return value of `run_preprocess()` when writing the h5ad (previously it wrote the original adata, so dimred/cluster and layers were lost). When copying results back from the HVG subset to the full adata, both `leiden` and `louvain` are copied if present. `raw_counts` is saved in `adata.layers` **before** `normalize_total`/`log1p` so it reflects true raw counts. Logging added to confirm obs columns (leiden, louvain) and layers before write.
+- **Preprocess output missing leiden/louvain and counts layer**: `preprocess_file()` now uses the return value of `run_preprocess()` when writing the h5ad (previously it wrote the original adata, so dimred/cluster and layers were lost). When copying results back from the HVG subset to the full adata, both `leiden` and `louvain` are copied if present. `counts` is saved in `adata.layers` **before** `normalize_total`/`log1p` so it reflects true raw counts. Logging added to confirm obs columns (leiden, louvain) and layers before write.
 - **Dataset path with multiple dots**: Filenames like `HCC_Stereo-seq_v1.3.h5ad` (dots in version) were resolved to `.../HCC_Stereo-seq_v1.h5ad` and caused "Dataset not found". Cause: `Path.with_suffix(".h5ad")` replaces the **last** suffix (e.g. `.3`), not only `.h5ad`. Fix: `_get_dataset_path` now appends `.h5ad` only when the id does not already end with `.h5ad` (i.e. `DATA_DIR / (dataset_id + ".h5ad")`), so names with dots work.
 - **Sidebar loading text**: Removed the "Loading…" line above the Dataset selector when loading a dataset; loading state is shown only in the main content area (progress bar / overlay).
+- **Preprocess write error when adata.raw.var has '_index'**: CosMx/other pipelines can set `adata.raw` whose `var` contains a column `_index` (reserved by anndata). Writing then raises. Fix: before write, when `adata.raw` exists, copy `raw.X` into `layers['counts']` when dimensions align (same n_obs, var_names match or subset), then set `adata.raw = None` so the write succeeds; viewer uses X and layers only.
 
 ### Added
 
@@ -24,20 +25,31 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - **Dataset dropdown shows extension**: The dataset selector displays the full relative path including `.h5ad` so users see the file type.
 - **visium2h5ad subcommand**: Convert Visium Space Ranger output directory to a single `.h5ad` file. Usage: `spatialxgene visium2h5ad -i path_to_visium -o h5ad_file`. Uses `scanpy.read_visium()`; auto-detects `filtered_feature_bc_matrix.h5` or `filtered_feature_bc_matrix/`; optional `--count-file` and `--no-images`; var names made unique before writing (anndata duplicate-name warning suppressed).
 
+### Removed
+
+- **dev and infer subcommands**: The `spatialxgene dev` (backend + frontend watch) and `spatialxgene infer` (infer spatial coordinates when missing) subcommands and the `infer_spatial` module have been removed from the project. Use `spatialxgene launch` for the viewer; ensure h5ad has spatial coordinates from upstream or other tools.
+
 ### Changed
 
+- **Preprocess cell filter for Visium**: When `obs['in_tissue']` exists (e.g. Visium), skip the `min_genes` cell filter so on-tissue spots are not removed; apply the filter only when `in_tissue` is absent.
+- **Preprocess / viewer layer name**: Use `layers['counts']` instead of `layers['raw_counts']` for unnormalized counts (align with common scanpy/AnnData convention). Pipeline saves before normalize; when input has `adata.raw`, it is copied into `layers['counts']` when alignable before clearing raw.
 - **Docker deployment**: `docker/README.md` documents build → `docker save` → upload → on server `docker load` + `cd docker` + `docker compose up -d`. Compose example uses `image: spatialxgene:latest` and `command: ["--token", "...", "--api-base", "spatialxgene"]`.
 - **Backend when `--api-base` set**: Serves the app at both `/` (for nginx that strips the path) and at the subpath (for direct open). Serves `/favicon.svg` at root directly (no redirect) to avoid redirect loop behind nginx.
 - **Annotation type label**: "Numeric" renamed to "Numerical" in the UI to match "Categorical" grammatically.
 - **Backend viewable check**: `get_dataset_meta` uses `_check_viewable_h5()` (h5py) before loading full AnnData when the dataset has no spatial/UMAP, for fast response.
 - **RULES.md**: Server has only one proxy port; all assets/API must live under that location. Favicon/logo 404: distinguish tab icon vs in-page logo; ask clearly to get the right fix first time. Added lessons: viewable fast check, categorical too many/few, useMemo deps.
 
+### Summary of recent preprocess/data changes (this batch)
+
+- **Preprocess**: (1) When `obs['in_tissue']` exists (e.g. Visium), skip cell filter by `min_genes` so on-tissue spots are kept. (2) When `adata.raw` exists, save `raw.X` to `layers['counts']` when dimensions align, then clear `raw` so write does not fail on reserved `_index` in `raw.var`. (3) Use `layers['counts']` (not `raw_counts`) for unnormalized counts everywhere; pipeline writes it before normalize; viewer and docs refer to `counts`.
+- **Lessons** (see RULES.md §4.3): in_tissue → skip spot filter; raw.var reserved column → copy raw to layer then clear raw; standard layer name `counts`.
+
 ## [0.2.3] - 2026-02-12
 
 ### Added
 
 - **Co-expression mode**: Color by two genes (Gene1, Gene2) with a 2D palette: four corners (both low / Gene1 high / Gene2 high / both high). Default palette: white–blue–orange–yellow. Optional log scale for expression; Spot size and Opacity at bottom like Gene mode. Hover shows both gene values.
-- **Layer option**: When Color by is Gene or Co-expression, a **Layer** dropdown lists `X` (adata.X) plus all `adata.layers` keys (e.g. raw_counts, logcounts, CPM). Expression is read from the selected layer. Backend: `DatasetMeta.layer_keys`, `GET /api/datasets/{id}/expression/{gene}?layer=`.
+- **Layer option**: When Color by is Gene or Co-expression, a **Layer** dropdown lists `X` (adata.X) plus all `adata.layers` keys (e.g. counts, logcounts, CPM). Expression is read from the selected layer. Backend: `DatasetMeta.layer_keys`, `GET /api/datasets/{id}/expression/{gene}?layer=`.
 - **Token auth**: `--token` option (default `zhaoslab`) requires a token for all `/api/*` requests. Send via header `X-Token` or `Authorization: Bearer <token>`, or query `?token=`. Frontend: open with `?token=...` once to store in sessionStorage; image URLs get `?token=` appended. Use `--token ""` to disable.
 - **Launch URL display**: When binding to `0.0.0.0` or `::`, startup prints **Access:** with all IPv4 (and **Access (IPv6):** when host is `::`). If token is set, each URL includes `?token=...` so users can copy the correct link. Browser open URL also includes token when applicable.
 - **docs/deployment.md**: Systemd unit template and step-by-step deployment on Linux; optional Nginx reverse proxy for HTTPS; token and data-dir placeholders.

@@ -70,7 +70,7 @@ def run_preprocess(
     resolution
         Leiden resolution.
     save_raw_layer
-        If True and 'raw_counts' not in layers, save current X to adata.layers['raw_counts']
+        If True and 'counts' not in layers, save current X to adata.layers['counts']
         before normalization (so full counts are preserved). Set False to save memory on large datasets.
     run_cluster
         If True, run Leiden (or Louvain) and add obs['leiden']. Set False to skip clustering and avoid
@@ -122,10 +122,10 @@ def run_preprocess(
         sc_pp.filter_genes(adata, min_cells=min_cells)
     logger.info("filter genes done: n_vars=%s (%.1fs)", adata.n_vars, time.perf_counter() - t0)
 
-    # Save raw counts before normalization: adata.layers['raw_counts'] = adata.X.copy() so X and raw_counts differ (X will be log-norm next)
-    if save_raw_layer and "raw_counts" not in adata.layers:
-        adata.layers["raw_counts"] = adata.X.copy()
-        logger.info("saved raw_counts layer")
+    # Save raw counts before normalization: adata.layers['counts'] = adata.X.copy() so X and counts differ (X will be log-norm next)
+    if save_raw_layer and "counts" not in adata.layers:
+        adata.layers["counts"] = adata.X.copy()
+        logger.info("saved counts layer")
 
     # Normalize and log (in place on full adata)
     t0 = time.perf_counter()
@@ -236,6 +236,26 @@ def preprocess_file(
     logger.info("writing %s", output_path)
     t0 = time.perf_counter()
     output_path.parent.mkdir(parents=True, exist_ok=True)
+    # When adata.raw exists: save its X into layers['counts'] when dimensions align, then clear raw
+    # (avoids write error when raw.var has reserved '_index'; viewer uses X and layers only)
+    raw = getattr(adata, "raw", None)
+    if raw is not None and hasattr(raw, "X") and raw.X is not None:
+        try:
+            if raw.n_obs == adata.n_obs and adata.n_vars > 0:
+                if list(raw.var_names) == list(adata.var_names):
+                    adata.layers["counts"] = raw.X.copy()
+                    logger.info("saved adata.raw.X to layers['counts'] (same var_names)")
+                elif adata.var_names.isin(raw.var_names).all():
+                    adata.layers["counts"] = raw[:, adata.var_names].X.copy()
+                    logger.info("saved adata.raw.X to layers['counts'] (subset by var_names)")
+                else:
+                    logger.info("raw.var_names does not cover adata.var_names; skip saving raw to layer")
+            else:
+                logger.info("raw.n_obs=%s != adata.n_obs=%s; skip saving raw to layer", raw.n_obs, adata.n_obs)
+        except Exception as e:
+            logger.warning("could not save adata.raw to layers['counts']: %s", e)
+        adata.raw = None
+        logger.info("cleared adata.raw for write")
     adata.write_h5ad(output_path)
     logger.info("write_h5ad done (%.1fs)", time.perf_counter() - t0)
     return output_path
