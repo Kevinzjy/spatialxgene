@@ -17,13 +17,13 @@ pixi run install
 
 Then run `spatialxgene` from the pixi env (e.g. `pixi run launch` or `pixi run spatialxgene launch`). Default data dir for the viewer is `./tests/h5ad`; put preprocessed h5ad there or pass `--data-dir /path`.
 
-Or, install globally:
+Or, install globally (from the project root):
 
 ```bash
-pixi global install .
+pixi global install --path .
 ```
 
-Then `spatialxgene` are exposed to $PATH
+Then `spatialxgene` is exposed to your `$PATH` (ensure `~/.pixi/bin` is on PATH).
 
 ## Commands
 

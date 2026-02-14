@@ -105,7 +105,7 @@
 ### 4.3 项目规范与发布教训（Spatialxgene）
 
 - **开发环境（pixi + Python conda-forge）**
-  - **pixi 文档**：manifest 等参考 https://pixi.prefix.dev/latest/reference/pixi_manifest 。
+  - **pixi 文档**：manifest 等参考 https://pixi.prefix.dev/latest/reference/pixi_manifest/
   - 整体环境由 **pixi** 管理（推荐安装到 `~/.pixi/bin/pixi`）。Python 依赖在 pixi.toml 中锁定（conda-forge）；pyproject.toml 保留包元数据与 setuptools，用于 `pip install -e . --no-deps`。pixi 提供 python、nodejs、r-base；日常用 `pixi run install`、`pixi run launch`、`pixi run test`。**CLI 统一**：所有任务通过 `spatialxgene` 命令调用（不再混用 `python -m spatialxgene.cli`）。
   - 若环境中为 **NumPy 2.x**，scanpy 及其依赖（如 numba）可能尚未兼容，会报 `numpy.core.multiarray failed to import` 或 `_ARRAY_API not found`。pixi.toml 已约束 numpy 为 1.x（如 1.26.4）；新增依赖时注意与 NumPy 2 的兼容性。
   - **visium2h5ad**：使用 `scanpy.read_visium()` 读取 Visium 目录并写出 h5ad。需保证 setuptools<81（见上）及可用的 numba/scanpy，否则可回退为不依赖 scanpy 的自实现（见 git 历史）。
