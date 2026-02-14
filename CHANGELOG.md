@@ -24,6 +24,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - **Multi-level H5AD directory**: `--data-dir` now discovers `.h5ad` in subdirectories (`rglob`); dataset id is the relative path (e.g. `subdir/foo`), so the dropdown lists nested files.
 - **Dataset dropdown shows extension**: The dataset selector displays the full relative path including `.h5ad` so users see the file type.
 - **visium2h5ad subcommand**: Convert Visium Space Ranger output directory to a single `.h5ad` file. Usage: `spatialxgene visium2h5ad -i path_to_visium -o h5ad_file`. Uses `scanpy.read_visium()`; auto-detects `filtered_feature_bc_matrix.h5` or `filtered_feature_bc_matrix/`; optional `--count-file` and `--no-images`; var names made unique before writing (anndata duplicate-name warning suppressed).
+- **seurat2h5ad subcommand**: Convert Seurat spatial RDS (`.rds` or `.rds.gz`) to a single `.h5ad` file. R script (Seurat + Matrix) reads RDS and exports matrix, obs, spatial coords, and tissue images to temp files; Python builds AnnData with Visium-style `uns['spatial'][sample]['images']` (hires + optional lowres) and `scalefactors`. Uses `tissue_hires_scalef = 1.0` when coords are in image pixel space (imagecol/imagerow) so the viewer aligns spots with the background image. Output format matches reference spatial h5ad (e.g. Control06_processed.h5ad): keys `hires`/`lowres`, float32 [0,1], optional lowres resized to max 400px. Requires R with Seurat (pixi env includes `r-seurat`). `pixi run test` runs seurat2h5ad when `tests/P2N_Spatial.rds.gz` exists.
 
 ### Removed
 
@@ -43,6 +44,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 - **Preprocess**: (1) When `obs['in_tissue']` exists (e.g. Visium), skip cell filter by `min_genes` so on-tissue spots are kept. (2) When `adata.raw` exists, save `raw.X` to `layers['counts']` when dimensions align, then clear `raw` so write does not fail on reserved `_index` in `raw.var`. (3) Use `layers['counts']` (not `raw_counts`) for unnormalized counts everywhere; pipeline writes it before normalize; viewer and docs refer to `counts`.
 - **Lessons** (see RULES.md §4.3): in_tissue → skip spot filter; raw.var reserved column → copy raw to layer then clear raw; standard layer name `counts`.
+- **seurat2h5ad lessons** (RULES.md §4.3): SeuratObject 5 use `layer=` not `slot=` in GetAssayData; R writeBin use `as.vector(arr)` for 3D array or pixel data is not written; spatial h5ad tissue image alignment requires `tissue_*_scalef = 1.0` when coords are already in image pixel space; follow reference h5ad format (hires/lowres, float32 [0,1]).
 
 ## [0.2.3] - 2026-02-12
 

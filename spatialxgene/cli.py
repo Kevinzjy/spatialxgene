@@ -1,5 +1,5 @@
 """
-Spatialxgene CLI: subcommands launch (browser viewer), preprocess (QC + reduce + cluster), visium2h5ad.
+Spatialxgene CLI: subcommands launch (browser viewer), preprocess (QC + reduce + cluster), visium2h5ad, seurat2h5ad.
 """
 import argparse
 import os
@@ -328,6 +328,43 @@ def _cmd_visium2h5ad(args: argparse.Namespace) -> None:
     print(f"Wrote {written}")
 
 
+def _cmd_seurat2h5ad(args: argparse.Namespace) -> None:
+    """Convert Seurat spatial RDS (.rds or .rds.gz) to a single h5ad file."""
+    from spatialxgene.seurat2h5ad import seurat_to_h5ad
+
+    input_path = args.input.resolve()
+    if args.output is not None:
+        output_path = args.output.resolve()
+    else:
+        # Default: strip .gz and .rds -> .h5ad (e.g. sample.rds.gz -> sample.h5ad)
+        stem = input_path.stem
+        if stem.endswith(".rds"):
+            stem = stem[:-4]
+        output_path = input_path.parent / f"{stem}.h5ad"
+
+    if not input_path.is_file():
+        print(f"Input file not found: {input_path}", file=sys.stderr)
+        sys.exit(1)
+    if output_path.is_dir():
+        print("Output must be a file path (e.g. output.h5ad), not a directory.", file=sys.stderr)
+        sys.exit(1)
+
+    try:
+        written = seurat_to_h5ad(
+            input_path,
+            output_path,
+            rscript=getattr(args, "rscript", None) or None,
+        )
+    except FileNotFoundError as e:
+        print(str(e), file=sys.stderr)
+        sys.exit(1)
+    except RuntimeError as e:
+        print(f"seurat2h5ad failed: {e}", file=sys.stderr)
+        sys.exit(1)
+
+    print(f"Wrote {written}")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         prog="spatialxgene",
@@ -432,6 +469,31 @@ def main() -> None:
         help="Do not load tissue images into the h5ad (smaller file)",
     )
     visium2h5ad_p.set_defaults(func=_cmd_visium2h5ad)
+
+    # ---- seurat2h5ad ----
+    seurat2h5ad_p = subparsers.add_parser(
+        "seurat2h5ad",
+        help="Convert Seurat spatial RDS (.rds or .rds.gz) to a single h5ad file.",
+    )
+    seurat2h5ad_p.add_argument(
+        "input",
+        type=Path,
+        help="Path to the Seurat RDS file (.rds or .rds.gz)",
+    )
+    seurat2h5ad_p.add_argument(
+        "-o",
+        "--output",
+        type=Path,
+        default=None,
+        help="Output .h5ad file path (default: input stem with .h5ad, e.g. sample.rds.gz -> sample.h5ad)",
+    )
+    seurat2h5ad_p.add_argument(
+        "--rscript",
+        type=str,
+        default=None,
+        help="Path to Rscript executable (default: RSCRIPT env or Rscript on PATH)",
+    )
+    seurat2h5ad_p.set_defaults(func=_cmd_seurat2h5ad)
 
     args = parser.parse_args()
     args.func(args)

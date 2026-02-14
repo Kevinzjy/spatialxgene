@@ -28,6 +28,6 @@ spatialxgene = "spatialxgene.cli:main"
 [tool.setuptools.packages.find]
 include = ["spatialxgene*"]
 
-# Pre-built frontend (run "pixi run build" before packaging)
+# Pre-built frontend (run "pixi run build" before packaging); R script for seurat2h5ad
 [tool.setuptools.package-data]
-spatialxgene = ["frontend/dist/*", "frontend/dist/**/*"]
+spatialxgene = ["frontend/dist/*", "frontend/dist/**/*", "scripts/*.R"]

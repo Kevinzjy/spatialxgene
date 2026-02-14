@@ -6,32 +6,31 @@
 [workspace]
 name = "spatialxgene"
 version = "0.2.3"
-description = "Browser-based spatial transcriptomics viewer (cellxgene-style)"
+authors = ["Jinyang Zhang <kevinzjy1997@gmail.com>"]
+description = "Spatial transcriptomics processing tools & browser-based viewer"
+license = "MIT"
+readme = "README.md"
+repository = "https://bioinfo.ioz.ac.cn/git/zhangjy/spatialxgene"
 channels = ["conda-forge"]
 platforms = ["linux-64", "osx-arm64", "osx-64", "win-64"]
 preview = ["pixi-build"]
 
 [package]
-name = "spatialxgene"
+name = { workspace = true } # Inherit the name from the workspace
 version = "0.2.3"
 description = "Browser-based spatial transcriptomics viewer (cellxgene-style)"
 
 [package.build]
-[package.build.backend]
-name = "pixi-build-python"
-version = "*"
-channels = ["conda-forge"]
-# setuptools/wheel required by pyproject.toml build-system
+backend = { name = "pixi-build-python", version = "*", channels = ["https://prefix.dev/conda-forge"] }
+
 [package.host-dependencies]
-setuptools = ">=61"
+setuptools = "==80.9.0"
 wheel = "*"
-# Include built frontend so conda package contains UI (run `pixi run build` before `pixi build`)
-# ignore-pypi-mapping = false so backend adds run deps from pyproject.toml; [package.run-dependencies] then overrides with exact versions.
+
 [package.build.config]
 extra-input-globs = ["spatialxgene/frontend/dist/**"]
 ignore-pypi-mapping = false
 
-# Runtime deps: exact versions must match [dependencies] (RULES §4.3). Installed when user does mamba/conda install spatialxgene-*.conda.
 [package.run-dependencies]
 python = "==3.9.23"
 numpy = "==1.26.4"
@@ -47,7 +46,6 @@ pillow = "==11.3.0"
 louvain = "==0.8.2"
 
 [dependencies]
-# Pinned to exact versions from current working env (pixi.lock / conda-forge). RULES.md: numpy<2, setuptools<81.
 python = "==3.9.23"
 numpy = "==1.26.4"
 setuptools = "==80.9.0"
@@ -62,25 +60,26 @@ pillow = "==11.3.0"
 louvain = "==0.8.2"
 nodejs = "==25.2.1"
 r-base = "==4.5.2"
+r-seurat = ">=4.4.0"
 
 [tasks]
-# One-shot: npm install + build frontend, then install package in pixi env (deps from pixi; --no-deps to avoid re-installing from pyproject)
+# Install frontend & spatialxgene package
 install = "cd spatialxgene/frontend && npm install && npm run build && cd ../.. && pip install -e . --no-deps"
 
-# Build frontend only (required before first launch or after frontend changes)
+# Build frontend
 build = { cmd = "cd spatialxgene/frontend && npm run build", cwd = "." }
 
-# Visium→h5ad, preprocess (QC), then launch viewer with tests/ as data dir. Override: HOST=... PORT=... pixi run test
-test = { cmd = "tar -xvf tests/HCC1R.tar -C ./tests && spatialxgene visium2h5ad tests/HCC1R && rm -r tests/HCC1R && spatialxgene preprocess tests/HCC1R.h5ad && spatialxgene launch --data-dir ./tests --host $HOST --port $PORT --debug && rm tests/HCC1R*.h5ad", env = { HOST = "0.0.0.0", PORT = "5005" }, depends-on = ["build"] }
+# Test subcommands
+test = { cmd = "tar -xvf tests/HCC1R.tar -C ./tests && spatialxgene visium2h5ad tests/HCC1R && rm -r tests/HCC1R && spatialxgene preprocess tests/HCC1R.h5ad && spatialxgene seurat2h5ad tests/P2N_Spatial.rds.gz && spatialxgene launch --data-dir ./tests --host $HOST --port $PORT --debug; rm -f tests/HCC1R*.h5ad tests/P2N_Spatial*.h5ad", env = { HOST = "0.0.0.0", PORT = "5005" }, depends-on = ["build"] }
 
-# Launch viewer only (no auto-open browser by default). Override: DATA_DIR=... HOST=... PORT=... pixi run launch
+# Launch viewer
 launch = { cmd = "spatialxgene launch --data-dir $DATA_DIR --host $HOST --port $PORT", env = { DATA_DIR = "./tests/h5ad", HOST = "0.0.0.0", PORT = "5005" }, depends-on = ["build"] }
 
-# Remove .venv, node_modules, dist, caches
-clean = "rm -rf build spatialxgene/frontend/node_modules spatialxgene/frontend/dist spatialxgene/__pycache__ spatialxgene/*/__pycache__ .pytest_cache .ruff_cache .mypy_cache spatialxgene/frontend/tsconfig.tsbuildinfo"
+# Clean temporary files
+clean = "rm -rf build spatialxgene/frontend/node_modules spatialxgene/frontend/dist spatialxgene/__pycache__ spatialxgene/*/__pycache__ .pytest_cache .ruff_cache .mypy_cache spatialxgene/frontend/tsconfig.tsbuildinfo spatialxgene.egg-info"
 
-# Build docker image and save to docker/spatialxgene.tar (image name from compose: docker-spatialxgene:latest)
+# Build docker image
 docker = "cd docker && docker compose build && docker save -o spatialxgene.tar docker-spatialxgene:latest"
 
-# Run local nginx + spatialxgene for subpath testing
+# Test docker deployment environment
 docker-test = "docker compose -f docker/docker-compose.nginx-test.yml up --build"

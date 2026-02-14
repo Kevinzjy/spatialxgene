@@ -51,6 +51,7 @@
 - [x] **v0.2 查看器**：Embedding 切换（Spatial/UMAP），UMAP 下隐藏背景图；favicon 与侧栏 logo；spot 悬停 tooltip（Spot # + annotation/gene）；Annotation legend（按数量排序、显示 spot count）；画布工具栏 − / + / Reset；缩放以光标为中心；未选 annotation/gene 时全点灰色显示；切换数据集时主区域 Loading overlay；响应式全屏无滚动条；percentile 直方图法避免爆栈；Safari/Firefox 性能优化（rAF 节流、DPR 上限、Firefox LOD）；文档与 CHANGELOG 更新至 v0.2。
 - [x] **v0.2.3**：Co-expression 模式（双基因、四角调色板、log scale）；Layer 选项（X + adata.layers）；Token 认证（--token，默认 zhaoslab）；启动时打印带 token 的 Access URL；host `::` 支持与 IPv6 Access 行；docs/deployment.md（systemd、Nginx）；README/CHANGELOG 更新。
 - [x] **visium2h5ad**：子命令 `spatialxgene visium2h5ad -i path_to_visium -o h5ad_file`；使用 scanpy.read_visium；支持 --count-file、--no-images；自动 var_names_make_unique，抑制 anndata 重复名警告。
+- [x] **seurat2h5ad**：子命令 `spatialxgene seurat2h5ad <file.rds|file.rds.gz> [-o out.h5ad]`；R 脚本（Seurat + Matrix）导出 matrix/obs/空间坐标/组织图，Python 构建 AnnData，按 Visium 风格写 `uns['spatial']`（hires/lowres、scale 1.0 与 spot 对齐）；`pixi run test` 在存在 `tests/P2N_Spatial.rds.gz` 时执行 seurat2h5ad；经验见 RULES.md §4.3。
 - [x] **Preprocess 输出**：preprocess 写盘使用 `run_preprocess` 返回值，输出含 leiden/louvain 与 counts layer（标准化前保存）；RULES 与 CHANGELOG 记录经验。
 - [x] **Preprocess in_tissue**：有 `obs['in_tissue']` 时跳过按基因数的 spot 过滤，避免 Visium 等数据组织上点被滤掉。
 - [x] **Preprocess adata.raw**：写盘前若存在 `adata.raw`，将 `raw.X` 写入 `layers['counts']`（维度可对齐时），再清空 raw，避免 `raw.var` 含 `_index` 导致写盘报错。

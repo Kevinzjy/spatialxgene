@@ -1,12 +1,12 @@
-# 项目协作规则（zhangjy ↔ AI 编程助手）
+# 项目协作规则
 
-本文档记录 zhangjy 对 AI 编程助手的协作要求。**当出现错误/异常/结果不符合预期时，必须按本文流程处理并沉淀经验**。
+本文档记录项目开发编程助手的协作要求。**当出现错误/异常/结果不符合预期时，必须按本文流程处理并沉淀经验**。
 
 ---
 
 ## 0. 当前状态（简要）
 
-- **已完成**：子路径部署、数据集/表达加载进度、无空间或 UMAP 时的快速提示、Annotation 类别过多/过少时的稳健展示（不弹窗、图例显示 nan 说明）、多级 data-dir 扫描、下拉框显示 .h5ad、UI 文案 Numerical/Categorical 统一；preprocess 输出正确写入 leiden/louvain 与 counts layer；Sidebar 加载数据集时不再在 Dataset 上方显示 Loading；含多个点的 h5ad 文件名可正确解析；preprocess 对有 in_tissue 的数据跳过 spot 过滤、对 adata.raw 写入 layers['counts'] 后清空 raw 避免写盘报错；统一使用 layers['counts'] 命名。**pixi 迁移完成**：依赖与任务均在 pixi.toml，CLI 统一为 `spatialxgene`；测试数据在 `tests/`（Visium 用 `tests/HCC1R.tar`），日常 launch 默认数据目录 `tests/h5ad`；Docker 挂载 `tests/h5ad:/data`。详见 CHANGELOG [Unreleased]。
+- **已完成**：子路径部署、数据集/表达加载进度、无空间或 UMAP 时的快速提示、Annotation 类别过多/过少时的稳健展示（不弹窗、图例显示 nan 说明）、多级 data-dir 扫描、下拉框显示 .h5ad、UI 文案 Numerical/Categorical 统一；preprocess 输出正确写入 leiden/louvain 与 counts layer；Sidebar 加载数据集时不再在 Dataset 上方显示 Loading；含多个点的 h5ad 文件名可正确解析；preprocess 对有 in_tissue 的数据跳过 spot 过滤、对 adata.raw 写入 layers['counts'] 后清空 raw 避免写盘报错；统一使用 layers['counts'] 命名。**pixi 迁移完成**：依赖与任务均在 pixi.toml，CLI 统一为 `spatialxgene`；测试数据在 `tests/`（Visium 用 `tests/HCC1R.tar`，Seurat 用 `tests/P2N_Spatial.rds.gz`），日常 launch 默认数据目录 `tests/h5ad`；Docker 挂载 `tests/h5ad:/data`。**seurat2h5ad**：Seurat RDS → h5ad，R 脚本导出 matrix/obs/空间坐标/组织图，Python 按 Visium 风格写 `uns['spatial']`（hires/lowres、scale 1.0 对齐）。详见 CHANGELOG [Unreleased]。
 - **待做**：无。
 
 ---
@@ -176,4 +176,10 @@
 
 - **Layers 命名约定**
   - 未标准化计数层统一用 **`layers['counts']`**，与 scanpy/AnnData 常见用法一致，避免使用 `raw_counts` 等非主流命名。文档与日志、CLI 帮助、前端注释中的示例均使用 `counts`。
+
+- **seurat2h5ad：R 与空转 h5ad 格式**
+  - **SeuratObject 5 API**：`GetAssayData(obj, slot = "counts")` 已废弃，须改用 **`layer = "counts"`**（及 `layer = "data"` 作 fallback），否则 R 报 defunct。
+  - **R writeBin 与 array**：对 3D array 直接 `writeBin(arr, con)` 时，R 可能只写出少量字节（如仅 8 字节头）。须改为 **`writeBin(as.vector(arr), con)`** 再写像素数据，Python 端按列优先 (F-order) 按 channel 分段 reshape 读回。
+  - **空转 h5ad 组织图格式（与 viewer 对齐）**：以「格式正确的」参考 h5ad（如 Control06_processed.h5ad）为准。① 坐标与图像同空间时（Seurat 的 imagecol/imagerow = 图像像素），**`tissue_hires_scalef = 1.0`**，viewer 约定 `image_pixel = data_coord * scale_factor`，故 1.0 才能对齐。② 图像键名用 **`hires`**、**`lowres`**（与 Visium/参考一致）；图像存 **float32 [0,1]**。③ 可选 lowres：从 hires 缩放到 max 400px，`tissue_lowres_scalef = lowres_width / fullres_width`。④ 不要误用 Seurat 自带的 scale.factors 作为 tissue_*_scalef（语义不同，会导致图与 spot 错位）。
+  - **测试**：`pixi run test` 在存在 `tests/P2N_Spatial.rds.gz` 时会跑 seurat2h5ad，退出后清理 `tests/P2N_Spatial*.h5ad`。
 

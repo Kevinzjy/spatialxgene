@@ -1,6 +1,6 @@
 # Spatialxgene
 
-**v0.2.3** — Browser-based spatial transcriptomics viewer and preprocessing (cellxgene-style). Launch the viewer to explore spatial plots (zoom/pan, color by **annotation**, **gene**, or **co-expression**; optional tissue image; expression from `X` or `adata.layers`), or run **preprocess** on raw h5ad. Convert **Visium** Space Ranger output to h5ad with **visium2h5ad**.
+**v0.2.3** — Browser-based spatial transcriptomics viewer and preprocessing (cellxgene-style). Launch the viewer to explore spatial plots (zoom/pan, color by **annotation**, **gene**, or **co-expression**; optional tissue image; expression from `X` or `adata.layers`), or run **preprocess** on raw h5ad. Convert **Visium** Space Ranger output to h5ad with **visium2h5ad**, or **Seurat RDS** to h5ad with **seurat2h5ad**.
 
 ## Requirements
 
@@ -31,7 +31,8 @@ Then `spatialxgene` are exposed to $PATH
 |---------|-------------|
 | `spatialxgene launch` | Start the browser viewer; serve preprocessed h5ad from a directory. |
 | `spatialxgene visium2h5ad <dir>` | Convert Visium Space Ranger output directory to a single h5ad file (default output: dir.h5ad). |
-| `spatialxgene preprocess` | Expression pipeline: QC, normalize, HVG, PCA, UMAP, Leiden. Does not change spatial. |
+| `spatialxgene seurat2h5ad <file>` | Convert Seurat spatial RDS (.rds or .rds.gz) to a single h5ad file. Requires R with Seurat (pixi env includes r-seurat). |
+| `spatialxgene preprocess <file or dir>` | Expression pipeline: QC, normalize, HVG, PCA, UMAP, Leiden. Input: single .h5ad file or directory of .h5ad. Does not change spatial. |
 
 ## Quick start
 
@@ -52,9 +53,18 @@ Then `spatialxgene` are exposed to $PATH
    spatialxgene visium2h5ad /path/to/visium_sample -o output.h5ad
    ```
 
-   Input is the Visium sample directory; output defaults to that path with `.h5ad` (e.g. `a/b/c` → `a/b/c.h5ad`).    Use the output with `launch` or run **preprocess** next.
+   Input is the Visium sample directory; output defaults to that path with `.h5ad` (e.g. `a/b/c` → `a/b/c.h5ad`). Use the output with `launch` or run **preprocess** next.
 
-3. **Preprocess expression** (QC, normalize, reduce, cluster)
+3. **Convert Seurat RDS to h5ad** (spatial RDS → single h5ad)
+
+   ```bash
+   spatialxgene seurat2h5ad tests/P2N_Spatial.rds.gz
+   spatialxgene seurat2h5ad sample.rds -o sample.h5ad
+   ```
+
+   Input is a Seurat spatial object saved as `.rds` or `.rds.gz`. Output defaults to the input stem with `.h5ad` (e.g. `P2N_Spatial.rds.gz` → `P2N_Spatial.h5ad`). Requires R with Seurat (use `pixi run install` so the pixi env has `r-seurat`). Use the output with `launch` or run **preprocess** next.
+
+4. **Preprocess expression** (QC, normalize, reduce, cluster)
 
    ```bash
    spatialxgene preprocess raw.h5ad
@@ -73,4 +83,4 @@ Preprocessed h5ad for `launch` should have:
 - **Tissue images** (optional): Visium-style `uns['spatial'][sample]['images']` (e.g. `hires`, `lowres`) and `scalefactors`.
 - **Layers** (optional): For gene/co-expression coloring, `adata.layers` (e.g. `counts` before normalization, logcounts) are listed; default is `X`. The `preprocess` command saves `counts` before normalizing so you can switch between raw and normalized in the viewer.
 
-For all options: `spatialxgene launch --help`, `spatialxgene visium2h5ad --help`, `spatialxgene preprocess --help`. To run as a long-lived service on Linux, see [docs/deployment.md](docs/deployment.md).
+For all options: `spatialxgene launch --help`, `spatialxgene visium2h5ad --help`, `spatialxgene seurat2h5ad --help`, `spatialxgene preprocess --help`. To run as a long-lived service on Linux, see [docs/deployment.md](docs/deployment.md).

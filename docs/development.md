@@ -25,6 +25,7 @@ The **Makefile** is a thin wrapper: each target runs `pixi run <task>`. You can 
 ├── Makefile               # Thin wrapper: make X → pixi run X
 ├── tests/                 # Test data and default launch data dir
 │   ├── HCC1R.tar          # Visium sample (tar); test task extracts and runs pipeline
+│   ├── P2N_Spatial.rds.gz  # (optional) Seurat RDS for seurat2h5ad in pixi run test
 │   └── h5ad/              # Default DATA_DIR for launch; put preprocessed h5ad here
 ├── docs/                  # Design and development docs
 │   ├── development.md     # This file
@@ -74,7 +75,7 @@ The **Makefile** is a thin wrapper: each target runs `pixi run <task>`. You can 
 | `pixi run install` / `make install` | Pixi install, npm install, build frontend, pip install -e . --no-deps |
 | `pixi run build` / `make build` | Build frontend only |
 | `pixi run launch` / `make launch` | Run viewer; default DATA_DIR=./tests/h5ad (env: DATA_DIR, HOST, PORT) |
-| `pixi run test` / `make test` | Extract tests/HCC1R.tar → visium2h5ad → preprocess → launch (data-dir ./tests); on exit removes generated h5ad. Override HOST/PORT. |
+| `pixi run test` / `make test` | Extract tests/HCC1R.tar → visium2h5ad → preprocess; if tests/P2N_Spatial.rds.gz exists, run seurat2h5ad; then launch (data-dir ./tests). On exit removes generated HCC1R*.h5ad and P2N_Spatial*.h5ad. Override HOST/PORT. |
 | `pixi run clean` / `make clean` | Remove build, node_modules, dist, caches |
 | `pixi run docker` / `make docker` | Build docker image, save to docker/spatialxgene.tar |
 | `pixi run docker-test` / `make docker-test` | Run nginx + spatialxgene for subpath test |
@@ -92,7 +93,8 @@ Run dependencies are taken from `[package.run-dependencies]` in `pixi.toml` (exa
 
 ## Test data
 
-- **tests/HCC1R.tar**: Visium Space Ranger output (tar). `pixi run test` extracts it to `tests/HCC1R`, runs `spatialxgene visium2h5ad` and `spatialxgene preprocess`, then launches the viewer with `--data-dir ./tests`. When you stop the server, the task removes the generated `tests/HCC1R.h5ad` and `tests/HCC1R_processed.h5ad`.
+- **tests/HCC1R.tar**: Visium Space Ranger output (tar). `pixi run test` extracts it to `tests/HCC1R`, runs `spatialxgene visium2h5ad` and `spatialxgene preprocess`, then (if present) runs `spatialxgene seurat2h5ad tests/P2N_Spatial.rds.gz`, then launches the viewer with `--data-dir ./tests`. On exit the task removes generated `tests/HCC1R*.h5ad` and `tests/P2N_Spatial*.h5ad`.
+- **tests/P2N_Spatial.rds.gz** (optional): Seurat spatial RDS for testing seurat2h5ad; used by `pixi run test` when present.
 - **tests/h5ad/**: Default data directory for `pixi run launch`. Place preprocessed h5ad files here for daily use. Docker compose mounts this as `/data` in the container.
 
 ## Versioning
