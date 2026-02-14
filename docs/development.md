@@ -4,13 +4,13 @@ Project layout, build and run from source, and where to find design/plan docs.
 
 ## Environment: pixi (Python from conda-forge)
 
-The project uses **[pixi](https://pixi.sh/)** for environment management (install at `~/.pixi/bin/pixi` or ensure `pixi` is on PATH). Pixi provides:
+The project uses **[pixi](https://pixi.sh/)** for environment management (install at `~/.pixi/bin/pixi` or ensure `pixi` is on PATH). Pixi manifest reference: <https://pixi.prefix.dev/latest/reference/pixi_manifest>. Pixi provides:
 
 - **Python and Python packages** — From conda-forge (numpy, scanpy, anndata, fastapi, uvicorn, etc.); versions are pinned in `pixi.toml`.
 - **nodejs** — Frontend (npm install, npm run build)
 - **r-base** — R runtime for future R dependencies
 
-Run `pixi run launch` or `pixi run spatialxgene launch`; the install task runs `pip install -e . --no-deps` so the package uses pixi-installed deps. Add more R or conda packages in `pixi.toml` as needed.
+Run `pixi run launch`; the install task runs `pip install -e . --no-deps` so the package uses pixi-installed deps. Add more R or conda packages in `pixi.toml` as needed.
 
 The **Makefile** is a thin wrapper: each target runs `pixi run <task>`. You can run tasks directly with `pixi run <task>` (e.g. `pixi run install`, `pixi run launch`).
 
@@ -75,11 +75,20 @@ The **Makefile** is a thin wrapper: each target runs `pixi run <task>`. You can 
 | `pixi run build` / `make build` | Build frontend only |
 | `pixi run launch` / `make launch` | Run viewer; default DATA_DIR=./tests/h5ad (env: DATA_DIR, HOST, PORT) |
 | `pixi run test` / `make test` | Extract tests/HCC1R.tar → visium2h5ad → preprocess → launch (data-dir ./tests); on exit removes generated h5ad. Override HOST/PORT. |
-| `pixi run clean` / `make clean` | Remove .venv, node_modules, dist, caches |
+| `pixi run clean` / `make clean` | Remove build, node_modules, dist, caches |
 | `pixi run docker` / `make docker` | Build docker image, save to docker/spatialxgene.tar |
 | `pixi run docker-test` / `make docker-test` | Run nginx + spatialxgene for subpath test |
 
 List all tasks: `pixi task list`.
+
+## Building the conda package
+
+To build a `.conda` package for installation with mamba/conda (e.g. `mamba install spatialxgene-*.conda`):
+
+1. Run `pixi run build` to build the frontend (required so the package contains the UI).
+2. Run `pixi build` (requires the `pixi-build` preview feature; see `pixi.toml`).
+
+Run dependencies are taken from `[package.run-dependencies]` in `pixi.toml` (exact versions; see RULES.md §4.3). The build config sets `ignore-pypi-mapping = false` so the backend emits run deps into the package; otherwise a fresh environment would only install the spatialxgene package with no dependencies.
 
 ## Test data
 

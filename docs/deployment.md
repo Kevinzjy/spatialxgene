@@ -25,7 +25,7 @@ See [docker/README.md](../docker/README.md) for more options. If you only have a
 ### Prerequisites
 
 - **Linux** with systemd (e.g. Debian, Ubuntu, RHEL, Rocky).
-- **Python 3.9+** and [pixi](https://pixi.sh/) (or `pip` if not using pixi).
+- **Python 3.9+** and [pixi](https://pixi.sh/) (manifest: <https://pixi.prefix.dev/latest/reference/pixi_manifest>) or `pip` if not using pixi.
 - A **data directory** containing preprocessed h5ad files (or empty; you can add data later).
 - A **non-root user** to run the service (e.g. `www-data`, `spatialxgene`, or your app user).
 
