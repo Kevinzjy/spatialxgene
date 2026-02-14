@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+(No changes yet.)
+
+## [0.2.4] - 2026-02-14
+
 ### Fixed
 
 - **Preprocess output missing leiden/louvain and counts layer**: `preprocess_file()` now uses the return value of `run_preprocess()` when writing the h5ad (previously it wrote the original adata, so dimred/cluster and layers were lost). When copying results back from the HVG subset to the full adata, both `leiden` and `louvain` are copied if present. `counts` is saved in `adata.layers` **before** `normalize_total`/`log1p` so it reflects true raw counts. Logging added to confirm obs columns (leiden, louvain) and layers before write.

@@ -1,6 +1,6 @@
 # Spatialxgene
 
-**v0.2.3** — Browser-based spatial transcriptomics viewer and preprocessing (cellxgene-style). Launch the viewer to explore spatial plots (zoom/pan, color by **annotation**, **gene**, or **co-expression**; optional tissue image; expression from `X` or `adata.layers`), or run **preprocess** on raw h5ad. Convert **Visium** Space Ranger output to h5ad with **visium2h5ad**, or **Seurat RDS** to h5ad with **seurat2h5ad**.
+**v0.2.4** — Browser-based spatial transcriptomics viewer and preprocessing (cellxgene-style). Launch the viewer to explore spatial plots (zoom/pan, color by **annotation**, **gene**, or **co-expression**; optional tissue image; expression from `X` or `adata.layers`), or run **preprocess** on raw h5ad. Convert **Visium** Space Ranger output to h5ad with **visium2h5ad**, or **Seurat RDS** to h5ad with **seurat2h5ad**.
 
 ## Requirements
 
