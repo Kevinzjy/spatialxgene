@@ -37,10 +37,12 @@ The **Makefile** is a thin wrapper: each target runs `pixi run <task>`. You can 
 └── spatialxgene/
     ├── __init__.py        # __version__
     ├── cli.py             # Subcommands: launch, preprocess, visium2h5ad
-    ├── preprocess.py      # QC, HVG, PCA, UMAP, Leiden
+    ├── preprocess.py      # QC, HVG, PCA, UMAP, Leiden; optionally CellTypist (see celltypist_annotate.py)
+    ├── celltypist_annotate.py  # Species inference, model routing, auto_cell_type annotation
     ├── visium2h5ad.py     # Visium Space Ranger dir → h5ad (scanpy.read_visium)
     ├── server/            # FastAPI backend
-    └── frontend/          # Vite + React UI (spatial plot, sidebar)
+    ├── frontend/          # Vite + React UI (spatial plot, sidebar)
+    └── scripts/           # R helper for seurat2h5ad (seurat2h5ad.R only)
 ```
 
 ## Install and run from source

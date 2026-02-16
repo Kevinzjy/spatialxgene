@@ -22,7 +22,7 @@ import {
 } from "./colorScale";
 import { setDebugMode, debugLog } from "./debug";
 import { percentile } from "./utils/percentile";
-import { Sidebar } from "./components/Sidebar";
+import { Sidebar, type MultigeneGeneEntry } from "./components/Sidebar";
 
 /** Parse color range input: "p1" / "p99.5" → percentile value; "0.5" / "100" → raw number. */
 function parseRangeInput(str: string, values: number[] | null): number | null {
@@ -63,7 +63,7 @@ export default function App() {
   const [obs, setObs] = useState<ObsResponse | null>(null);
   const [genes, setGenes] = useState<string[]>([]);
   const [expression, setExpression] = useState<number[] | null>(null);
-  const [colorMode, setColorMode] = useState<"gene" | "annotation" | "coexpression">("annotation");
+  const [colorMode, setColorMode] = useState<"gene" | "annotation" | "coexpression" | "multigene">("annotation");
   const [selectedGene, setSelectedGene] = useState<string | null>(null);
   const [selectedGene1, setSelectedGene1] = useState<string | null>(null);
   const [selectedGene2, setSelectedGene2] = useState<string | null>(null);
@@ -71,6 +71,13 @@ export default function App() {
   const [expression2, setExpression2] = useState<number[] | null>(null);
   const [coexpressionPalette, setCoexpressionPalette] = useState<CoexpressionPalette>(DEFAULT_COEXPRESSION_PALETTE);
   const [coexpressionLogScale, setCoexpressionLogScale] = useState(false);
+  const [selectedMultigeneGenes, setSelectedMultigeneGenes] = useState<MultigeneGeneEntry[]>([]);
+  const [multigeneLogScale, setMultigeneLogScale] = useState(false);
+  const [multigeneLayout, setMultigeneLayout] = useState<"pie" | "grid">("pie");
+  const [multigeneRangeMinInput, setMultigeneRangeMinInput] = useState("p0");
+  const [multigeneRangeMaxInput, setMultigeneRangeMaxInput] = useState("p100");
+  const [multigeneExpressionByGene, setMultigeneExpressionByGene] = useState<Record<string, number[]>>({});
+  const [multigeneLoading, setMultigeneLoading] = useState(false);
   const [selectedLayer, setSelectedLayer] = useState<string>("X");
   const [selectedObsCol, setSelectedObsCol] = useState<string | null>(null);
   const [obsValueType, setObsValueType] = useState<"categorical" | "numeric">("categorical");
@@ -251,6 +258,8 @@ export default function App() {
       setSelectedGene(null);
       setSelectedGene1(null);
       setSelectedGene2(null);
+      setSelectedMultigeneGenes([]);
+      setMultigeneExpressionByGene({});
       setExpression1(null);
       setExpression2(null);
       setSelectedLayer("X");
@@ -323,6 +332,40 @@ export default function App() {
     };
   }, [selectedDatasetId, selectedGene1, selectedGene2, selectedLayer]);
 
+  // Fetch expression for each gene in multi-gene mode
+  useEffect(() => {
+    if (!selectedDatasetId || selectedMultigeneGenes.length === 0) {
+      setMultigeneExpressionByGene({});
+      setMultigeneLoading(false);
+      return;
+    }
+    const ac = new AbortController();
+    const signal = ac.signal;
+    setMultigeneLoading(true);
+    const genesToFetch = selectedMultigeneGenes.map((e) => e.gene);
+    Promise.all(
+      genesToFetch.map((gene) =>
+        fetchExpression(selectedDatasetId, gene, signal, selectedLayer)
+      )
+    )
+      .then((arrays) => {
+        const next: Record<string, number[]> = {};
+        genesToFetch.forEach((gene, i) => {
+          next[gene] = arrays[i] ?? [];
+        });
+        setMultigeneExpressionByGene(next);
+      })
+      .catch((e) => {
+        if (e?.name === "AbortError") return;
+        setMultigeneExpressionByGene({});
+      })
+      .finally(() => setMultigeneLoading(false));
+    return () => {
+      ac.abort();
+      setMultigeneLoading(false);
+    };
+  }, [selectedDatasetId, selectedLayer, selectedMultigeneGenes]);
+
   const colorByValues = React.useMemo(() => {
     if (!spatial) return [];
     const n = spatial.x.length;
@@ -379,8 +422,15 @@ export default function App() {
     ) {
       return "coexpression";
     }
+    if (colorMode === "multigene" && selectedMultigeneGenes.length > 0 && spatial.x.length > 0) {
+      const n = spatial.x.length;
+      const allLoaded = selectedMultigeneGenes.every(
+        (e) => (multigeneExpressionByGene[e.gene]?.length ?? 0) >= n
+      );
+      if (allLoaded) return "multigene";
+    }
     return "none";
-  }, [spatial, colorMode, selectedObsCol, obs, expression, expression1, expression2, obsValueType]);
+  }, [spatial, colorMode, selectedObsCol, obs, expression, expression1, expression2, selectedMultigeneGenes, multigeneExpressionByGene, obsValueType]);
   const bounds = useMemo(() => {
     if (spatial && spatial.x.length > 0 && spatial.y.length === spatial.x.length) {
       let xMin = spatial.x[0];
@@ -446,6 +496,34 @@ export default function App() {
       colorMax: Math.max(colorMin, colorMax),
     };
   }, [continuousValues, rangeMinInput, rangeMaxInput]);
+
+  const multigeneLayers = React.useMemo(() => {
+    if (!spatial || selectedMultigeneGenes.length === 0) return undefined;
+    const n = spatial.x.length;
+    const layers = selectedMultigeneGenes
+      .map((entry) => {
+        const values = multigeneExpressionByGene[entry.gene];
+        if (!values || values.length < n) return null;
+        return { name: entry.gene, values: values.slice(0, n), paletteId: entry.paletteId };
+      })
+      .filter((l): l is { name: string; values: number[]; paletteId: string } => l !== null);
+    return layers.length > 0 ? layers : undefined;
+  }, [spatial, selectedMultigeneGenes, multigeneExpressionByGene]);
+
+  const effectiveMultigeneColorRange = React.useMemo(() => {
+    if (!multigeneLayers || multigeneLayers.length === 0) return null;
+    const firstValues = multigeneLayers[0].values;
+    const lo = parseRangeInput(multigeneRangeMinInput, firstValues);
+    const hi = parseRangeInput(multigeneRangeMaxInput, firstValues);
+    if (lo == null && hi == null) return null;
+    const { min: dataMin, max: dataMax } = finiteMinMax(firstValues);
+    const colorMin = lo ?? dataMin;
+    const colorMax = hi ?? dataMax;
+    return {
+      colorMin: Math.min(colorMin, colorMax),
+      colorMax: Math.max(colorMin, colorMax),
+    };
+  }, [multigeneLayers, multigeneRangeMinInput, multigeneRangeMaxInput]);
 
   const handleEmbeddingModeChange = useCallback(
     async (mode: "spatial" | "umap" | "pca" | "tsne") => {
@@ -514,6 +592,8 @@ export default function App() {
             setSelectedGene(null);
             setSelectedGene1(null);
             setSelectedGene2(null);
+            setSelectedMultigeneGenes([]);
+            setMultigeneExpressionByGene({});
             setSelectedLayer("X");
             setBackgroundImageKey(null);
             loadDataset(next);
@@ -546,6 +626,18 @@ export default function App() {
         onCoexpressionPaletteChange={setCoexpressionPalette}
         coexpressionLogScale={coexpressionLogScale}
         onCoexpressionLogScaleChange={setCoexpressionLogScale}
+        selectedMultigeneGenes={selectedMultigeneGenes}
+        onMultigeneGenesChange={setSelectedMultigeneGenes}
+        multigeneLogScale={multigeneLogScale}
+        onMultigeneLogScaleChange={setMultigeneLogScale}
+        multigeneLayout={multigeneLayout}
+        onMultigeneLayoutChange={setMultigeneLayout}
+        multigeneRangeMinInput={multigeneRangeMinInput}
+        multigeneRangeMaxInput={multigeneRangeMaxInput}
+        onMultigeneRangeMinInputChange={setMultigeneRangeMinInput}
+        onMultigeneRangeMaxInputChange={setMultigeneRangeMaxInput}
+        effectiveMultigeneColorMin={effectiveMultigeneColorRange?.colorMin ?? null}
+        effectiveMultigeneColorMax={effectiveMultigeneColorRange?.colorMax ?? null}
         selectedLayer={selectedLayer}
         onLayerChange={setSelectedLayer}
         spotSizeScale={spotSizeScale}
@@ -683,6 +775,21 @@ export default function App() {
             hoverGene1Values={plotColorMode === "coexpression" ? expression1 : null}
             hoverGene2Name={plotColorMode === "coexpression" ? selectedGene2 : null}
             hoverGene2Values={plotColorMode === "coexpression" ? expression2 : null}
+            multigeneLayers={multigeneLayers}
+            multigeneLogScale={multigeneLogScale}
+            multigeneLayout={multigeneLayout}
+            multigeneRangeMinInput={multigeneRangeMinInput}
+            multigeneRangeMaxInput={multigeneRangeMaxInput}
+            hoverMultigeneNames={
+              plotColorMode === "multigene"
+                ? selectedMultigeneGenes.map((e) => e.gene)
+                : null
+            }
+            hoverMultigeneValues={
+              plotColorMode === "multigene"
+                ? selectedMultigeneGenes.map((e) => multigeneExpressionByGene[e.gene] ?? [])
+                : null
+            }
             title={
               selectedDatasetId
                 ? `${selectedDatasetId}${
@@ -695,7 +802,7 @@ export default function App() {
                 : undefined
             }
             />
-            {(expressionLoading || coexpressionLoading) && (
+            {(expressionLoading || coexpressionLoading || multigeneLoading) && (
               <div
                 style={{
                   position: "absolute",
@@ -715,7 +822,9 @@ export default function App() {
                     ? `Loading expression for ${selectedGene}…`
                     : coexpressionLoading && selectedGene1 && selectedGene2
                       ? `Loading expression for ${selectedGene1}, ${selectedGene2}…`
-                      : "Loading expression…"}
+                      : multigeneLoading && selectedMultigeneGenes.length > 0
+                        ? `Loading expression for ${selectedMultigeneGenes.map((e) => e.gene).join(", ")}…`
+                        : "Loading expression…"}
                 </span>
                 <div
                   style={{

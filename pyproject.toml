@@ -20,6 +20,7 @@ dependencies = [
     "uvicorn[standard]>=0.22",
     "Pillow>=9.0",
     "louvain>=0.7.1",
+    "celltypist>=1.7,<2",
 ]
 
 [project.scripts]

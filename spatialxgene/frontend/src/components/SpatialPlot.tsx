@@ -1,7 +1,18 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { getCategoricalColors, continuousToRgb } from "../colorScale";
+import { getCategoricalColors, continuousToRgb, multigeneValueToHex } from "../colorScale";
+import { percentile } from "../utils/percentile";
 
-export type ColorMode = "categorical" | "continuous" | "coexpression" | "none";
+export type ColorMode = "categorical" | "continuous" | "coexpression" | "multigene" | "none";
+
+/** One gene layer for multi-gene plot: expression values and palette (black–accent). */
+export type MultigeneLayer = {
+  name: string;
+  values: number[];
+  paletteId: string;
+};
+
+/** Multi-gene layout: pie chart (round spot) or grid of squares (square spot). */
+export type MultigeneLayout = "pie" | "grid";
 
 const PAD = 20;
 const isFirefox = typeof navigator !== "undefined" && /firefox/i.test(navigator.userAgent);
@@ -40,6 +51,33 @@ function gridSpacing(
   const area = dataW * dataH;
   if (n <= 0) return Math.sqrt(area);
   return Math.sqrt(area / n);
+}
+
+/** Per-spot segment for pie or grid: proportion (0..1) and fill color. */
+type MultigeneSegment = { proportion: number; color: string };
+
+/** Built spot data for multi-gene: only spots with sum > 0; segments sorted by proportion desc. */
+type MultigeneSpotData = {
+  spots: Array<{ x: number; y: number; sum: number; segments: MultigeneSegment[] }>;
+};
+
+/** In grid layout, only draw cells for genes with at least this proportion (avoids black pixels for low expression). */
+const MIN_PROPORTION_GRID = 0.05;
+
+/** Parse range input for multi-gene: "p1" / "p99.5" → percentile; "0.5" → raw. Returns null if invalid. */
+function parseMultigeneRange(
+  str: string
+): { type: "percentile"; p: number } | { type: "raw"; value: number } | null {
+  const s = str.trim().toLowerCase();
+  if (s === "") return null;
+  if (s.startsWith("p")) {
+    const num = parseFloat(s.slice(1));
+    if (!Number.isFinite(num) || num < 0 || num > 100) return null;
+    return { type: "percentile", p: num };
+  }
+  const num = parseFloat(str.trim());
+  if (!Number.isFinite(num)) return null;
+  return { type: "raw", value: num };
 }
 
 /** Spot size scale relative to default (spacing * 0.42). 1 = current default, 0.8 = 80% (sidebar default). */
@@ -87,6 +125,19 @@ export type SpatialPlotProps = {
   hoverGene1Values?: number[] | null;
   hoverGene2Name?: string | null;
   hoverGene2Values?: number[] | null;
+  /** Multi-gene mode: per-gene layers (name, values, paletteId). Each spot drawn as pie or grid. */
+  multigeneLayers?: MultigeneLayer[];
+  /** Log scale for multi-gene expression (default false). */
+  multigeneLogScale?: boolean;
+  /** Multi-gene layout: pie (round spot) or grid (square spot). */
+  multigeneLayout?: MultigeneLayout;
+  /** Multi-gene color range: min input (e.g. "p0", "p1", or raw number). */
+  multigeneRangeMinInput?: string;
+  /** Multi-gene color range: max input (e.g. "p100", "p99.5", or raw number). */
+  multigeneRangeMaxInput?: string;
+  /** For hover in multigene mode: per-gene names and value arrays. */
+  hoverMultigeneNames?: string[] | null;
+  hoverMultigeneValues?: number[][] | null;
   title?: string;
 };
 
@@ -116,6 +167,13 @@ export function SpatialPlot({
   hoverGene1Values,
   hoverGene2Name,
   hoverGene2Values,
+  multigeneLayers,
+  multigeneLogScale = false,
+  multigeneLayout = "pie",
+  multigeneRangeMinInput = "p0",
+  multigeneRangeMaxInput = "p100",
+  hoverMultigeneNames,
+  hoverMultigeneValues,
   title,
 }: SpatialPlotProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -136,6 +194,71 @@ export function SpatialPlot({
 
   const dragStateRef = useRef<typeof drag>(null);
   dragStateRef.current = drag;
+
+  const multigeneSpotData = React.useMemo((): MultigeneSpotData | null => {
+    if (colorMode !== "multigene" || !multigeneLayers?.length || x.length === 0 || y.length !== x.length) {
+      return null;
+    }
+    const n = x.length;
+    const K = multigeneLayers.length;
+    const vminByLayer: number[] = [];
+    const vmaxByLayer: number[] = [];
+    const minParsed = parseMultigeneRange(multigeneRangeMinInput);
+    const maxParsed = parseMultigeneRange(multigeneRangeMaxInput);
+    for (let g = 0; g < K; g++) {
+      const vals = multigeneLayers[g].values;
+      let vmin: number;
+      let vmax: number;
+      if (minParsed?.type === "percentile" && maxParsed?.type === "percentile") {
+        vmin = percentile(vals, minParsed.p);
+        vmax = percentile(vals, maxParsed.p);
+      } else if (minParsed?.type === "raw" && maxParsed?.type === "raw") {
+        vmin = minParsed.value;
+        vmax = maxParsed.value;
+      } else {
+        let dataMin = Infinity;
+        let dataMax = -Infinity;
+        for (let i = 0; i < n; i++) {
+          const v = vals[i];
+          if (!Number.isFinite(v)) continue;
+          if (v < dataMin) dataMin = v;
+          if (v > dataMax) dataMax = v;
+        }
+        vmin = dataMin === Infinity ? 0 : dataMin;
+        vmax = dataMax <= vmin ? vmin + 1 : dataMax;
+      }
+      if (vmax <= vmin) vmax = vmin + 1;
+      vminByLayer.push(vmin);
+      vmaxByLayer.push(vmax);
+    }
+    const spots: MultigeneSpotData["spots"] = [];
+    for (let i = 0; i < n; i++) {
+      let sum = 0;
+      const expr: number[] = [];
+      for (let g = 0; g < K; g++) {
+        const v = Math.max(0, multigeneLayers[g].values[i] ?? 0);
+        const e = multigeneLogScale ? Math.log1p(v) : v;
+        expr.push(e);
+        sum += e;
+      }
+      if (sum <= 0) continue;
+      const segments: MultigeneSegment[] = [];
+      for (let g = 0; g < K; g++) {
+        const proportion = expr[g] / sum;
+        const color = multigeneValueToHex(
+          multigeneLayers[g].values[i] ?? 0,
+          vminByLayer[g],
+          vmaxByLayer[g],
+          multigeneLayers[g].paletteId,
+          multigeneLogScale
+        );
+        segments.push({ proportion, color });
+      }
+      segments.sort((a, b) => b.proportion - a.proportion);
+      spots.push({ x: x[i], y: y[i], sum, segments });
+    }
+    return { spots };
+  }, [colorMode, multigeneLayers, x, y, multigeneLogScale, multigeneRangeMinInput, multigeneRangeMaxInput]);
 
   useEffect(() => {
     if (!backgroundImageUrl) {
@@ -290,6 +413,72 @@ export function SpatialPlot({
       step = Math.max(1, Math.floor(base * zoomFactor));
     }
 
+    if (colorMode === "multigene" && multigeneSpotData) {
+      const spots = multigeneSpotData.spots;
+      const len = spots.length;
+      const stepMultigene = len <= MAX_DRAW_POINTS ? 1 : Math.max(1, Math.floor(len / MAX_DRAW_POINTS));
+      const startAngle0 = -Math.PI / 2;
+      if (multigeneLayout === "grid") {
+        let maxK = 0;
+        for (let k = 0; k < len; k++) {
+          const visible = spots[k].segments.filter((s) => s.proportion >= MIN_PROPORTION_GRID);
+          if (visible.length > maxK) maxK = visible.length;
+        }
+        const r = radiusData;
+        const spotSide = r * 2;
+        const radiusPolygon = r * 0.7;
+        const squareSide =
+          maxK === 0
+            ? 0
+            : maxK === 1
+              ? spotSide * 0.5
+              : 2 * radiusPolygon * Math.sin(Math.PI / maxK) * 1.1;
+        for (let k = 0; k < len; k += stepMultigene) {
+          const { x: cx, y: cy, segments } = spots[k];
+          if (cx < clipXMin || cx > clipXMax || cy < clipYMin || cy > clipYMax) continue;
+          const visible = segments.filter((s) => s.proportion >= MIN_PROPORTION_GRID);
+          const K = visible.length;
+          if (K === 0 || squareSide <= 0) continue;
+          const spotLeft = cx - r;
+          const spotTop = cy - r;
+          ctx.save();
+          ctx.beginPath();
+          ctx.rect(spotLeft, spotTop, spotSide, spotSide);
+          ctx.clip();
+          const startAngle = -Math.PI / 2;
+          for (let idx = K - 1; idx >= 0; idx--) {
+            const angle = K === 1 ? 0 : startAngle + (2 * Math.PI * idx) / K;
+            const centerX = K === 1 ? cx : cx + radiusPolygon * Math.cos(angle);
+            const centerY = K === 1 ? cy : cy + radiusPolygon * Math.sin(angle);
+            ctx.fillStyle = visible[idx].color;
+            ctx.fillRect(
+              centerX - squareSide / 2,
+              centerY - squareSide / 2,
+              squareSide,
+              squareSide
+            );
+          }
+          ctx.restore();
+        }
+      } else {
+        for (let k = 0; k < len; k += stepMultigene) {
+          const { x: cx, y: cy, segments } = spots[k];
+          if (cx < clipXMin || cx > clipXMax || cy < clipYMin || cy > clipYMax) continue;
+          let angle = startAngle0;
+          for (const seg of segments) {
+            if (seg.proportion <= 0) continue;
+            const span = seg.proportion * Math.PI * 2;
+            ctx.fillStyle = seg.color;
+            ctx.beginPath();
+            ctx.moveTo(cx, cy);
+            ctx.arc(cx, cy, radiusData, angle, angle + span);
+            ctx.closePath();
+            ctx.fill();
+            angle += span;
+          }
+        }
+      }
+    } else {
     // Cache categorical colors as RGB triplets to avoid repeated hex parsing.
     // Important: keys must use the same type as in catMap (string or number), do NOT coerce to string.
     const catRgbCache: Map<any, [number, number, number]> | null =
@@ -371,6 +560,7 @@ export function SpatialPlot({
       if (isNaNCategory(i)) continue;
       drawPoint(i);
     }
+    }
     ctx.globalAlpha = 1;
     ctx.restore();
   }, [
@@ -393,6 +583,10 @@ export function SpatialPlot({
     backgroundImageBounds,
     backgroundOpacity,
     logScale,
+    multigeneLayers,
+    multigeneLogScale,
+    multigeneSpotData,
+    multigeneLayout,
   ]);
 
   useEffect(() => draw(), [draw]);
@@ -539,11 +733,17 @@ export function SpatialPlot({
           const v2 = hoverGene2Values[bestIdx];
           lines.push(`${hoverGene1Name}: ${formatExpr(Number(v1))}`);
           lines.push(`${hoverGene2Name}: ${formatExpr(Number(v2))}`);
+        } else if (colorMode === "multigene" && hoverMultigeneNames && hoverMultigeneValues) {
+          for (let g = 0; g < hoverMultigeneNames.length && g < hoverMultigeneValues.length; g++) {
+            const vals = hoverMultigeneValues[g];
+            const v = vals && bestIdx < vals.length ? vals[bestIdx] : null;
+            lines.push(`${hoverMultigeneNames[g]}: ${formatExpr(Number(v))}`);
+          }
         }
         setHover({ screenX: mx2 + 10, screenY: my2 + 10, lines });
       });
     },
-    [bounds, x, y, spotSizeScale, colorMode, hoverAnnotationName, hoverAnnotationValues, hoverGeneName, hoverGeneValues, hoverGene1Name, hoverGene1Values, hoverGene2Name, hoverGene2Values, drag]
+    [bounds, x, y, spotSizeScale, colorMode, hoverAnnotationName, hoverAnnotationValues, hoverGeneName, hoverGeneValues, hoverGene1Name, hoverGene1Values, hoverGene2Name, hoverGene2Values, hoverMultigeneNames, hoverMultigeneValues, drag]
   );
 
   const onMouseUp = useCallback(() => {

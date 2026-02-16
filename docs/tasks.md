@@ -51,6 +51,7 @@
 - [x] **v0.2 查看器**：Embedding 切换（Spatial/UMAP），UMAP 下隐藏背景图；favicon 与侧栏 logo；spot 悬停 tooltip（Spot # + annotation/gene）；Annotation legend（按数量排序、显示 spot count）；画布工具栏 − / + / Reset；缩放以光标为中心；未选 annotation/gene 时全点灰色显示；切换数据集时主区域 Loading overlay；响应式全屏无滚动条；percentile 直方图法避免爆栈；Safari/Firefox 性能优化（rAF 节流、DPR 上限、Firefox LOD）；文档与 CHANGELOG 更新至 v0.2。
 - [x] **v0.2.3**：Co-expression 模式（双基因、四角调色板、log scale）；Layer 选项（X + adata.layers）；Token 认证（--token，默认 zhaoslab）；启动时打印带 token 的 Access URL；host `::` 支持与 IPv6 Access 行；docs/deployment.md（systemd、Nginx）；README/CHANGELOG 更新。
 - [x] **v0.2.4**：seurat2h5ad 子命令（Seurat RDS → h5ad，Visium 风格组织图）；子路径部署、加载进度、无空间/UMAP 提示、preprocess 输出与 dataset 路径等修复；RULES/CHANGELOG 经验与版本文档更新。
+- [x] **Preprocess + CellTypist**：自动细胞类型注释（obs['auto_cell_type']）、物种推断（人/鼠）、模型路由与 majority_voting；可选 obs['auto_cell_type_coarse']；依赖 celltypist（PyPI）；RULES §4.2/§4.3、CHANGELOG、README 已更新。
 - [x] **visium2h5ad**：子命令 `spatialxgene visium2h5ad -i path_to_visium -o h5ad_file`；使用 scanpy.read_visium；支持 --count-file、--no-images；自动 var_names_make_unique，抑制 anndata 重复名警告。
 - [x] **seurat2h5ad**：子命令 `spatialxgene seurat2h5ad <file.rds|file.rds.gz> [-o out.h5ad]`；R 脚本（Seurat + Matrix）导出 matrix/obs/空间坐标/组织图，Python 构建 AnnData，按 Visium 风格写 `uns['spatial']`（hires/lowres、scale 1.0 与 spot 对齐）；`pixi run test` 在存在 `tests/P2N_Spatial.rds.gz` 时执行 seurat2h5ad；经验见 RULES.md §4.3。
 - [x] **Preprocess 输出**：preprocess 写盘使用 `run_preprocess` 返回值，输出含 leiden/louvain 与 counts layer（标准化前保存）；RULES 与 CHANGELOG 记录经验。
@@ -59,6 +60,11 @@
 - [x] **Layers 命名**：统一使用 `layers['counts']`（替代 raw_counts），与常见约定一致；代码与文档已更新。
 - [x] **Sidebar Loading**：加载数据集时不再在 Dataset 上方显示「Loading…」，仅主区域显示进度条/占位。
 - [x] **含多个点的 h5ad 路径**：`_get_dataset_path` 改为按 id 拼接 `.h5ad` 而非 `with_suffix`，支持如 `sample_v1.3.h5ad` 等文件名。
+- [x] **超分辨相关代码移除**：BayesSpace（R 脚本 + 后端/前端）、TESLA（Python 脚本 + /tesla API + 前端）、H&E CPU 超分辨（`/super_resolution`）全部删除。脚本 `run_bayesspace.R`、`run_tesla.py` 已删除。
+- [x] **Multi-gene 无表达 spot**：总表达为 0 的 spot 不再绘制点，仅绘制有表达的 spot。
+- [x] **Multi-gene Pie 布局**：圆形 spot 下按各基因表达比例画扇形（pie chart），多基因共现一目了然。
+- [x] **Multi-gene Grid 布局**：方形 spot 下在正多边形中心排布等大小小方块，clip 在 spot 内；仅画 proportion≥5% 的基因；像素尺寸统一（LED 式），按表达量排序排布。
+- [x] **Multi-gene Color range 与 Log scale**：与 Gene 模式一致，支持 pmin/pmax（如 p1–p99）与 Log scale；每基因 vmin/vmax 由 percentile 或原始范围计算，Sidebar 展示与 SpatialPlot 使用同一套解析逻辑。
 
 ---
 

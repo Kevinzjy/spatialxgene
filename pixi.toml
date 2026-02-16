@@ -60,7 +60,10 @@ pillow = "==11.3.0"
 louvain = "==0.8.2"
 nodejs = "==25.2.1"
 r-base = "==4.5.2"
-r-seurat = ">=4.4.0"
+r-seurat = "==5.4.0"
+
+[pypi-dependencies]
+celltypist = ">=1.7,<2"
 
 [tasks]
 # Install frontend & spatialxgene package

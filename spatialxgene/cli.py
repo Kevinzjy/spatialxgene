@@ -258,6 +258,9 @@ def _cmd_preprocess(args: argparse.Namespace) -> None:
         resolution=args.resolution,
         save_raw_layer=not getattr(args, "no_raw_layer", False),
         run_cluster=not getattr(args, "no_cluster", False),
+        run_celltypist=not getattr(args, "no_celltypist", False),
+        celltypist_model=getattr(args, "celltypist_model", None),
+        celltypist_min_prop=getattr(args, "celltypist_min_prop", 0.0),
     )
 
     if input_path.is_file():
@@ -437,6 +440,25 @@ def main() -> None:
         "--no-cluster",
         action="store_true",
         help="Skip Leiden/Louvain clustering (avoids high memory from igraph on very large datasets; output still has PCA, UMAP, neighbors)",
+    )
+    preprocess_p.add_argument(
+        "--no-celltypist",
+        action="store_true",
+        help="Skip CellTypist automatic cell type annotation (obs['auto_cell_type'])",
+    )
+    preprocess_p.add_argument(
+        "--celltypist-model",
+        type=str,
+        default=None,
+        metavar="NAME",
+        help="Force CellTypist model (e.g. Immune_All_Low.pkl). By default, tissue is inferred and model is chosen automatically.",
+    )
+    preprocess_p.add_argument(
+        "--celltypist-min-prop",
+        type=float,
+        default=0.0,
+        metavar="FLOAT",
+        help="min_prop for CellTypist majority voting (default 0)",
     )
     preprocess_p.set_defaults(func=_cmd_preprocess)
 

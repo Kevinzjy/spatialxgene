@@ -8,6 +8,7 @@ import logging
 import time
 import warnings
 from pathlib import Path
+from typing import Optional
 
 import anndata as ad
 
@@ -46,11 +47,15 @@ def run_preprocess(
     resolution: float = 1.0,
     save_raw_layer: bool = True,
     run_cluster: bool = True,
+    run_celltypist: bool = True,
+    celltypist_model: Optional[str] = None,
+    celltypist_min_prop: float = 0.0,
 ) -> ad.AnnData:
     """
     Run scanpy-style preprocessing: QC, normalize, log, HVG (mark only), PCA, neighbors,
     UMAP, Leiden. HVG is used only for dimensionality reduction and clustering; the
     returned adata contains all genes that passed QC (X = normalized log counts).
+    All stochastic steps use random_state=42 for reproducibility.
 
     Parameters
     ----------
@@ -75,6 +80,14 @@ def run_preprocess(
     run_cluster
         If True, run Leiden (or Louvain) and add obs['leiden']. Set False to skip clustering and avoid
         high memory use from igraph on very large graphs (e.g. >100k cells).
+    run_celltypist
+        If True, run CellTypist automatic cell type annotation and write obs['auto_cell_type'] (and
+        optionally obs['auto_cell_type_coarse'] for immune-enriched samples). Uses tissue inference
+        and model routing; majority_voting=True over Leiden clusters.
+    celltypist_model
+        If set, force this CellTypist model name (e.g. 'Immune_All_Low.pkl') and skip auto model routing.
+    celltypist_min_prop
+        min_prop for CellTypist majority voting (default 0).
 
     Returns
     -------
@@ -153,19 +166,19 @@ def run_preprocess(
     if n_pcs_use < 1:
         raise ValueError("Not enough cells or genes for PCA after QC.")
 
-    # Run PCA, neighbors, UMAP, Leiden on HVG-only copy
+    # Run PCA, neighbors, UMAP, Leiden on HVG-only copy (random_state=42 for reproducibility)
     adata_hvg = adata[:, adata.var["highly_variable"]].copy()
     t0 = time.perf_counter()
-    sc_tl.pca(adata_hvg, n_comps=n_pcs_use, svd_solver="arpack")
+    sc_tl.pca(adata_hvg, n_comps=n_pcs_use, svd_solver="arpack", random_state=42)
     logger.info("PCA done n_comps=%s (%.1fs)", n_pcs_use, time.perf_counter() - t0)
 
     n_pcs_neighbors = min(30, adata_hvg.obsm["X_pca"].shape[1])
     t0 = time.perf_counter()
-    sc_pp.neighbors(adata_hvg, n_neighbors=n_neighbors, n_pcs=n_pcs_neighbors)
+    sc_pp.neighbors(adata_hvg, n_neighbors=n_neighbors, n_pcs=n_pcs_neighbors, random_state=42)
     logger.info("neighbors done (%.1fs)", time.perf_counter() - t0)
 
     t0 = time.perf_counter()
-    sc_tl.umap(adata_hvg)
+    sc_tl.umap(adata_hvg, random_state=42)
     logger.info("UMAP done (%.1fs)", time.perf_counter() - t0)
 
     if run_cluster:
@@ -178,17 +191,18 @@ def run_preprocess(
                 flavor="igraph",
                 n_iterations=2,
                 directed=False,
+                random_state=42,
             )
             logger.info("Leiden (igraph) done (%.1fs)", time.perf_counter() - t0)
         except (ImportError, TypeError) as e:
             logger.warning("Leiden with flavor=igraph failed (%s), trying Leiden without flavor", e)
             try:
-                sc_tl.leiden(adata_hvg, resolution=resolution)
+                sc_tl.leiden(adata_hvg, resolution=resolution, random_state=42)
                 logger.info("Leiden (default) done (%.1fs)", time.perf_counter() - t0)
             except (ImportError, TypeError, BaseException) as e2:
                 logger.warning("Leiden without flavor failed (%s), trying Louvain", e2)
                 try:
-                    sc_tl.louvain(adata_hvg, resolution=resolution)
+                    sc_tl.louvain(adata_hvg, resolution=resolution, random_state=42)
                     if "louvain" in adata_hvg.obs.columns:
                         adata_hvg.obs["leiden"] = adata_hvg.obs["louvain"]
                     logger.info("Louvain done (%.1fs)", time.perf_counter() - t0)
@@ -217,6 +231,24 @@ def run_preprocess(
         if "louvain" in adata_hvg.obs.columns:
             adata.obs["louvain"] = adata_hvg.obs["louvain"]
     logger.info("copy dimred/cluster back to full adata done (leiden=%s louvain=%s)", "leiden" in adata.obs.columns, "louvain" in adata.obs.columns)
+
+    if run_celltypist:
+        try:
+            from spatialxgene.celltypist_annotate import run_celltypist_annotation
+            over_clust = "leiden" if "leiden" in adata.obs.columns else ("louvain" if "louvain" in adata.obs.columns else None)
+            run_celltypist_annotation(
+                adata,
+                majority_voting=True,
+                over_clustering=over_clust,
+                immune_hierarchical=True,
+                min_prop=celltypist_min_prop,
+                force_model=celltypist_model,
+            )
+        except ImportError as e:
+            logger.warning("CellTypist annotation skipped (install celltypist to enable): %s", e)
+        except Exception as e:
+            logger.warning("CellTypist annotation failed: %s", e)
+
     return adata
 
 

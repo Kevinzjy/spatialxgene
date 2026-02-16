@@ -6,8 +6,8 @@
 
 ## 0. 当前状态（简要）
 
-- **已完成**：子路径部署、数据集/表达加载进度、无空间或 UMAP 时的快速提示、Annotation 类别过多/过少时的稳健展示（不弹窗、图例显示 nan 说明）、多级 data-dir 扫描、下拉框显示 .h5ad、UI 文案 Numerical/Categorical 统一；preprocess 输出正确写入 leiden/louvain 与 counts layer；Sidebar 加载数据集时不再在 Dataset 上方显示 Loading；含多个点的 h5ad 文件名可正确解析；preprocess 对有 in_tissue 的数据跳过 spot 过滤、对 adata.raw 写入 layers['counts'] 后清空 raw 避免写盘报错；统一使用 layers['counts'] 命名。**pixi 迁移完成**：依赖与任务均在 pixi.toml，CLI 统一为 `spatialxgene`；测试数据在 `tests/`（Visium 用 `tests/HCC1R.tar`，Seurat 用 `tests/P2N_Spatial.rds.gz`），日常 launch 默认数据目录 `tests/h5ad`；Docker 挂载 `tests/h5ad:/data`。**seurat2h5ad**：Seurat RDS → h5ad，R 脚本导出 matrix/obs/空间坐标/组织图，Python 按 Visium 风格写 `uns['spatial']`（hires/lowres、scale 1.0 对齐）。详见 CHANGELOG [Unreleased]。
-- **待做**：无。
+- **已完成**：子路径部署、数据集/表达加载进度、无空间或 UMAP 时的快速提示、Annotation 类别过多/过少时的稳健展示、多级 data-dir 扫描、下拉框显示 .h5ad、preprocess 输出 leiden/louvain 与 counts layer、含多个点的 h5ad 路径解析、in_tissue 跳过 spot 过滤、adata.raw→layers['counts'] 后清空 raw、**pixi 迁移**、**seurat2h5ad**、**Preprocess + CellTypist**。**Multi-gene**：Pie（圆形 spot 饼图）与 Grid（方形 spot 等大小方块、clip 在 spot 内）两种布局；Color range（pmin/pmax）与 Log scale 与 Gene 模式一致；无表达 spot 不画；Grid 仅画 proportion≥5% 的基因、统一像素尺寸（LED 式）。**超分辨相关已移除**：BayesSpace / TESLA / H&E super_resolution 的脚本与 API/前端已全部删除，后续可单独重构。
+- **待做**：见 [docs/tasks.md](docs/tasks.md)（如 server 缓存、preprocess 日志、前端单测等）。
 
 ---
 
@@ -90,6 +90,15 @@
 - **根因**：<信息缺失/边界条件/环境差异/实现错误/工具链问题等>
 - **最有效的补充信息**：<如果一开始就提供，会更快解决的内容>
 - **下次提问要点**：<可复制的提问模板>
+
+---
+
+#### Preprocess + CellTypist 自动注释（2026-02）
+
+- **问题**：preprocess 需要为 spot 提供自动细胞类型注释，支持不同组织、人/鼠样本，且用 majority_voting 优化结果。
+- **实现**：新增 `spatialxgene/celltypist_annotate.py`：物种推断（基因名 human 全大写 / mouse 首字母大写+小写）→ 一档快速注释推断组织 → 模型路由（免疫/组织表）→ 最终注释 majority_voting + over_clustering=leiden；小鼠使用 Immune_All_* 时对模型做 `Model.convert()` 人→鼠。结果写 `obs['auto_cell_type']`，可选 `obs['auto_cell_type_coarse']`，摘要写 `uns['celltypist_inferred']`。
+- **根因/教训**：① CellTypist 在 majority_voting 下返回的 `predicted_labels` 可能是 DataFrame 或 2D 数组，直接 `pd.Series(labels)` 会触发 ValueError；需先判断类型，取第一列或 ravel 再建 Series。② 类型注解：项目用 Python 3.9，`str | None` 需改为 `Optional[str]`。③ 依赖 celltypist 通过 pixi pypi-dependencies 引入，版本用 `>=1.7,<2`（2.x 尚未发布）。
+- **下次提问要点**：若扩展更多组织/物种，在 `HUMAN_LABEL_KEYWORD_TO_MODEL` / `MOUSE_LABEL_KEYWORD_TO_MODEL` 中增加 keyword→model 映射；新增物种需考虑是否有 CellTypist convert 或独立模型。
 
 ---
 
@@ -182,4 +191,38 @@
   - **R writeBin 与 array**：对 3D array 直接 `writeBin(arr, con)` 时，R 可能只写出少量字节（如仅 8 字节头）。须改为 **`writeBin(as.vector(arr), con)`** 再写像素数据，Python 端按列优先 (F-order) 按 channel 分段 reshape 读回。
   - **空转 h5ad 组织图格式（与 viewer 对齐）**：以「格式正确的」参考 h5ad（如 Control06_processed.h5ad）为准。① 坐标与图像同空间时（Seurat 的 imagecol/imagerow = 图像像素），**`tissue_hires_scalef = 1.0`**，viewer 约定 `image_pixel = data_coord * scale_factor`，故 1.0 才能对齐。② 图像键名用 **`hires`**、**`lowres`**（与 Visium/参考一致）；图像存 **float32 [0,1]**。③ 可选 lowres：从 hires 缩放到 max 400px，`tissue_lowres_scalef = lowres_width / fullres_width`。④ 不要误用 Seurat 自带的 scale.factors 作为 tissue_*_scalef（语义不同，会导致图与 spot 错位）。
   - **测试**：`pixi run test` 在存在 `tests/P2N_Spatial.rds.gz` 时会跑 seurat2h5ad，退出后清理 `tests/P2N_Spatial*.h5ad`。
+
+- **Preprocess + CellTypist 自动注释**
+  - **功能**：preprocess 默认在降维聚类后跑 CellTypist，将预测的细胞类型写入 **`obs['auto_cell_type']`**；免疫富集样本可选写入 **`obs['auto_cell_type_coarse']`**（Immune_All_High 粗分类）。推断结果摘要存 **`uns['celltypist_inferred']`**（含 `species`、`tissue_context`、`suggested_model`、`immune_frac`、`top_labels` 等）。
+  - **物种推断**：根据 `var_names` 基因命名约定自动判断人/鼠：人（全大写字母，如 CD4、CD8A）vs 鼠（首字母大写+小写，如 Cd4、Cd8a）；`unknown` 时按人处理。小鼠使用免疫模型（Immune_All_Low/High）时通过 CellTypist `Model.convert()` 做人→鼠同源转换后再预测。
+  - **模型路由**：先快速一档注释（默认 Immune_All_Low，小鼠则先 convert）得到标签分布 → 推断组织上下文（immune_enriched / tissue_specific / unknown）→ 选定模型（免疫富集用 Immune_All_Low；或按 top labels 选组织模型，人用 HUMAN_LABEL_KEYWORD_TO_MODEL、鼠用 MOUSE_LABEL_KEYWORD_TO_MODEL）。最终注释使用 **majority_voting=True**、**over_clustering='leiden'**（或 louvain）优化结果。
+  - **依赖**：celltypist（PyPI，pixi 的 pypi-dependencies；pyproject.toml 亦声明）。首次运行会从 CellTypist 服务器下载模型（如 Immune_All_Low.pkl）到 `~/.celltypist/data/models`。
+  - **CLI**：`--no-celltypist` 跳过注释；`--celltypist-model NAME` 强制指定模型；`--celltypist-min-prop FLOAT` 设置 majority voting 的 min_prop。
+  - **教训**：① CellTypist 开启 majority_voting 时 `result.predicted_labels` 可能为 DataFrame 或 2D 数组，需统一取第一列再转 Series，否则 pd.Series(labels) 会报 ValueError。② Python 3.9 不支持 `str | None` 类型语法，preprocess 参数需用 `typing.Optional[str]`。③ pixi global install 本地项目需用 `pixi global install --path .` 而非 `pixi global install .`（后者会把 `.` 当包名）。
+
+- **Multi-gene：Pie/Grid 布局与 Color range/Log scale 统一（2026-02）**
+  - **取舍**：多基因从「jitter 点图（Cell2Location 风格）」改为 **Pie**（圆形 spot 饼图）与 **Grid**（方形 spot 等大小方块、正多边形中心排布、clip 在 spot 内），便于解读比例与共定位；无表达 spot 不画。
+  - **与 Gene 模式统一**：Color range（pmin/pmax）与 Log scale 的 UI（Sidebar 两个输入框 + 解析展示）与数据流与 Gene 模式一致：App 状态 `multigeneRangeMinInput` / `multigeneRangeMaxInput` → 传给 SpatialPlot → `parseMultigeneRange` + `percentile` 得到每基因 vmin/vmax，避免两套逻辑分叉。
+  - **Grid 设计**：统一像素大小（`squareSide` 由 maxK 决定，所有 spot 一致，LED 式）；仅绘制 proportion ≥ 5%（`MIN_PROPORTION_GRID`）的基因，减少噪声；按表达量排序排布小方块。
+  - **教训**：若 Sidebar 与 Plot 共用「percentile 解析」逻辑，解析函数参数（如是否 log、用哪一层）要与调用方一致，且依赖数组（如 genes、layer、layout）变化时 useMemo 需包含这些依赖，否则会出现切换基因/布局后范围或绘图未更新的问题。
+
+---
+
+## 5. 开发经验规则总结（快速参考）
+
+以下为 §4 的提炼，新成员或 AI 协作时优先遵守。
+
+| 领域 | 规则 |
+|------|------|
+| **错误处理** | 先最小改动修代码 → 加日志再定位 → 仍不行则输出关键片段与可能原因；解决后把提问模板写入 §4.1。 |
+| **沟通** | 日常用中文；代码与注释用英文。 |
+| **版本号** | 发版时同步改 `spatialxgene/__init__.py`、`pyproject.toml`、`frontend/package.json`（及 package-lock 顶层 version）。 |
+| **前端大数组** | 禁止 `Math.min(...arr)` / `Math.max(...arr)`，用 for 循环或 `utils/percentile`；避免对超大数组 spread/递归。 |
+| **前端交互** | 拖拽/悬停用 rAF 节流；useMemo/useCallback 依赖要完整，否则闭包陈旧。 |
+| **后端路径** | 由 dataset_id 拼 h5ad 路径用 `id + ".h5ad"`，不用 `Path.with_suffix(".h5ad")`（中间带点的文件名会错）。 |
+| **后端 viewable** | 用 h5py 只读结构判断是否有空间/UMAP，避免全量读 adata；返回 200 + `viewable: false`。 |
+| **Preprocess** | 调用方必须用 `run_preprocess` 返回值写盘；counts 在 normalize 之前写入 layers；有 in_tissue 时跳过 min_genes 过滤；写盘前有 raw 则拷到 layers['counts'] 后清空 raw。 |
+| **子路径部署** | 所有资源与 API 落在同一 location；前端用 `API_BASE`；favicon/logo 404 时区分「标签页图标」与「页面内 logo」。 |
+| **文档** | 变更行为后同步 README、CHANGELOG、RULES、docs；发布说明只维护 CHANGELOG。 |
+| **Multi-gene** | 与 Gene 模式共用 Color range（pmin/pmax）/Log scale 的解析与状态流；Grid 布局统一像素、仅画 proportion≥5%；useMemo 依赖含 genes/layout/layer 等，避免切换后范围或图不更新。 |
 

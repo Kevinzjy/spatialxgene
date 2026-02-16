@@ -390,3 +390,73 @@ export function coexpressionToHex(
   const b = Math.round(255 * (w00 * r00[2] + w10 * r10[2] + w01 * r01[2] + w11 * r11[2]));
   return `#${Math.max(0, Math.min(255, r)).toString(16).padStart(2, "0")}${Math.max(0, Math.min(255, g)).toString(16).padStart(2, "0")}${Math.max(0, Math.min(255, b)).toString(16).padStart(2, "0")}`;
 }
+
+// --- Multi-gene dot palettes (black → color, Cell2Location-style) ---
+/** Two-stop palettes: [0] = black, [1] = accent color. Used for per-gene dot color. */
+const MULTIGENE_PALETTE_STOPS: Record<string, [string, string]> = {
+  black_yellow: ["#000000", "#ffff00"],
+  black_purple: ["#000000", "#9d4edd"],
+  black_cyan: ["#000000", "#00d9ff"],
+  black_green: ["#000000", "#00ff88"],
+  black_red: ["#000000", "#ff4444"],
+  black_orange: ["#000000", "#ff8800"],
+  black_blue: ["#000000", "#4488ff"],
+  black_pink: ["#000000", "#ff66aa"],
+};
+
+export const MULTIGENE_PALETTE_IDS = Object.keys(MULTIGENE_PALETTE_STOPS);
+
+/** Short labels (accent only; base is always black). */
+export const MULTIGENE_PALETTE_LABELS: Record<string, string> = {
+  black_yellow: "Yellow",
+  black_purple: "Purple",
+  black_cyan: "Cyan",
+  black_green: "Green",
+  black_red: "Red",
+  black_orange: "Orange",
+  black_blue: "Blue",
+  black_pink: "Pink",
+};
+
+/** Accent (high) color hex for each palette, for UI swatches. */
+export const MULTIGENE_PALETTE_ACCENT: Record<string, string> = {
+  black_yellow: "#ffff00",
+  black_purple: "#9d4edd",
+  black_cyan: "#00d9ff",
+  black_green: "#00ff88",
+  black_red: "#ff4444",
+  black_orange: "#ff8800",
+  black_blue: "#4488ff",
+  black_pink: "#ff66aa",
+};
+
+/**
+ * Map value in [vmin, vmax] to hex for multi-gene dot color (black at low, accent at high).
+ * Used when drawing jittered dots inside each spot.
+ */
+export function multigeneValueToHex(
+  value: number,
+  vmin: number,
+  vmax: number,
+  paletteId: string,
+  logScale = false
+): string {
+  const [lowHex, highHex] = MULTIGENE_PALETTE_STOPS[paletteId] ?? MULTIGENE_PALETTE_STOPS.black_yellow;
+  if (vmax <= vmin || !Number.isFinite(value)) {
+    return lowHex;
+  }
+  const raw = logScale ? Math.log1p(Math.max(0, value)) : value;
+  const vminL = logScale ? Math.log1p(Math.max(0, vmin)) : vmin;
+  const vmaxL = logScale ? Math.log1p(Math.max(0, vmax)) : vmax;
+  const range = vmaxL - vminL || 1;
+  const t = Math.max(0, Math.min(1, (raw - vminL) / range));
+  const [r0, g0, b0] = hexToRgb(lowHex);
+  const [r1, g1, b1] = hexToRgb(highHex);
+  const r = (r0 + (r1 - r0) * t) * 255;
+  const g = (g0 + (g1 - g0) * t) * 255;
+  const b = (b0 + (b1 - b0) * t) * 255;
+  const rr = Math.max(0, Math.min(255, Math.round(r)));
+  const gg = Math.max(0, Math.min(255, Math.round(g)));
+  const bb = Math.max(0, Math.min(255, Math.round(b)));
+  return `#${rr.toString(16).padStart(2, "0")}${gg.toString(16).padStart(2, "0")}${bb.toString(16).padStart(2, "0")}`;
+}

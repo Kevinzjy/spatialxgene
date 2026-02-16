@@ -9,11 +9,16 @@ import {
   getPaletteGradientCss,
   getCategoricalPaletteGradientCss,
   type CoexpressionPalette,
+  MULTIGENE_PALETTE_IDS,
+  MULTIGENE_PALETTE_LABELS,
+  MULTIGENE_PALETTE_ACCENT,
   ANNOTATION_MAX_CATEGORIES,
   ANNOTATION_MIN_CATEGORIES,
   LABEL_NAN_TOO_MANY,
   LABEL_NAN_TOO_FEW,
 } from "../colorScale";
+
+export type MultigeneGeneEntry = { gene: string; paletteId: string };
 
 function formatExpr(v: number): string {
   if (!Number.isFinite(v)) return "—";
@@ -44,7 +49,7 @@ type SidebarProps = {
   meta: DatasetMeta | null;
   genes: string[];
   obs: ObsResponse | null;
-  colorMode: "gene" | "annotation" | "coexpression";
+  colorMode: "gene" | "annotation" | "coexpression" | "multigene";
   selectedGene: string | null;
   selectedGene1: string | null;
   selectedGene2: string | null;
@@ -53,12 +58,27 @@ type SidebarProps = {
   onColorByGene: (gene: string | null) => void;
   onColorByAnnotation: (col: string | null) => void;
   onColorByCoexpression: (gene1: string | null, gene2: string | null) => void;
-  onColorModeChange: (mode: "gene" | "annotation" | "coexpression") => void;
+  onColorModeChange: (mode: "gene" | "annotation" | "coexpression" | "multigene") => void;
   coexpressionPalette: CoexpressionPalette;
   onCoexpressionPaletteChange: (palette: CoexpressionPalette) => void;
   coexpressionLogScale: boolean;
   onCoexpressionLogScaleChange: (v: boolean) => void;
-  /** Expression layer: "X" for adata.X, or a key from adata.layers (gene / co-expression mode). */
+  /** Multi-gene mode: list of { gene, paletteId }. Max 6 genes. */
+  selectedMultigeneGenes: MultigeneGeneEntry[];
+  onMultigeneGenesChange: (entries: MultigeneGeneEntry[]) => void;
+  multigeneLogScale: boolean;
+  onMultigeneLogScaleChange: (v: boolean) => void;
+  /** Multi-gene layout: pie (round spot) or grid (square spot). */
+  multigeneLayout: "pie" | "grid";
+  onMultigeneLayoutChange: (layout: "pie" | "grid") => void;
+  /** Multi-gene color range inputs (e.g. p0, p100) and effective values for display. */
+  multigeneRangeMinInput: string;
+  multigeneRangeMaxInput: string;
+  onMultigeneRangeMinInputChange: (s: string) => void;
+  onMultigeneRangeMaxInputChange: (s: string) => void;
+  effectiveMultigeneColorMin: number | null;
+  effectiveMultigeneColorMax: number | null;
+  /** Expression layer: "X" for adata.X, or a key from adata.layers (gene / co-expression / multi-gene mode). */
   selectedLayer: string;
   onLayerChange: (layer: string) => void;
   /** Spot size scale 0.2–1.2 (default 0.8 = 80% of defined size) */
@@ -121,6 +141,18 @@ export function Sidebar({
   onCoexpressionPaletteChange,
   coexpressionLogScale,
   onCoexpressionLogScaleChange,
+  selectedMultigeneGenes,
+  onMultigeneGenesChange,
+  multigeneLogScale,
+  onMultigeneLogScaleChange,
+  multigeneLayout,
+  onMultigeneLayoutChange,
+  multigeneRangeMinInput,
+  multigeneRangeMaxInput,
+  onMultigeneRangeMinInputChange,
+  onMultigeneRangeMaxInputChange,
+  effectiveMultigeneColorMin,
+  effectiveMultigeneColorMax,
   selectedLayer,
   onLayerChange,
   spotSizeScale,
@@ -153,6 +185,7 @@ export function Sidebar({
   const [geneSearch, setGeneSearch] = useState("");
   const [geneSearch1, setGeneSearch1] = useState("");
   const [geneSearch2, setGeneSearch2] = useState("");
+  const [geneSearchMultigene, setGeneSearchMultigene] = useState("");
   const filteredGenes = useMemo(() => {
     if (!geneSearch.trim()) return genes.slice(0, 200);
     const q = geneSearch.toLowerCase();
@@ -168,6 +201,14 @@ export function Sidebar({
     const q = geneSearch2.toLowerCase();
     return genes.filter((g) => g.toLowerCase().includes(q)).slice(0, 200);
   }, [genes, geneSearch2]);
+  const filteredGenesMultigene = useMemo(() => {
+    if (!geneSearchMultigene.trim()) return genes.slice(0, 150);
+    const q = geneSearchMultigene.toLowerCase();
+    return genes.filter((g) => g.toLowerCase().includes(q)).slice(0, 150);
+  }, [genes, geneSearchMultigene]);
+  const MULTIGENE_MAX_GENES = 6;
+  const defaultPaletteForIndex = (idx: number) =>
+    MULTIGENE_PALETTE_IDS[idx % MULTIGENE_PALETTE_IDS.length];
 
   // Prefer known cluster columns (leiden, louvain) at the top so they are easy to find
   const CLUSTER_COLS_FIRST = ["leiden", "louvain"];
@@ -272,7 +313,9 @@ export function Sidebar({
 
   const [collapsed, setCollapsed] = useState(false);
   const [paletteDropdownOpen, setPaletteDropdownOpen] = useState(false);
+  const [multigenePaletteOpenIdx, setMultigenePaletteOpenIdx] = useState<number | null>(null);
   const paletteDropdownRef = useRef<HTMLDivElement>(null);
+  const multigenePaletteDropdownRef = useRef<HTMLDivElement | null>(null);
   const closePaletteDropdown = useCallback(() => setPaletteDropdownOpen(false), []);
   useEffect(() => {
     if (!paletteDropdownOpen) return;
@@ -283,6 +326,15 @@ export function Sidebar({
     document.addEventListener("mousedown", handle);
     return () => document.removeEventListener("mousedown", handle);
   }, [paletteDropdownOpen, closePaletteDropdown]);
+  useEffect(() => {
+    if (multigenePaletteOpenIdx === null) return;
+    const handle = (e: MouseEvent) => {
+      if (multigenePaletteDropdownRef.current?.contains(e.target as Node)) return;
+      setMultigenePaletteOpenIdx(null);
+    };
+    document.addEventListener("mousedown", handle);
+    return () => document.removeEventListener("mousedown", handle);
+  }, [multigenePaletteOpenIdx]);
 
   const SIDEBAR_WIDTH = 280;
   const SIDEBAR_COLLAPSED_WIDTH = 48;
@@ -567,9 +619,24 @@ export function Sidebar({
               >
                 Co-expression
               </button>
+              <button
+                type="button"
+                onClick={() => onColorModeChange("multigene")}
+                style={{
+                  padding: "6px 10px",
+                  borderRadius: 6,
+                  border: "1px solid #0f3460",
+                  background: colorMode === "multigene" ? "#e94560" : "#1a1a2e",
+                  color: "#eee",
+                  fontSize: 12,
+                  cursor: "pointer",
+                }}
+              >
+                Multi-gene
+              </button>
             </div>
 
-            {(colorMode === "gene" || colorMode === "coexpression") && (
+            {(colorMode === "gene" || colorMode === "coexpression" || colorMode === "multigene") && (
               <>
                 <label style={{ fontSize: 12, fontWeight: 600, color: "#a0a0a0" }}>Layer</label>
                 <select
@@ -874,6 +941,272 @@ export function Sidebar({
               </>
             )}
 
+            {colorMode === "multigene" && (
+              <>
+                <label style={{ fontSize: 12, fontWeight: 600, color: "#a0a0a0" }}>
+                  Genes (dots per spot by expression)
+                </label>
+                {selectedMultigeneGenes.map((entry, idx) => (
+                  <div
+                    key={`${entry.gene}-${idx}`}
+                    style={{
+                      display: "grid",
+                      gridTemplateColumns: "1fr 130px 24px",
+                      alignItems: "center",
+                      gap: 6,
+                      marginBottom: 6,
+                      padding: "6px 8px",
+                      background: "#0f3460",
+                      borderRadius: 6,
+                    }}
+                  >
+                    <span style={{ minWidth: 0, fontSize: 12, color: "#eee", overflow: "hidden", textOverflow: "ellipsis" }}>
+                      {entry.gene}
+                    </span>
+                    <div
+                      ref={multigenePaletteOpenIdx === idx ? multigenePaletteDropdownRef : undefined}
+                      style={{ position: "relative", minWidth: 0 }}
+                    >
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setMultigenePaletteOpenIdx((prev) => (prev === idx ? null : idx))
+                        }
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 6,
+                          width: "100%",
+                          padding: "4px 6px",
+                          borderRadius: 4,
+                          border: "1px solid #0f3460",
+                          background: "#1a1a2e",
+                          color: "#eee",
+                          fontSize: 11,
+                          cursor: "pointer",
+                          textAlign: "left",
+                        }}
+                      >
+                        <span
+                          style={{
+                            width: 16,
+                            height: 16,
+                            borderRadius: 3,
+                            background: MULTIGENE_PALETTE_ACCENT[entry.paletteId] ?? "#888",
+                            border: "1px solid #555",
+                            flexShrink: 0,
+                          }}
+                        />
+                        <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>
+                          {MULTIGENE_PALETTE_LABELS[entry.paletteId] ?? entry.paletteId}
+                        </span>
+                      </button>
+                      {multigenePaletteOpenIdx === idx && (
+                        <div
+                          style={{
+                            position: "absolute",
+                            top: "100%",
+                            left: 0,
+                            right: 0,
+                            marginTop: 2,
+                            maxHeight: 200,
+                            overflow: "auto",
+                            borderRadius: 4,
+                            border: "1px solid #0f3460",
+                            background: "#1a1a2e",
+                            zIndex: 100,
+                            boxShadow: "0 4px 12px rgba(0,0,0,0.3)",
+                          }}
+                        >
+                          {MULTIGENE_PALETTE_IDS.map((id) => (
+                            <button
+                              key={id}
+                              type="button"
+                              onClick={() => {
+                                const next = [...selectedMultigeneGenes];
+                                next[idx] = { ...next[idx], paletteId: id };
+                                onMultigeneGenesChange(next);
+                                setMultigenePaletteOpenIdx(null);
+                              }}
+                              style={{
+                                display: "flex",
+                                alignItems: "center",
+                                gap: 8,
+                                width: "100%",
+                                padding: "6px 8px",
+                                border: "none",
+                                background: entry.paletteId === id ? "#0f3460" : "transparent",
+                                color: "#eee",
+                                fontSize: 11,
+                                cursor: "pointer",
+                                textAlign: "left",
+                              }}
+                            >
+                              <span
+                                style={{
+                                  width: 16,
+                                  height: 16,
+                                  borderRadius: 3,
+                                  background: MULTIGENE_PALETTE_ACCENT[id] ?? "#888",
+                                  border: "1px solid #555",
+                                  flexShrink: 0,
+                                }}
+                              />
+                              {MULTIGENE_PALETTE_LABELS[id] ?? id}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        onMultigeneGenesChange(selectedMultigeneGenes.filter((_, i) => i !== idx));
+                      }}
+                      title="Remove"
+                      style={{
+                        flexShrink: 0,
+                        width: 24,
+                        height: 24,
+                        padding: 0,
+                        borderRadius: 4,
+                        border: "1px solid #555",
+                        background: "#333",
+                        color: "#ccc",
+                        fontSize: 14,
+                        lineHeight: 1,
+                        cursor: "pointer",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                      }}
+                    >
+                      ×
+                    </button>
+                  </div>
+                ))}
+                {selectedMultigeneGenes.length < MULTIGENE_MAX_GENES && (
+                  <>
+                    <input
+                      type="text"
+                      placeholder="Search gene to add…"
+                      value={geneSearchMultigene}
+                      onChange={(e) => setGeneSearchMultigene(e.target.value)}
+                      style={{
+                        padding: "6px 8px",
+                        borderRadius: 6,
+                        border: "1px solid #0f3460",
+                        background: "#1a1a2e",
+                        color: "#eee",
+                        fontSize: 12,
+                        width: "100%",
+                        boxSizing: "border-box",
+                      }}
+                    />
+                    <div
+                      style={{
+                        maxHeight: 120,
+                        overflow: "auto",
+                        border: "1px solid #0f3460",
+                        borderRadius: 6,
+                        background: "#1a1a2e",
+                      }}
+                    >
+                      {filteredGenesMultigene.map((g) => (
+                        <div
+                          key={g}
+                          onClick={() => {
+                            const already = selectedMultigeneGenes.some((e) => e.gene === g);
+                            if (already) return;
+                            onMultigeneGenesChange([
+                              ...selectedMultigeneGenes,
+                              { gene: g, paletteId: defaultPaletteForIndex(selectedMultigeneGenes.length) },
+                            ]);
+                            setGeneSearchMultigene("");
+                          }}
+                          style={{
+                            padding: "6px 10px",
+                            fontSize: 12,
+                            cursor: "pointer",
+                            background: selectedMultigeneGenes.some((e) => e.gene === g) ? "#333" : "transparent",
+                            color: selectedMultigeneGenes.some((e) => e.gene === g) ? "#888" : "#eee",
+                          }}
+                        >
+                          {g}
+                        </div>
+                      ))}
+                    </div>
+                  </>
+                )}
+                {selectedMultigeneGenes.length > 0 && (
+                  <>
+                    <label style={{ fontSize: 12, fontWeight: 600, color: "#a0a0a0" }}>Color range</label>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "nowrap" }}>
+                      <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 2 }}>
+                        <input
+                          type="text"
+                          placeholder="p0 / number"
+                          value={multigeneRangeMinInput}
+                          onChange={(e) => onMultigeneRangeMinInputChange(e.target.value)}
+                          style={{
+                            width: 64,
+                            padding: "4px 6px",
+                            borderRadius: 4,
+                            border: "1px solid #0f3460",
+                            background: "#1a1a2e",
+                            color: "#eee",
+                            fontSize: 12,
+                          }}
+                        />
+                        <span style={{ fontSize: 10, color: "#666" }}>
+                          {effectiveMultigeneColorMin != null ? formatExpr(effectiveMultigeneColorMin) : "—"}
+                        </span>
+                      </div>
+                      <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 2 }}>
+                        <input
+                          type="text"
+                          placeholder="p100 / number"
+                          value={multigeneRangeMaxInput}
+                          onChange={(e) => onMultigeneRangeMaxInputChange(e.target.value)}
+                          style={{
+                            width: 64,
+                            padding: "4px 6px",
+                            borderRadius: 4,
+                            border: "1px solid #0f3460",
+                            background: "#1a1a2e",
+                            color: "#eee",
+                            fontSize: 12,
+                          }}
+                        />
+                        <span style={{ fontSize: 10, color: "#666" }}>
+                          {effectiveMultigeneColorMax != null ? formatExpr(effectiveMultigeneColorMax) : "—"}
+                        </span>
+                      </div>
+                      <label
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 6,
+                          fontSize: 12,
+                          color: "#ccc",
+                          cursor: "pointer",
+                          whiteSpace: "nowrap",
+                        }}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={multigeneLogScale}
+                          onChange={(e) => onMultigeneLogScaleChange(e.target.checked)}
+                          style={{ cursor: "pointer" }}
+                        />
+                        Log scale
+                      </label>
+                    </div>
+                  </>
+                )}
+              </>
+            )}
+
             {(colorMode === "gene" || (colorMode === "annotation" && selectedObsCol)) && (
               <>
                 <label style={{ fontSize: 12, fontWeight: 600, color: "#a0a0a0" }}>Color palette</label>
@@ -1151,6 +1484,33 @@ export function Sidebar({
               </>
             )}
 
+            {colorMode === "multigene" && (
+              <>
+                <label style={{ fontSize: 12, fontWeight: 600, color: "#a0a0a0" }}>Layout</label>
+                <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                  <label style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 12, color: "#a0a0a0", cursor: "pointer" }}>
+                    <input
+                      type="radio"
+                      name="multigeneLayout"
+                      checked={multigeneLayout === "pie"}
+                      onChange={() => onMultigeneLayoutChange("pie")}
+                      style={{ accentColor: "#e94560" }}
+                    />
+                    <span>Pie (round)</span>
+                  </label>
+                  <label style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 12, color: "#a0a0a0", cursor: "pointer" }}>
+                    <input
+                      type="radio"
+                      name="multigeneLayout"
+                      checked={multigeneLayout === "grid"}
+                      onChange={() => onMultigeneLayoutChange("grid")}
+                      style={{ accentColor: "#e94560" }}
+                    />
+                    <span>Grid (square)</span>
+                  </label>
+                </div>
+              </>
+            )}
             <label style={{ fontSize: 12, fontWeight: 600, color: "#a0a0a0" }}>Spot size</label>
             <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
               <input

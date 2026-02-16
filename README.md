@@ -32,7 +32,7 @@ Then `spatialxgene` is exposed to your `$PATH` (ensure `~/.pixi/bin` is on PATH)
 | `spatialxgene launch` | Start the browser viewer; serve preprocessed h5ad from a directory. |
 | `spatialxgene visium2h5ad <dir>` | Convert Visium Space Ranger output directory to a single h5ad file (default output: dir.h5ad). |
 | `spatialxgene seurat2h5ad <file>` | Convert Seurat spatial RDS (.rds or .rds.gz) to a single h5ad file. Requires R with Seurat (pixi env includes r-seurat). |
-| `spatialxgene preprocess <file or dir>` | Expression pipeline: QC, normalize, HVG, PCA, UMAP, Leiden. Input: single .h5ad file or directory of .h5ad. Does not change spatial. |
+| `spatialxgene preprocess <file or dir>` | Expression pipeline: QC, normalize, HVG, PCA, UMAP, Leiden; optional CellTypist auto cell-type annotation (`obs['auto_cell_type']`). Input: single .h5ad or directory. Does not change spatial. Use `--no-celltypist` to skip annotation. |
 
 ## Quick start
 
@@ -44,7 +44,7 @@ Then `spatialxgene` is exposed to your `$PATH` (ensure `~/.pixi/bin` is on PATH)
    ```
    Default data dir is `./tests/h5ad`. Put preprocessed h5ad there, or override with `--data-dir`.
 
-   Opens http://127.0.0.1:5005 by default (use `--host` and `--port` to change). Use the sidebar to pick a dataset (h5ad files are discovered in the data directory and all subdirectories; the dropdown shows paths including `.h5ad`; filenames with dots, e.g. `sample_v1.3.h5ad`, are supported); color by **Annotation**, **Gene**, or **Co-expression** (two genes, 2D palette); choose a **Layer** (X or adata.layers) when coloring by gene; choose a tissue background image (if present); zoom/pan the plot. Optional `--token` (default `zhaoslab`) enables simple auth — open the app with `?token=zhaoslab` in the URL once. Use `--token ""` to disable. When behind nginx at a subpath (e.g. `/spatialxgene/`), use `--api-base spatialxgene` so assets and API use that path.
+   Opens http://127.0.0.1:5005 by default (use `--host` and `--port` to change). Use the sidebar to pick a dataset (h5ad files are discovered in the data directory and all subdirectories; the dropdown shows paths including `.h5ad`; filenames with dots, e.g. `sample_v1.3.h5ad`, are supported); color by **Annotation**, **Gene**, **Co-expression** (two genes, 2D palette), or **Multi-gene** (multiple genes per spot: **Pie** layout for round spots or **Grid** layout with equal-sized square pixels, Color range pmin/pmax and Log scale like Gene mode); choose a **Layer** (X or adata.layers) when coloring by gene; choose a tissue background image (if present); zoom/pan the plot. Optional `--token` (default `zhaoslab`) enables simple auth — open the app with `?token=zhaoslab` in the URL once. Use `--token ""` to disable. When behind nginx at a subpath (e.g. `/spatialxgene/`), use `--api-base spatialxgene` so assets and API use that path.
 
 2. **Convert Visium to h5ad** (Space Ranger output → single h5ad)
 
@@ -64,14 +64,15 @@ Then `spatialxgene` is exposed to your `$PATH` (ensure `~/.pixi/bin` is on PATH)
 
    Input is a Seurat spatial object saved as `.rds` or `.rds.gz`. Output defaults to the input stem with `.h5ad` (e.g. `P2N_Spatial.rds.gz` → `P2N_Spatial.h5ad`). Requires R with Seurat (use `pixi run install` so the pixi env has `r-seurat`). Use the output with `launch` or run **preprocess** next.
 
-4. **Preprocess expression** (QC, normalize, reduce, cluster)
+4. **Preprocess expression** (QC, normalize, reduce, cluster, optional CellTypist annotation)
 
    ```bash
    spatialxgene preprocess raw.h5ad
    spatialxgene preprocess raw.h5ad -o custom.h5ad
+   spatialxgene preprocess raw.h5ad --no-celltypist    # skip auto cell-type annotation
    ```
 
-   Follows scanpy tutorial: QC, normalize_total, log1p, HVG (used only for PCA/UMAP/Leiden); output keeps **all genes** that passed QC. Writes **leiden** (and **louvain** when used) to `obs`, and **counts** to `adata.layers` before normalization so you can color by raw counts in the viewer. When `obs['in_tissue']` exists (e.g. Visium), spot filtering by gene count is skipped so on-tissue spots are kept; when the input has `adata.raw`, it is copied into `layers['counts']` when possible before writing. Default output: same dir with `*_processed.h5ad` (e.g. `a/b/c.h5ad` → `a/b/c_processed.h5ad`) or `input/preprocessed/` for a directory.
+   Follows scanpy tutorial: QC, normalize_total, log1p, HVG (used only for PCA/UMAP/Leiden); output keeps **all genes** that passed QC. Writes **leiden** (and **louvain** when used) to `obs`, and **counts** to `adata.layers` before normalization. When **CellTypist** is enabled (default), species (human/mouse) is inferred from gene symbols and cell types are predicted with model routing and majority voting; results go to **`obs['auto_cell_type']`** (and optionally **`obs['auto_cell_type_coarse']`** for immune-enriched samples). Use `--no-celltypist` to skip annotation; `--celltypist-model NAME` to force a model. When `obs['in_tissue']` exists (e.g. Visium), spot filtering by gene count is skipped; when the input has `adata.raw`, it is copied into `layers['counts']` when possible before writing. Default output: same dir with `*_processed.h5ad` or `input/preprocessed/` for a directory.
 
 ## Data format (viewer)
 
@@ -79,8 +80,8 @@ Preprocessed h5ad for `launch` should have:
 
 - **Spatial**: `obsm['spatial']` or `obs['x']` and `obs['y']`.
 - **Expression**: `X`, `var` index = gene names.
-- **Annotations** (optional): e.g. `obs['leiden']`, `obs['louvain']` for coloring (written by `preprocess`).
+- **Annotations** (optional): e.g. `obs['leiden']`, `obs['louvain']`, `obs['auto_cell_type']` for coloring (written by `preprocess`; `auto_cell_type` from CellTypist when not disabled).
 - **Tissue images** (optional): Visium-style `uns['spatial'][sample]['images']` (e.g. `hires`, `lowres`) and `scalefactors`.
-- **Layers** (optional): For gene/co-expression coloring, `adata.layers` (e.g. `counts` before normalization, logcounts) are listed; default is `X`. The `preprocess` command saves `counts` before normalizing so you can switch between raw and normalized in the viewer.
+- **Layers** (optional): For gene/co-expression/multi-gene coloring, `adata.layers` (e.g. `counts` before normalization, logcounts) are listed; default is `X`. The `preprocess` command saves `counts` before normalizing so you can switch between raw and normalized in the viewer.
 
 For all options: `spatialxgene launch --help`, `spatialxgene visium2h5ad --help`, `spatialxgene seurat2h5ad --help`, `spatialxgene preprocess --help`. To run as a long-lived service on Linux, see [docs/deployment.md](docs/deployment.md).

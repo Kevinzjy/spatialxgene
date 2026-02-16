@@ -6,7 +6,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
-(No changes yet.)
+### Added
+
+- **Multi-gene visualization**: **Multi-gene** color mode in the viewer. Each gene uses a black→accent palette. Pie layout (round spots) or Grid layout (square spots, proportion ≥ 5%, unified pixel size). Layer (X or adata.layers) applies. **Color range** (pmin/pmax) and **Log scale** like Gene mode. Hover shows per-gene values.
+- **Preprocess + CellTypist automatic cell type annotation**: After QC, normalize, dimred, and clustering, preprocess optionally runs CellTypist to assign spot/cell types. Results are written to **`obs['auto_cell_type']`**; immune-enriched samples can get **`obs['auto_cell_type_coarse']`** from Immune_All_High. Inference summary (species, tissue context, model used) is stored in **`uns['celltypist_inferred']`**.
+  - **Species inference**: Human vs mouse is inferred from gene symbols (human: all-caps e.g. CD4; mouse: title-case e.g. Cd4). For mouse, immune models (Immune_All_Low/High) are converted to mouse via CellTypist ortholog mapping before prediction.
+  - **Model routing**: A quick first-pass annotation is used to infer tissue context (immune_enriched / tissue_specific / unknown) and to choose the final model (default Immune_All_Low, or a tissue-specific model when top labels match known keywords). Human and mouse each have a keyword→model map (e.g. Healthy_Human_Liver vs Healthy_Mouse_Liver, Adult_Mouse_Gut).
+  - **Majority voting**: Annotation runs with `majority_voting=True` and `over_clustering='leiden'` (or louvain) to refine labels.
+  - **CLI**: `--no-celltypist` to skip; `--celltypist-model NAME` to force a model; `--celltypist-min-prop FLOAT` for majority-voting min_prop.
+  - **Dependency**: celltypist (PyPI, >=1.7,<2) added to pixi.toml [pypi-dependencies] and pyproject.toml. Models are downloaded on first use to `~/.celltypist/data/models`.
+
+### Removed
+
+- **Super-resolution code**: All super-resolution–related code removed for future refactor: BayesSpace, TESLA, H&E CPU endpoint. Scripts removed: `run_bayesspace.R`, `run_tesla.py`.
+
+### Changed
+
+- **Multi-gene**: Replaced jitter-dots with **Pie** (sectors by proportion) and **Grid** (equal-sized squares on regular polygon, clip inside spot). Spots with zero total expression are skipped. Color range (pmin/pmax) and Log scale aligned with Gene mode.
 
 ## [0.2.4] - 2026-02-14
 
