@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { getCategoricalColors, continuousToRgb, multigeneValueToHex } from "../colorScale";
+import { getCategoricalColors, continuousToRgb, multigeneValueToHex, getPaletteGradientCss, getMultigenePaletteGradientCss } from "../colorScale";
 import { percentile } from "../utils/percentile";
 
 export type ColorMode = "categorical" | "continuous" | "coexpression" | "multigene" | "none";
@@ -38,11 +38,9 @@ function formatExpr(v: number): string {
 }
 
 /**
- * Grid-based spacing: n points in [xMin..xMax] x [yMin..yMax].
- * If points form a regular grid, cell area = (dataW*dataH)/n, so step ≈ sqrt(area/n).
- * Use this so point radius matches spatial layout (no sampling bias).
+ * Fallback spacing from bounding box (used when we can't compute nearest-neighbor).
  */
-function gridSpacing(
+function gridSpacingFallback(
   bounds: { xMin: number; xMax: number; yMin: number; yMax: number },
   n: number
 ): number {
@@ -53,12 +51,79 @@ function gridSpacing(
   return Math.sqrt(area / n);
 }
 
+/**
+ * Estimate nearest-neighbor spacing from actual coordinates so that 100% spot size
+ * (diameter = this spacing) is tangent across different samples/layouts.
+ * Uses a grid to keep lookups O(1) per sample; returns a low percentile of min-distances.
+ */
+function estimateNearestNeighborSpacing(
+  x: number[],
+  y: number[],
+  bounds: { xMin: number; xMax: number; yMin: number; yMax: number },
+  n: number
+): number {
+  const nPts = Math.min(x.length, y.length, n);
+  if (nPts < 2) return gridSpacingFallback(bounds, nPts);
+  const dataW = bounds.xMax - bounds.xMin || 1;
+  const dataH = bounds.yMax - bounds.yMin || 1;
+  const area = dataW * dataH;
+  const fallback = Math.sqrt(area / nPts);
+  const cellSize = Math.max(fallback * 0.5, 1e-6);
+  const nx = Math.max(1, Math.ceil(dataW / cellSize));
+  const ny = Math.max(1, Math.ceil(dataH / cellSize));
+  type Cell = number[];
+  const grid: Cell[] = [];
+  for (let g = 0; g < nx * ny; g++) grid.push([]);
+  const getCell = (xi: number, yi: number) => {
+    const cx = Math.min(nx - 1, Math.max(0, Math.floor((xi - bounds.xMin) / cellSize)));
+    const cy = Math.min(ny - 1, Math.max(0, Math.floor((yi - bounds.yMin) / cellSize)));
+    return cy * nx + cx;
+  };
+  for (let i = 0; i < nPts; i++) {
+    const c = getCell(x[i], y[i]);
+    grid[c].push(i);
+  }
+  const sampleStep = Math.max(1, Math.floor(nPts / 80));
+  const minDistances: number[] = [];
+  for (let i = 0; i < nPts; i += sampleStep) {
+    const xi = x[i];
+    const yi = y[i];
+    const cx = Math.min(nx - 1, Math.max(0, Math.floor((xi - bounds.xMin) / cellSize)));
+    const cy = Math.min(ny - 1, Math.max(0, Math.floor((yi - bounds.yMin) / cellSize)));
+    let minD2 = Infinity;
+    for (let dy = -1; dy <= 1; dy++) {
+      for (let dx = -1; dx <= 1; dx++) {
+        const gx = cx + dx;
+        const gy = cy + dy;
+        if (gx < 0 || gx >= nx || gy < 0 || gy >= ny) continue;
+        const cell = grid[gy * nx + gx];
+        for (let k = 0; k < cell.length; k++) {
+          const j = cell[k];
+          if (i === j) continue;
+          const ddx = x[j] - xi;
+          const ddy = y[j] - yi;
+          const d2 = ddx * ddx + ddy * ddy;
+          if (d2 < minD2) minD2 = d2;
+        }
+      }
+    }
+    if (Number.isFinite(minD2) && minD2 > 0) minDistances.push(Math.sqrt(minD2));
+  }
+  if (minDistances.length === 0) return fallback;
+  minDistances.sort((a, b) => a - b);
+  const p10 = Math.min(minDistances.length - 1, Math.floor(minDistances.length * 0.1));
+  return minDistances[p10] ?? fallback;
+}
+
 /** Per-spot segment for pie or grid: proportion (0..1) and fill color. */
 type MultigeneSegment = { proportion: number; color: string };
 
 /** Built spot data for multi-gene: only spots with sum > 0; segments sorted by proportion desc. */
 type MultigeneSpotData = {
   spots: Array<{ x: number; y: number; sum: number; segments: MultigeneSegment[] }>;
+  /** Per-layer (per-gene) min/max used for color scale (for color bar labels). */
+  vminByLayer: number[];
+  vmaxByLayer: number[];
 };
 
 /** In grid layout, only draw cells for genes with at least this proportion (avoids black pixels for low expression). */
@@ -80,8 +145,8 @@ function parseMultigeneRange(
   return { type: "raw", value: num };
 }
 
-/** Spot size scale relative to default (spacing * 0.42). 1 = current default, 0.8 = 80% (sidebar default). */
-export const SPOT_SIZE_DEFAULT_SCALE = 0.8;
+/** 100% = tangent (circle diameter / square width = nearest-neighbor distance); max 300%. Default 70%. */
+export const SPOT_SIZE_DEFAULT_SCALE = 0.7;
 
 export type SpatialPlotProps = {
   x: number[];
@@ -97,6 +162,8 @@ export type SpatialPlotProps = {
   categoricalPalette?: string;
   /** Reverse categorical palette direction. */
   categoricalPaletteReverse?: boolean;
+  /** When set, use this map for category→color instead of building from colorBy (unified legend across samples). */
+  categoricalMap?: Map<string, string> | null;
   /** Override vmin/vmax for continuous (gene) color scale; e.g. from percentile range. */
   colorMin?: number;
   colorMax?: number;
@@ -138,6 +205,12 @@ export type SpatialPlotProps = {
   /** For hover in multigene mode: per-gene names and value arrays. */
   hoverMultigeneNames?: string[] | null;
   hoverMultigeneValues?: number[][] | null;
+  /** When set and colorMode is continuous, draw a color bar inside the plot with lo/mid/hi (per-sample in multi-dataset). */
+  colorBarStats?: { lo: number; mid: number; hi: number } | null;
+  /** Optional title for color bar (e.g. gene or numeric field name). */
+  colorBarTitle?: string | null;
+  /** When set and colorMode is categorical, draw a legend inside the plot (label, color, spot count). */
+  categoricalLegend?: { label: string; color: string; count?: number }[] | null;
   title?: string;
 };
 
@@ -151,6 +224,7 @@ export function SpatialPlot({
   spotOpacity = 1,
   categoricalPalette,
   categoricalPaletteReverse,
+  categoricalMap: categoricalMapProp,
   colorMin,
   colorMax,
   continuousPalette,
@@ -174,6 +248,9 @@ export function SpatialPlot({
   multigeneRangeMaxInput = "p100",
   hoverMultigeneNames,
   hoverMultigeneValues,
+  colorBarStats,
+  colorBarTitle,
+  categoricalLegend,
   title,
 }: SpatialPlotProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -227,7 +304,8 @@ export function SpatialPlot({
         vmin = dataMin === Infinity ? 0 : dataMin;
         vmax = dataMax <= vmin ? vmin + 1 : dataMax;
       }
-      if (vmax <= vmin) vmax = vmin + 1;
+      if (!Number.isFinite(vmin)) vmin = 0;
+      if (!Number.isFinite(vmax) || vmax <= vmin) vmax = vmin + 1;
       vminByLayer.push(vmin);
       vmaxByLayer.push(vmax);
     }
@@ -236,12 +314,13 @@ export function SpatialPlot({
       let sum = 0;
       const expr: number[] = [];
       for (let g = 0; g < K; g++) {
-        const v = Math.max(0, multigeneLayers[g].values[i] ?? 0);
+        const raw = multigeneLayers[g].values[i];
+        const v = Number.isFinite(raw) ? Math.max(0, raw as number) : 0;
         const e = multigeneLogScale ? Math.log1p(v) : v;
         expr.push(e);
         sum += e;
       }
-      if (sum <= 0) continue;
+      if (!Number.isFinite(sum) || sum <= 0) continue;
       const segments: MultigeneSegment[] = [];
       for (let g = 0; g < K; g++) {
         const proportion = expr[g] / sum;
@@ -257,7 +336,7 @@ export function SpatialPlot({
       segments.sort((a, b) => b.proportion - a.proportion);
       spots.push({ x: x[i], y: y[i], sum, segments });
     }
-    return { spots };
+    return { spots, vminByLayer: vminByLayer, vmaxByLayer: vmaxByLayer };
   }, [colorMode, multigeneLayers, x, y, multigeneLogScale, multigeneRangeMinInput, multigeneRangeMaxInput]);
 
   useEffect(() => {
@@ -298,6 +377,11 @@ export function SpatialPlot({
 
   const n = x.length;
   if (y.length !== n) return null;
+
+  const spacing = React.useMemo(
+    () => estimateNearestNeighborSpacing(x, y, bounds, n),
+    [x, y, bounds, n]
+  );
 
   const draw = useCallback(() => {
     const canvas = canvasRef.current;
@@ -344,17 +428,15 @@ export function SpatialPlot({
       ctx.globalAlpha = prevAlpha;
     }
 
-    const spacing = gridSpacing(bounds, n);
-    // radius = base (0.42 * spacing) * user scale; clamp to avoid invisible or overlapping points.
-    // Use a spacing-relative minimum so that for dense embeddings (e.g. UMAP) the slider still has effect; absolute 0.3 only for sparse/spatial grids.
-    const sizeScale = Math.max(0.15, Math.min(1.5, spotSizeScale));
-    const radiusData = Math.max(spacing * 0.42 * sizeScale, Math.min(0.3, spacing * 0.08));
+    // 100% = tangent: diameter = spacing (radius = spacing/2); scale in [20%, 300%].
+    const sizeScale = Math.max(0.2, Math.min(3, spotSizeScale));
+    const radiusData = (spacing / 2) * sizeScale;
 
     let catMap: Map<string, string> | null = null;
     let vmin = 0,
       vmax = 1;
     if (colorMode === "categorical") {
-      catMap = getCategoricalColors(colorBy as string[], categoricalPalette, !!categoricalPaletteReverse);
+      catMap = categoricalMapProp ?? getCategoricalColors(colorBy as string[], categoricalPalette, !!categoricalPaletteReverse);
     } else if (colorMode === "continuous") {
       let vminRaw: number;
       let vmaxRaw: number;
@@ -528,8 +610,12 @@ export function SpatialPlot({
         [r, g, b] = rgb;
       } else if (colorMode === "continuous") {
         const raw = (colorBy[i] as number) ?? NaN;
-        const v = logScale ? Math.log1p(Math.max(0, raw)) : raw;
-        [r, g, b] = continuousToRgb(v, vmin, vmax, continuousPalette, continuousPaletteReverse);
+        if (!Number.isFinite(raw)) {
+          r = g = b = 136;
+        } else {
+          const v = logScale ? Math.log1p(Math.max(0, raw)) : raw;
+          [r, g, b] = continuousToRgb(v, vmin, vmax, continuousPalette, continuousPaletteReverse);
+        }
       } else if (colorMode === "coexpression") {
         const hex = (colorBy[i] as string) ?? "#888888";
         const m = hex.match(/#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})/i);
@@ -571,6 +657,7 @@ export function SpatialPlot({
     bounds,
     n,
     view,
+    spacing,
     spotSizeScale,
     spotOpacity,
     colorMin,
@@ -579,6 +666,7 @@ export function SpatialPlot({
     continuousPaletteReverse,
     categoricalPalette,
     categoricalPaletteReverse,
+    categoricalMapProp,
     backgroundImage,
     backgroundImageBounds,
     backgroundOpacity,
@@ -701,9 +789,8 @@ export function SpatialPlot({
         const dataX = (mx2 - ox) / s;
         const dataY = (my2 - oy) / s;
         const nPts = x.length;
-        const spacing = gridSpacing(bounds, nPts);
-        const sizeScale = Math.max(0.15, Math.min(1.5, spotSizeScale));
-        const radiusData = Math.max(spacing * 0.42 * sizeScale, Math.min(0.3, spacing * 0.08));
+        const sizeScale = Math.max(0.2, Math.min(3, spotSizeScale));
+        const radiusData = (spacing / 2) * sizeScale;
         const searchRadius2 = (radiusData * 1.5) * (radiusData * 1.5);
         let bestIdx = -1;
         let bestDist2 = searchRadius2;
@@ -743,7 +830,7 @@ export function SpatialPlot({
         setHover({ screenX: mx2 + 10, screenY: my2 + 10, lines });
       });
     },
-    [bounds, x, y, spotSizeScale, colorMode, hoverAnnotationName, hoverAnnotationValues, hoverGeneName, hoverGeneValues, hoverGene1Name, hoverGene1Values, hoverGene2Name, hoverGene2Values, hoverMultigeneNames, hoverMultigeneValues, drag]
+    [bounds, x, y, spacing, spotSizeScale, colorMode, hoverAnnotationName, hoverAnnotationValues, hoverGeneName, hoverGeneValues, hoverGene1Name, hoverGene1Values, hoverGene2Name, hoverGene2Values, hoverMultigeneNames, hoverMultigeneValues, drag]
   );
 
   const onMouseUp = useCallback(() => {
@@ -890,7 +977,7 @@ export function SpatialPlot({
         ref={containerRef}
         style={{
           flex: 1,
-          minHeight: 200,
+          minHeight: 0,
           overflow: "hidden",
           background: "#1a1a2e",
           position: "relative",
@@ -925,6 +1012,158 @@ export function SpatialPlot({
           >
             {hover.lines.map((line, i) => (
               <div key={i}>{line}</div>
+            ))}
+          </div>
+        )}
+        {colorMode === "continuous" && colorBarStats && (
+          <div
+            style={{
+              position: "absolute",
+              right: 10,
+              bottom: 10,
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "flex-end",
+              gap: 4,
+              background: "rgba(26, 26, 46, 0.9)",
+              borderRadius: 4,
+              border: "1px solid #0f3460",
+              padding: "6px 8px",
+              pointerEvents: "none",
+            }}
+          >
+            <div
+              style={{
+                width: "100%",
+                textAlign: "left",
+                fontSize: 10,
+                color: "#ddd",
+                whiteSpace: "nowrap",
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+              }}
+            >
+              {colorBarTitle ?? ""}
+            </div>
+            <div
+              style={{
+                display: "flex",
+                flexDirection: "row",
+                alignItems: "stretch",
+                gap: 6,
+              }}
+            >
+              <div
+                style={{
+                  width: 12,
+                  height: 48,
+                  borderRadius: 2,
+                  // Color bar: top = high, bottom = low; use vertical gradient 'to top'
+                  background: (getPaletteGradientCss(continuousPalette ?? "vlag", !!continuousPaletteReverse) as string).replace(
+                    "to right",
+                    "to top",
+                  ),
+                  border: "1px solid #333",
+                  flexShrink: 0,
+                }}
+              />
+              <div
+                style={{
+                  height: 48,
+                display: "flex",
+                flexDirection: "column",
+                justifyContent: "space-between",
+                fontSize: 9,
+                color: "#aaa",
+                lineHeight: 1.2,
+              }}
+            >
+                <span>{formatExpr(colorBarStats.hi)}</span>
+                <span>{formatExpr(colorBarStats.mid)}</span>
+                <span>{formatExpr(colorBarStats.lo)}</span>
+              </div>
+            </div>
+          </div>
+        )}
+        {colorMode === "categorical" && categoricalLegend && categoricalLegend.length > 0 && (
+          <div
+            style={{
+              position: "absolute",
+              right: 10,
+              bottom: 10,
+              display: "flex",
+              flexWrap: "wrap",
+              flexDirection: "row",
+              gap: "6px 10px",
+              maxWidth: 220,
+              justifyContent: "flex-end",
+              background: "rgba(26, 26, 46, 0.9)",
+              borderRadius: 4,
+              border: "1px solid #0f3460",
+              padding: "4px 6px",
+              pointerEvents: "none",
+              fontSize: 9,
+              color: "#eee",
+              lineHeight: 1.2,
+            }}
+          >
+            {categoricalLegend.map((item) => (
+              <div key={item.label} style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                <span
+                  style={{
+                    width: 8,
+                    height: 8,
+                    borderRadius: 1,
+                    background: item.color,
+                    border: "1px solid #333",
+                    flexShrink: 0,
+                  }}
+                />
+                <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 90 }}>
+                  {item.label}
+                </span>
+                {item.count != null && (
+                  <span style={{ color: "#888", flexShrink: 0 }}>{item.count.toLocaleString()}</span>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+        {colorMode === "multigene" && multigeneSpotData && multigeneLayers && multigeneLayers.length > 0 && (
+          <div
+            style={{
+              position: "absolute",
+              right: 10,
+              bottom: 10,
+              display: "flex",
+              flexDirection: "column",
+              gap: 4,
+              background: "rgba(26, 26, 46, 0.9)",
+              borderRadius: 4,
+              border: "1px solid #0f3460",
+              padding: "4px 6px",
+              pointerEvents: "none",
+              fontSize: 9,
+              color: "#aaa",
+              lineHeight: 1.2,
+            }}
+          >
+            {multigeneLayers.map((layer, g) => (
+              <div key={layer.name} style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                <div
+                  style={{
+                    width: 32,
+                    height: 6,
+                    borderRadius: 1,
+                    background: getMultigenePaletteGradientCss(layer.paletteId),
+                    border: "1px solid #333",
+                    flexShrink: 0,
+                  }}
+                />
+                <span style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: 120 }}>
+                  {layer.name} {formatExpr(multigeneSpotData.vminByLayer[g])}–{formatExpr(multigeneSpotData.vmaxByLayer[g])}
+                </span>
+              </div>
             ))}
           </div>
         )}

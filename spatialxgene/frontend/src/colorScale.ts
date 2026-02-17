@@ -104,6 +104,12 @@ function hexToRgb(hex: string): [number, number, number] {
   return [parseInt(m[1], 16) / 255, parseInt(m[2], 16) / 255, parseInt(m[3], 16) / 255];
 }
 
+/** Convert RGB (0–255) to hex for export/API use. */
+export function rgbToHex(r: number, g: number, b: number): string {
+  const clamp = (x: number) => Math.max(0, Math.min(255, Math.round(x)));
+  return "#" + [r, g, b].map((c) => clamp(c).toString(16).padStart(2, "0")).join("");
+}
+
 function stopsFromHex(positions: number[], hexes: string[]): ColorStop[] {
   return positions.map((p, i) => [p, ...hexToRgb(hexes[i])]);
 }
@@ -459,4 +465,10 @@ export function multigeneValueToHex(
   const gg = Math.max(0, Math.min(255, Math.round(g)));
   const bb = Math.max(0, Math.min(255, Math.round(b)));
   return `#${rr.toString(16).padStart(2, "0")}${gg.toString(16).padStart(2, "0")}${bb.toString(16).padStart(2, "0")}`;
+}
+
+/** CSS linear gradient for multi-gene color bar (horizontal: low → high). */
+export function getMultigenePaletteGradientCss(paletteId: string): string {
+  const [low, high] = MULTIGENE_PALETTE_STOPS[paletteId] ?? MULTIGENE_PALETTE_STOPS.black_yellow;
+  return `linear-gradient(to right, ${low}, ${high})`;
 }

@@ -1,7 +1,7 @@
 {
   "name": "spatialxgene-frontend",
   "private": true,
-  "version": "0.2.4",
+  "version": "0.2.5",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -10,6 +10,8 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "html2canvas": "^1.4.1",
+    "jspdf": "^4.1.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0"
   },

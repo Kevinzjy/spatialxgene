@@ -44,11 +44,18 @@ function formatExpr(v: number): string {
 
 type SidebarProps = {
   datasets: DatasetItem[];
-  selectedDatasetId: string | null;
-  onSelectDataset: (id: string | null) => void;
+  /** One or more selected dataset ids (for single or multi-dataset comparison). */
+  selectedDatasetIds: string[];
+  onSelectDatasets: (ids: string[]) => void;
+  /** Called when user reorders the selected dataset list (drag-and-drop). */
+  onReorderDatasets?: (ids: string[]) => void;
   meta: DatasetMeta | null;
   genes: string[];
   obs: ObsResponse | null;
+  /** Union of obs columns from all selected datasets (when multi-dataset). When set, used for annotation dropdown instead of obs.columns. */
+  obsColumns?: string[] | null;
+  /** When set, annotation legend uses these entries (e.g. global counts across samples). */
+  annotationLegendEntries?: { label: string; count: number; color: string }[] | null;
   colorMode: "gene" | "annotation" | "coexpression" | "multigene";
   selectedGene: string | null;
   selectedGene1: string | null;
@@ -81,7 +88,7 @@ type SidebarProps = {
   /** Expression layer: "X" for adata.X, or a key from adata.layers (gene / co-expression / multi-gene mode). */
   selectedLayer: string;
   onLayerChange: (layer: string) => void;
-  /** Spot size scale 0.2–1.2 (default 0.8 = 80% of defined size) */
+  /** Spot size scale 0.2–3 (default 0.8 = 80% of defined size; max 300% for UMAP) */
   spotSizeScale: number;
   onSpotSizeScaleChange: (value: number) => void;
   /** Spot opacity 0–1 (default 1) */
@@ -122,11 +129,14 @@ type SidebarProps = {
 
 export function Sidebar({
   datasets,
-  selectedDatasetId,
-  onSelectDataset,
+  selectedDatasetIds,
+  onSelectDatasets,
+  onReorderDatasets,
   meta,
   genes,
   obs,
+  obsColumns: obsColumnsProp,
+  annotationLegendEntries: annotationLegendEntriesProp,
   colorMode,
   selectedGene,
   selectedGene1,
@@ -210,15 +220,16 @@ export function Sidebar({
   const defaultPaletteForIndex = (idx: number) =>
     MULTIGENE_PALETTE_IDS[idx % MULTIGENE_PALETTE_IDS.length];
 
-  // Prefer known cluster columns (leiden, louvain) at the top so they are easy to find
-  const CLUSTER_COLS_FIRST = ["leiden", "louvain"];
+  // Prefer known cluster columns (leiden, louvain) at the top; use union from App when multi-dataset
   const obsColumns = useMemo(() => {
+    if (obsColumnsProp && obsColumnsProp.length > 0) return obsColumnsProp;
     if (!obs?.columns) return [];
+    const CLUSTER_COLS_FIRST = ["leiden", "louvain"];
     const cols = obs.columns.slice();
     const rest = cols.filter((c) => !CLUSTER_COLS_FIRST.includes(c));
     const first = CLUSTER_COLS_FIRST.filter((c) => cols.includes(c));
     return [...first, ...rest];
-  }, [obs]);
+  }, [obsColumnsProp, obs]);
 
   const selectedObsStats = useMemo(() => {
     if (!obs || !selectedObsCol) return null;
@@ -272,6 +283,7 @@ export function Sidebar({
   }, [isNumericPaletteMode, continuousValues, effectiveColorMin, effectiveColorMax, logScale]);
 
   const annotationLegend = useMemo(() => {
+    if (annotationLegendEntriesProp && annotationLegendEntriesProp.length > 0) return annotationLegendEntriesProp;
     if (!obs || !selectedObsCol) return [];
     const valsRaw = obs.data[selectedObsCol];
     if (!valsRaw) return [];
@@ -309,7 +321,7 @@ export function Sidebar({
       count,
       color: colorMap.get(label) ?? "#888888",
     }));
-  }, [obs, selectedObsCol, obsValueType, categoricalPalette, continuousPaletteReverse]);
+  }, [annotationLegendEntriesProp, obs, selectedObsCol, obsValueType, categoricalPalette, continuousPaletteReverse]);
 
   const [collapsed, setCollapsed] = useState(false);
   const [paletteDropdownOpen, setPaletteDropdownOpen] = useState(false);
@@ -422,32 +434,103 @@ export function Sidebar({
         )}
       </div>
       {!collapsed && (
-      <div style={{ padding: 12, display: "flex", flexDirection: "column", gap: 12, overflow: "auto", flex: 1, minHeight: 0 }}>
-        <label style={{ fontSize: 12, fontWeight: 600, color: "#a0a0a0" }}>Dataset</label>
-        <select
-          value={selectedDatasetId ?? ""}
-          onChange={(e) => onSelectDataset(e.target.value || null)}
-          style={{
-            padding: "8px 10px",
-            borderRadius: 6,
-            border: "1px solid #0f3460",
-            background: "#1a1a2e",
-            color: "#eee",
-            fontSize: 13,
-          }}
-        >
-          <option value="">Select…</option>
-          {datasets.map((d) => (
-            <option key={d.id} value={d.id}>
-              {d.path}
-            </option>
-          ))}
-        </select>
+      <div className="sidebar-scroll" style={{ padding: 12, display: "flex", flexDirection: "column", gap: 12, overflow: "auto", flex: 1, minHeight: 0 }}>
+        <label style={{ fontSize: 12, fontWeight: 600, color: "#a0a0a0", flexShrink: 0 }}>Datasets</label>
+        <div style={{ fontSize: 11, color: "#888", marginBottom: 4, flexShrink: 0 }} />
+        <div className="sidebar-scroll" style={{ display: "flex", flexDirection: "column", gap: 4, minHeight: 100, maxHeight: 200, overflowY: "auto", flexShrink: 0 }}>
+          {datasets.map((d) => {
+            const checked = selectedDatasetIds.includes(d.id);
+            return (
+              <label
+                key={d.id}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 8,
+                  cursor: "pointer",
+                  fontSize: 12,
+                  color: "#ddd",
+                }}
+              >
+                <input
+                  type="checkbox"
+                  checked={checked}
+                  onChange={() => {
+                    if (checked) {
+                      onSelectDatasets(selectedDatasetIds.filter((id) => id !== d.id));
+                    } else {
+                      onSelectDatasets([...selectedDatasetIds, d.id]);
+                    }
+                  }}
+                />
+                <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={d.path}>
+                  {d.path}
+                </span>
+              </label>
+            );
+          })}
+        </div>
+
+        {selectedDatasetIds.length > 1 && onReorderDatasets && (
+          <>
+            <div style={{ fontSize: 11, color: "#888", marginTop: 4, flexShrink: 0 }}>Drag to reorder display</div>
+            <div className="sidebar-scroll" style={{ display: "flex", flexDirection: "column", gap: 2, minHeight: 60, maxHeight: 140, overflowY: "auto", flexShrink: 0 }}>
+              {selectedDatasetIds.map((id, index) => {
+                const d = datasets.find((x) => x.id === id);
+                const label = d ? d.path : id;
+                return (
+                  <div
+                    key={id}
+                    draggable
+                    onDragStart={(e) => {
+                      e.dataTransfer.setData("text/plain", String(index));
+                      e.dataTransfer.effectAllowed = "move";
+                    }}
+                    onDragOver={(e) => {
+                      e.preventDefault();
+                      e.dataTransfer.dropEffect = "move";
+                    }}
+                    onDrop={(e) => {
+                      e.preventDefault();
+                      const fromIndex = parseInt(e.dataTransfer.getData("text/plain"), 10);
+                      if (Number.isNaN(fromIndex) || fromIndex === index) return;
+                      const next = [...selectedDatasetIds];
+                      const [removed] = next.splice(fromIndex, 1);
+                      const insertAt = fromIndex < index ? index - 1 : index;
+                      next.splice(insertAt, 0, removed);
+                      onReorderDatasets(next);
+                    }}
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 6,
+                      padding: "4px 6px",
+                      borderRadius: 4,
+                      background: "#0f3460",
+                      fontSize: 11,
+                      color: "#ddd",
+                      cursor: "grab",
+                    }}
+                  >
+                    <span style={{ color: "#888", flexShrink: 0 }} title="Drag to reorder">
+                      ⋮⋮
+                    </span>
+                    <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={label}>
+                      {label}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          </>
+        )}
 
         {meta && (
           <>
             <div style={{ fontSize: 11, color: "#888" }}>
-              {meta.n_obs.toLocaleString()} cells · {meta.n_vars.toLocaleString()} genes
+              {selectedDatasetIds.length > 1
+                ? `${selectedDatasetIds.length} datasets`
+                : `${meta.n_obs.toLocaleString()} cells · ${meta.n_vars.toLocaleString()} genes`}
             </div>
             {(meta.has_spatial || meta.has_umap || meta.has_pca || meta.has_tsne) && (
               <>
@@ -749,8 +832,10 @@ export function Sidebar({
                   }}
                 />
                 <div
+                  className="sidebar-scroll"
                   style={{
-                    maxHeight: 200,
+                    minHeight: 120,
+                    maxHeight: 240,
                     overflow: "auto",
                     border: "1px solid #0f3460",
                     borderRadius: 6,
@@ -795,8 +880,10 @@ export function Sidebar({
                   }}
                 />
                 <div
+                  className="sidebar-scroll"
                   style={{
-                    maxHeight: 120,
+                    minHeight: 80,
+                    maxHeight: 160,
                     overflow: "auto",
                     border: "1px solid #0f3460",
                     borderRadius: 6,
@@ -836,8 +923,10 @@ export function Sidebar({
                   }}
                 />
                 <div
+                  className="sidebar-scroll"
                   style={{
-                    maxHeight: 120,
+                    minHeight: 80,
+                    maxHeight: 160,
                     overflow: "auto",
                     border: "1px solid #0f3460",
                     borderRadius: 6,
@@ -1003,6 +1092,7 @@ export function Sidebar({
                       </button>
                       {multigenePaletteOpenIdx === idx && (
                         <div
+                          className="sidebar-scroll"
                           style={{
                             position: "absolute",
                             top: "100%",
@@ -1104,8 +1194,10 @@ export function Sidebar({
                       }}
                     />
                     <div
+                      className="sidebar-scroll"
                       style={{
-                        maxHeight: 120,
+                        minHeight: 80,
+                        maxHeight: 160,
                         overflow: "auto",
                         border: "1px solid #0f3460",
                         borderRadius: 6,
@@ -1254,6 +1346,7 @@ export function Sidebar({
                     </button>
                     {paletteDropdownOpen && (
                       <div
+                        className="sidebar-scroll"
                         style={{
                           position: "absolute",
                           top: "100%",
@@ -1405,7 +1498,7 @@ export function Sidebar({
                         Log scale
                       </label>
                     </div>
-                    {colorbarStats && (
+                    {colorbarStats && selectedDatasetIds.length <= 1 && (
                       <div style={{ marginTop: 4, width: "100%" }}>
                         <div
                           style={{
@@ -1430,6 +1523,11 @@ export function Sidebar({
                         </div>
                       </div>
                     )}
+                    {selectedDatasetIds.length > 1 && isNumericPaletteMode && (
+                      <div style={{ marginTop: 4, fontSize: 10, color: "#888" }}>
+                        Color bar shown in each sample; p1/p99 = per-sample scale, numbers = shared scale.
+                      </div>
+                    )}
                   </>
                 )}
               </>
@@ -1441,7 +1539,9 @@ export function Sidebar({
                   Annotation legend
                 </label>
                 <div
+                  className="sidebar-scroll"
                   style={{
+                    minHeight: 100,
                     maxHeight: 320,
                     overflow: "auto",
                     borderRadius: 6,
@@ -1516,16 +1616,18 @@ export function Sidebar({
               <input
                 type="range"
                 min={0.2}
-                max={1.2}
+                max={3}
                 step={0.05}
                 value={spotSizeScale}
                 onChange={(e) => onSpotSizeScaleChange(Number(e.target.value))}
                 style={{ flex: 1, accentColor: "#e94560" }}
+                title="100% = tangent (diameter = neighbor distance); max 300%"
               />
               <span style={{ fontSize: 11, color: "#888", minWidth: 36 }}>
                 {Math.round(spotSizeScale * 100)}%
               </span>
             </div>
+            <div style={{ fontSize: 10, color: "#666" }}>100% = tangent</div>
 
             <label style={{ fontSize: 12, fontWeight: 600, color: "#a0a0a0" }}>Opacity</label>
             <div style={{ display: "flex", alignItems: "center", gap: 10 }}>

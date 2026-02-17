@@ -51,6 +51,7 @@
 - [x] **v0.2 查看器**：Embedding 切换（Spatial/UMAP），UMAP 下隐藏背景图；favicon 与侧栏 logo；spot 悬停 tooltip（Spot # + annotation/gene）；Annotation legend（按数量排序、显示 spot count）；画布工具栏 − / + / Reset；缩放以光标为中心；未选 annotation/gene 时全点灰色显示；切换数据集时主区域 Loading overlay；响应式全屏无滚动条；percentile 直方图法避免爆栈；Safari/Firefox 性能优化（rAF 节流、DPR 上限、Firefox LOD）；文档与 CHANGELOG 更新至 v0.2。
 - [x] **v0.2.3**：Co-expression 模式（双基因、四角调色板、log scale）；Layer 选项（X + adata.layers）；Token 认证（--token，默认 zhaoslab）；启动时打印带 token 的 Access URL；host `::` 支持与 IPv6 Access 行；docs/deployment.md（systemd、Nginx）；README/CHANGELOG 更新。
 - [x] **v0.2.4**：seurat2h5ad 子命令（Seurat RDS → h5ad，Visium 风格组织图）；子路径部署、加载进度、无空间/UMAP 提示、preprocess 输出与 dataset 路径等修复；RULES/CHANGELOG 经验与版本文档更新。
+- [ ] **v0.2.5**：Export PDF 矢量导出与 legend/color bar 行为调整（单页 180×210 mm、panel 对齐 categorical/gene/multigene 图例与 color bar），README/docs/RULES 已更新；如有额外改动可在此条下继续补充。
 - [x] **Preprocess + CellTypist**：自动细胞类型注释（obs['auto_cell_type']）、物种推断（人/鼠）、模型路由与 majority_voting；可选 obs['auto_cell_type_coarse']；依赖 celltypist（PyPI）；RULES §4.2/§4.3、CHANGELOG、README 已更新。
 - [x] **visium2h5ad**：子命令 `spatialxgene visium2h5ad -i path_to_visium -o h5ad_file`；使用 scanpy.read_visium；支持 --count-file、--no-images；自动 var_names_make_unique，抑制 anndata 重复名警告。
 - [x] **seurat2h5ad**：子命令 `spatialxgene seurat2h5ad <file.rds|file.rds.gz> [-o out.h5ad]`；R 脚本（Seurat + Matrix）导出 matrix/obs/空间坐标/组织图，Python 构建 AnnData，按 Visium 风格写 `uns['spatial']`（hires/lowres、scale 1.0 与 spot 对齐）；`pixi run test` 在存在 `tests/P2N_Spatial.rds.gz` 时执行 seurat2h5ad；经验见 RULES.md §4.3。
@@ -65,6 +66,14 @@
 - [x] **Multi-gene Pie 布局**：圆形 spot 下按各基因表达比例画扇形（pie chart），多基因共现一目了然。
 - [x] **Multi-gene Grid 布局**：方形 spot 下在正多边形中心排布等大小小方块，clip 在 spot 内；仅画 proportion≥5% 的基因；像素尺寸统一（LED 式），按表达量排序排布。
 - [x] **Multi-gene Color range 与 Log scale**：与 Gene 模式一致，支持 pmin/pmax（如 p1–p99）与 Log scale；每基因 vmin/vmax 由 percentile 或原始范围计算，Sidebar 展示与 SpatialPlot 使用同一套解析逻辑。
+- [x] **多样本拖拽排序**：侧栏已选数据集列表支持拖拽调整显示顺序，主界面网格顺序随之更新。
+- [x] **Co-expression / Multi-gene 多样本视图**：Co-expression 与 Multi-gene 模式下选择多个数据集时以网格展示每个样本；按样本拉取 expression1/expression2 与 multigene 表达，每格独立渲染。
+- [x] **Spot size 最大 300%**：滑块上限由 150% 调整为 300%，便于 UMAP 等点较密场景放大点。
+- [x] **侧栏整体滚动与隐蔽滚动条**：主内容区可上下滚动，使用 `.sidebar-scroll` 细窄半透明滚动条；Datasets/Gene 等列表设 minHeight/maxHeight，保证区块可读。
+- [x] **Multi-gene 每样本 color bar**：每个样本图右下角显示紧凑横向 color bar（每基因一条短条 + 基因名与表达范围），多基因纵向排列。
+- [x] **Multi-gene 部分基因缺失**：某样本中某基因无数据或全 NaN 时，该样本仍用其余有数据的基因正常绘制 multigene spot；单/多样本均按「至少一个基因有数据」显示 multigene，layers 过滤全 NaN，SpatialPlot 对 NaN 与 vmin/vmax 做防护。
+- [x] **Annotation 多样本图例按样本**：多样本时每个样本图内的 categorical 图例只显示该样本的类别与数量，不显示全样本合计（slotCategoricalLegend(id)）。
+- [x] **顶部工具栏与 Export PDF**：主内容区顶部增加工具栏，提供「Export PDF」按钮；通过 `exportPlotVector.ts` 矢量导出，单页 180×210 mm，spots/图例/文字为矢量、组织背景为栅格；图例与 color bar 对齐到每样本 **panel** 右下角（`panelRect`），含 categorical（色块+标签+数量）、Gene（标题+竖条高在上）、Multi-gene（每行竖条+基因范围，行内垂直居中）。
 
 ---
 

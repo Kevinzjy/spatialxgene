@@ -8,6 +8,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Added
 
+- **Top toolbar and Export PDF**: A toolbar at the top of the main content shows an **Export PDF** button when at least one dataset has loaded. Clicking it captures all visible plot cards (single plot or one per sample in the grid) via `html2canvas`, adds each as a centered page in an A4 PDF, and downloads `spatialxgene-plots.pdf`. Plot containers are marked with `data-export-plot` so only the relevant nodes are captured.
+- **Annotation categorical legend per sample**: In multi-sample view, the in-plot categorical legend for each sample now shows only that sample’s category counts (color/label and count), not the sum across all samples. Single-sample view is unchanged (one sample’s counts).
+- **Multi-sample comparison and drag reorder**: When multiple datasets are selected, the viewer shows a grid of plots for Gene, Annotation, Co-expression, and Multi-gene modes. In the sidebar, a "Drag to reorder display" list appears; drag rows to change the order of samples in the grid.
+- **Co-expression and Multi-gene multi-sample view**: Co-expression and Multi-gene modes now support multiple selected datasets: each sample is rendered in its own grid cell with per-sample expression data (expression1ByDataset/expression2ByDataset for co-expression; multigeneExpressionByDataset for multi-gene). Loading overlay is shown while fetching.
+- **Sidebar scroll and layout**: The sidebar content area scrolls vertically when long; a **subtle scrollbar** (thin, low-contrast) is used via the `.sidebar-scroll` class. Sections (Datasets list, Gene lists, Annotation legend, etc.) have minimum heights so they are not compressed; list boxes use the same scrollbar style.
+- **Spot size range 20%–300%**: Spot size slider maximum increased from 150% to 300% so UMAP and dense embeddings can show larger points.
+- **Multi-gene per-sample color bar**: In Multi-gene mode, each sample plot shows a compact **color bar** in the bottom-right corner: one short horizontal bar per gene (gradient + gene name and min–max expression). Multiple genes are stacked vertically.
 - **Multi-gene visualization**: **Multi-gene** color mode in the viewer. Each gene uses a black→accent palette. Pie layout (round spots) or Grid layout (square spots, proportion ≥ 5%, unified pixel size). Layer (X or adata.layers) applies. **Color range** (pmin/pmax) and **Log scale** like Gene mode. Hover shows per-gene values.
 - **Preprocess + CellTypist automatic cell type annotation**: After QC, normalize, dimred, and clustering, preprocess optionally runs CellTypist to assign spot/cell types. Results are written to **`obs['auto_cell_type']`**; immune-enriched samples can get **`obs['auto_cell_type_coarse']`** from Immune_All_High. Inference summary (species, tissue context, model used) is stored in **`uns['celltypist_inferred']`**.
   - **Species inference**: Human vs mouse is inferred from gene symbols (human: all-caps e.g. CD4; mouse: title-case e.g. Cd4). For mouse, immune models (Immune_All_Low/High) are converted to mouse via CellTypist ortholog mapping before prediction.
@@ -22,7 +29,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Changed
 
+- **Annotation categorical legend in multi-sample view**: The in-plot legend for each sample now shows only that sample’s category labels and counts (not the sum across all samples). Sidebar annotation legend still shows global totals.
 - **Multi-gene**: Replaced jitter-dots with **Pie** (sectors by proportion) and **Grid** (equal-sized squares on regular polygon, clip inside spot). Spots with zero total expression are skipped. Color range (pmin/pmax) and Log scale aligned with Gene mode.
+- **Multi-gene when some genes are missing in a sample**: If a selected gene has no (or all-NaN) expression in a given sample, that sample still shows Multi-gene spots using only the genes that have valid data. Single- and multi-sample logic: show multigene when **at least one** gene has finite data; layers passed to the plot exclude all-NaN genes; SpatialPlot treats NaN as 0 in the per-spot sum and guards vmin/vmax for color scale.
+
+### Fixed
+
+- **SpatialPlot JSX**: The canvas container `div` (ref={containerRef}) was missing a closing tag after the multigene color bar block, causing "JSX element 'div' has no corresponding closing tag" and build failure. Added the missing `</div>`.
 
 ## [0.2.4] - 2026-02-14
 

@@ -70,6 +70,22 @@ The **Makefile** is a thin wrapper: each target runs `pixi run <task>`. You can 
 - **Backend only**: `pixi run python -m uvicorn spatialxgene.server.main:app --reload --host 127.0.0.1 --port 5005`.
 - **Frontend only**: In `spatialxgene/frontend`, `npm run dev` (Vite proxies `/api` to 5005); run the backend separately on port 5005.
 
+### Frontend behaviour: layout and PDF export
+
+- **Responsive layout**:  
+  - Root layout is flex-based; `#root` and the top-level `App` container use `flex: 1` with `min-height: 0` / `min-width: 0` so the viewer fills the browser window and can shrink when the window shrinks (both vertically and horizontally).  
+  - Single-sample view wraps `SpatialPlot` in a flex column with `minWidth: 0` / `minHeight: 0`; the canvas size is driven by a `ResizeObserver` so zoomable plots always match the visible region.  
+  - Multi-sample view uses a CSS grid with 2–3 columns depending on sample count; each sample card is a grid cell with a minimum pixel width/height. When the viewport is too small, the grid scroll container shows bars instead of shrinking individual samples to unreadable sizes.
+
+- **Vector PDF export**:  
+  - The toolbar’s “Export PDF” button calls a vector export path (`exportPlotVector.ts`) rather than screenshotting the DOM.  
+  - The PDF page size is fixed to 180×210 mm (portrait). A global scale is computed from the union of spot bounds and background image bounds for all samples; a robust nearest-neighbour spacing estimate is used so adjacent spot centres have the same distance in mm across samples.  
+  - Tissue images are raster layers; spots, titles, legends, and multigene Pie/Grid marks are true vector shapes.  
+  - **Legend/color bar placement**: Each sample is given a `panelRect` (the full cell area in mm). All legends and color bars use this rectangle to anchor the bottom-right corner, so they align to the **panel** rather than to the spots or image bounds. This avoids misalignment when only spots are drawn (no background).  
+  - **Categorical legend**: Background box with padding; rows of swatch + label (light) + count (grey), with a fixed one-character gap between label and count; content offset (`contentY = boxTop + PAD + 1.5`) so the block sits vertically centered in the box.  
+  - **Gene color bar**: Background box contains a title line (gene or numeric field name, left-aligned with the bar), then a vertical gradient bar (high at top, low at bottom) and hi/mid/lo labels; bar uses `continuousToRgb` and the same palette/reverse as the UI.  
+  - **Multi-gene legend**: Rows of narrow gradient bar + "gene vmin–vmax" text; each row uses a shared `centerY` so the bar and text are vertically centered. Same palettes and ranges as the on-screen multigene legend.
+
 ## Pixi tasks / Makefile targets
 
 | Task | Description |
@@ -101,7 +117,12 @@ Run dependencies are taken from `[package.run-dependencies]` in `pixi.toml` (exa
 
 ## Versioning
 
-Bump in sync: `spatialxgene/__init__.py` (`__version__`), `pyproject.toml` (`version`), and `spatialxgene/frontend/package.json` (`version`). Document changes in CHANGELOG and, if needed, in docs.
+Bump in sync: `spatialxgene/__init__.py` (`__version__`), `pyproject.toml` (`version`), and `spatialxgene/frontend/package.json` (`version`). Document changes in root [CHANGELOG.md](../CHANGELOG.md); when behavior or defaults change, update README, RULES, and relevant docs.
+
+## Rules and conventions (quick pointer)
+
+- **Error handling and communication**: When errors occur, follow root [RULES.md](../RULES.md) §1 (minimal fix → logging → output snippets). Communicate in 中文; **code and comments in English**.
+- **Detailed rules**: Frontend (large arrays, rAF, sidebar scroll, JSX, multigene), backend (dataset path, viewable), preprocess (return value, counts, in_tissue, raw), deployment (subpath, package): see [RULES.md](../RULES.md) §5 table and §4.3.
 
 ## Other docs
 

@@ -6,7 +6,7 @@
 
 ## 0. 当前状态（简要）
 
-- **已完成**：子路径部署、数据集/表达加载进度、无空间或 UMAP 时的快速提示、Annotation 类别过多/过少时的稳健展示、多级 data-dir 扫描、下拉框显示 .h5ad、preprocess 输出 leiden/louvain 与 counts layer、含多个点的 h5ad 路径解析、in_tissue 跳过 spot 过滤、adata.raw→layers['counts'] 后清空 raw、**pixi 迁移**、**seurat2h5ad**、**Preprocess + CellTypist**。**Multi-gene**：Pie（圆形 spot 饼图）与 Grid（方形 spot 等大小方块、clip 在 spot 内）两种布局；Color range（pmin/pmax）与 Log scale 与 Gene 模式一致；无表达 spot 不画；Grid 仅画 proportion≥5% 的基因、统一像素尺寸（LED 式）。**超分辨相关已移除**：BayesSpace / TESLA / H&E super_resolution 的脚本与 API/前端已全部删除，后续可单独重构。
+- **已完成**：子路径部署、数据集/表达加载进度、无空间或 UMAP 时的快速提示、Annotation 类别过多/过少时的稳健展示、多级 data-dir 扫描、下拉框显示 .h5ad、preprocess 输出 leiden/louvain 与 counts layer、含多个点的 h5ad 路径解析、in_tissue 跳过 spot 过滤、adata.raw→layers['counts'] 后清空 raw、**pixi 迁移**、**seurat2h5ad**、**Preprocess + CellTypist**。**Multi-gene**：Pie/Grid 布局；Color range 与 Log scale 与 Gene 一致；无表达 spot 不画；Grid proportion≥5%；**部分基因在样本中缺失时仍正常展示**（至少一个基因有数据即显示 multigene，全 NaN 的基因层不传入，SpatialPlot 中 NaN 按 0 处理并保护 vmin/vmax）；**每样本右下角紧凑 color bar**（基因名 + 表达范围）。**多样本**：Gene/Annotation/Co-expression/Multi-gene 均支持多样本网格；**侧栏拖拽排序**已选数据集顺序；**Spot size** 最大 300%（UMAP 等适用）；**侧栏**整体上下滚动、隐蔽滚动条（`.sidebar-scroll`）、各区块 minHeight 保证可读。**Annotation 多样本图例**：每个样本图内的 categorical 图例只显示该样本的 color/label 与数量，不显示全样本合计。**顶部工具栏与 Export PDF**：主内容区顶部工具栏提供「Export PDF」按钮，通过 `exportPlotVector.ts` + jsPDF 矢量导出**单页 180×210 mm PDF**：spots、文字与图例为矢量，背景组织为栅格；所有 categorical/gene/multigene 图例与 color bar 对齐到每个样本 **panel** 的右下角，支持 Annotation（色块 + 标签 + 数量）、Gene（带标题的竖向 color bar，高在上）、Multi-gene（逐基因窄条 + 范围文字，行内垂直居中）。**超分辨相关已移除**：BayesSpace / TESLA / H&E super_resolution 已删除。
 - **待做**：见 [docs/tasks.md](docs/tasks.md)（如 server 缓存、preprocess 日志、前端单测等）。
 
 ---
@@ -206,6 +206,37 @@
   - **Grid 设计**：统一像素大小（`squareSide` 由 maxK 决定，所有 spot 一致，LED 式）；仅绘制 proportion ≥ 5%（`MIN_PROPORTION_GRID`）的基因，减少噪声；按表达量排序排布小方块。
   - **教训**：若 Sidebar 与 Plot 共用「percentile 解析」逻辑，解析函数参数（如是否 log、用哪一层）要与调用方一致，且依赖数组（如 genes、layer、layout）变化时 useMemo 需包含这些依赖，否则会出现切换基因/布局后范围或绘图未更新的问题。
 
+- **Multi-gene 部分基因在样本中缺失（2026-02）**
+  - **问题**：若多基因模式下某个基因在某个样本中不存在或全为 NaN，该样本整图一直显示 nan 状态，其他有表达的基因也不更新。
+  - **根因**：① 多样本时 slotPlotMode 要求「所有基因都有数据」才返回 multigene，导致缺基因的样本直接 fallback 为 none。② 单样本 multigeneLayers 只过滤 length，未过滤全 NaN 的层。③ SpatialPlot 中某层为 NaN 时 sum 变为 NaN，导致 spot 被跳过或比例异常；vmin/vmax 若 percentile 得到 NaN 会破坏颜色尺度。
+  - **修复**：① App：slotPlotMode / plotColorMode 改为「至少一个基因有数据」即显示 multigene（hasAnyLoaded / hasAnyWithData）。② slotMultigeneLayers 与单样本 multigeneLayers：在 length 检查后增加 `slice.some(Number.isFinite)`，排除全 NaN 的基因层。③ SpatialPlot：取值用 `Number.isFinite(raw) ? Math.max(0, raw) : 0`；sum 检查 `Number.isFinite(sum) && sum > 0`；vmin/vmax 若非法则 fallback 为 0 与 vmin+1。
+  - **下次要点**：多模式「部分数据缺失」时应按「有则显示」而非「全有才显示」；传入绘图组件的 layers 需过滤掉无效层；绘图侧对 NaN 做防护与 fallback。
+
+- **侧栏整体滚动与隐蔽滚动条（2026-02）**
+  - **需求**：侧栏内容多时显示不全，需要整体上下滚动，且滚动条不要特别明显；Datasets、Gene 等区块给定一定空间，避免被压缩到看不见。
+  - **实现**：① 在 index.html 中增加全局样式类 `.sidebar-scroll`：Firefox 用 `scrollbar-width: thin` + `scrollbar-color`；WebKit 用 `::-webkit-scrollbar` 宽度 6px、轨道透明、滑块半透明白。② 侧栏主内容区 div 加 `className="sidebar-scroll"` 并保持 `overflow: auto`、`flex: 1`、`minHeight: 0`。③ 各列表容器（Datasets、Gene、Co-expression Gene1/Gene2、Multi-gene 列表、Annotation legend、拖拽排序列表等）设置 `minHeight`（如 80–120px）和 `maxHeight`，并加 `sidebar-scroll` 与 `flexShrink: 0`，保证区块不被压扁。
+  - **教训**：滚动条样式依赖伪元素，需在全局 CSS 或 index.html 的 `<style>` 中定义；inline style 无法设置 `::-webkit-scrollbar`。
+
+- **JSX 闭合标签与构建校验（2026-02）**
+  - **问题**：SpatialPlot 中 multigene color bar 块移入 canvas 容器后，少写了一个 `</div>`，导致 "JSX element 'div' has no corresponding closing tag" 及 TS1381/TS1005，`pixi run build` 失败。
+  - **根因**：在 return 中新增一块条件渲染（multigene color bar）并放入 containerRef 的 div 内后，只保留了一个 `</div>` 收尾，实际需要先关闭 containerRef 的 div，再关闭最外层 div。
+  - **下次要点**：改 JSX 结构（尤其是嵌套 div、条件块）后务必跑一次 `npm run build` 或 `tsc -b`；每增加一个开标签要确认对应一个闭标签，可按层级缩进或注释标清每层对应关系。
+
+- **Export PDF 向量化与多样本缩放（2026-02）**
+  - **实现（向量导出）**：顶栏「Export PDF」按钮通过 `jspdf` + `exportPlotVector.ts` 直接画向量，而不是截图 DOM：  
+    - PDF 页面固定为 **180×210 mm**（竖版，单页导出当前所有样本）；按样本数选择 2 或 3 列、若干行，给每个样本分配等大的 cell，cell 里再划分标题带与内容区域。  
+    - 对每个样本用最近邻搜索估计「典型相邻 spot 间距」，结合最大有效范围（spots 与背景图 bounds 的 union），计算一个全局 `scaleMmPerData`，使所有样本在 PDF 中的 **spot 中心间距统一到同一物理尺度**。  
+    - 背景组织图作为 raster 图层嵌入，位置/尺寸完全由 `backgroundImageBounds` 与有效 bounds 决定；spots、标题、legend、color bar 等全部由 jsPDF 画成可编辑的向量元素。前端为每个样本计算 `panelRect`（该样本 panel 在 PDF 中的 cell 区域），PDF 端所有图例与 color bar 都以 `panelRect` 的右下角为锚点，对齐到 **panel** 而不是 spots 范围。  
+  - **模式对齐与图例布局**：  
+    - Annotation（categorical）：App 为单/多样本构建 per-sample legend（label、color、count），PDF 在 panel 右下角画带背景框的紧凑 legend：每行「色块 + 标签（浅色）+ 数量（灰色）」，标签与数量之间固定留一个字符宽度，内容 `contentY` 做轻微下移，使整个块在背景框内视觉上垂直居中；图例只统计当前样本的类别与数量。  
+    - Gene（continuous）：App 计算 `colorBarStats = {lo, mid, hi}` 与 `colorBarTitle`（基因或数值字段名），PDF 在 panel 右下角画包含标题的背景框：上方一行标题文本（左对齐并与竖条左边缘对齐），下方是竖直渐变色条（顶部为高表达、底部为低表达）及右侧 hi/mid/lo 数值刻度；色条通过 `continuousPalette` / `continuousPaletteReverse` 与 UI 保持同一配色与是否反转。  
+    - Multi-gene：导出时传入每个样本的 multigene spots（x/y+segments）与 per-gene vmin/vmax 和 paletteId，PDF 端根据 layout=Pie/Grid 画扇形或方块，并在 panel 右下角画带背景框的 multigene 图例：每个基因占一行，包含一条窄梯度条（黑→强调色）与「gene vmin–vmax」文本，通过 `centerY` 让色条与文字在该行内垂直居中，整体布局与前端 multigene legend 一致。  
+  - **多样本网格 layout**：前端多样本视图使用 CSS grid，列数由样本数决定，并为每个 cell 定义最小宽/高；当窗口过窄时由外层滚动容器承担滚动，而不是无限压缩某些样本，PDF 端也遵守「先按样本数限定 cell 尺寸，再在 cell 内画图」的思路。
+  - **教训**：  
+    - jsPDF 的 `setGState` 必须传 `new GState({...})` 实例，传字面对象会导致 `Zt[q].equals is not a function`；需在动态导入时显式解构 `GState` 并作为构造函数传入导出函数。  
+    - 不要用「统一 spot 半径」这种硬方式去同步尺度；更稳妥的做法是以 **相邻 spot 中心间距** 为基准，统一「邻距→毫米」映射，再用 fixed page + cell 布局控制 panel 尺寸。  
+    - 调试尺度/排版问题时，第一次提问就尽量提供：① 前端截图（包含 spotSize、背景开关、multi-gene 布局等）；② 对应 PDF 截图；③ 导出时控制台中每个样本的 metrics（dataW/dataH/spacing/scaleMmPerData 等），否则很难一次把「屏幕效果」和「PDF 排版」同时修对。
+
 ---
 
 ## 5. 开发经验规则总结（快速参考）
@@ -224,5 +255,8 @@
 | **Preprocess** | 调用方必须用 `run_preprocess` 返回值写盘；counts 在 normalize 之前写入 layers；有 in_tissue 时跳过 min_genes 过滤；写盘前有 raw 则拷到 layers['counts'] 后清空 raw。 |
 | **子路径部署** | 所有资源与 API 落在同一 location；前端用 `API_BASE`；favicon/logo 404 时区分「标签页图标」与「页面内 logo」。 |
 | **文档** | 变更行为后同步 README、CHANGELOG、RULES、docs；发布说明只维护 CHANGELOG。 |
-| **Multi-gene** | 与 Gene 模式共用 Color range（pmin/pmax）/Log scale 的解析与状态流；Grid 布局统一像素、仅画 proportion≥5%；useMemo 依赖含 genes/layout/layer 等，避免切换后范围或图不更新。 |
+| **Multi-gene** | 与 Gene 模式共用 Color range（pmin/pmax）/Log scale 的解析与状态流；Grid 布局统一像素、仅画 proportion≥5%；useMemo 依赖含 genes/layout/layer 等。**部分基因缺失**：至少一个基因有数据即显示 multigene；传入的 layers 排除全 NaN 的基因；SpatialPlot 中 NaN 按 0、vmin/vmax 做 fallback。 |
+| **侧栏滚动** | 主内容区用 `.sidebar-scroll`（index.html 定义）+ overflow auto；列表区块设 minHeight/maxHeight 与 flexShrink:0，避免压扁。 |
+| **JSX 结构** | 增删条件块或嵌套 div 后跑 build 校验；每个开标签必须有对应闭标签，注意层级。 |
+| **Export PDF** | 通过 `exportPlotVector.ts` + jsPDF 直接画向量，生成单页 **180×210 mm** PDF；spots/文字/图例为矢量、组织背景为栅格；前端为每样本计算 `panelRect`，PDF 端所有 categorical/gene/multigene 图例与 color bar 统一对齐到对应样本 panel 的右下角，Gene 模式竖条顶部代表高表达。 |
 

@@ -64,6 +64,8 @@
 | 项目 | 规范 |
 |------|------|
 | 侧栏宽度 | 固定 `280px`，`minWidth: 280`，保证选择器与滑块不挤压。 |
+| 侧栏滚动 | 内容过多时整体可上下滚动，使用隐蔽滚动条（`.sidebar-scroll`）；Datasets、Gene 等列表设 minHeight/maxHeight，避免被压缩到不可读。 |
+| Spot size | 滑块范围 20%–300%（默认约 70%）；300% 便于 UMAP 等密集布局下放大点。 |
 | 内边距 | 侧栏块内 `12px 14px` 或 `12px`；表单项间距 `gap: 12`。 |
 | 画布 | 主区域 flex 填满，最小高度 200px；留白（padding）约 20px。 |
 | 全屏 | `html`/`body` 无 margin、height 100%、overflow hidden；`#root` 高度 100%，应用根 flex 填满，避免出现垂直滚动条。 |
