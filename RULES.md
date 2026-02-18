@@ -76,6 +76,13 @@
 - **若该资源的 URL 不在网页源码里**：可以补一句「这个图在浏览器查看网页源代码里找不到 href/地址」，这样会提示 AI 去查 **前端代码**（React 组件、`img` 的 `src`）而不是只查 HTML 或 nginx。
 - **简短模板**：「页面上 [位置，如侧边栏顶部] 的 [元素，如 logo/图标] 不显示，控制台报 [资源] 404；不是标签页图标，是页面内容里的。」
 
+**针对「Export PDF / 导出类」问题，一次性说清可减少往返：**
+
+- **场景**：单样本还是多样本？当前颜色模式（Gene / Annotation / Multi-gene / Co-expression）？
+- **现象**：缺标题 / 标题重复 / 点全灰 / 图例错位 / 尺度不对 / 其他（一句话描述）。
+- **可选**：导出后的 PDF 截图 + 当前界面截图（或说明「和界面一致/不一致」）。
+- **简短模板**：「Export PDF： [单样本/多样本]， [Gene/Multi-gene/…] 模式， [现象，如标题出现两次/多基因单样本全是灰点]。 [可选：附 PDF 与界面截图]。」
+
 ### 4.2 教训记录（模板）
 
 > 每次“反复修改后才解决”的问题，都要在此追加一条记录。
@@ -237,6 +244,12 @@
     - 不要用「统一 spot 半径」这种硬方式去同步尺度；更稳妥的做法是以 **相邻 spot 中心间距** 为基准，统一「邻距→毫米」映射，再用 fixed page + cell 布局控制 panel 尺寸。  
     - 调试尺度/排版问题时，第一次提问就尽量提供：① 前端截图（包含 spotSize、背景开关、multi-gene 布局等）；② 对应 PDF 截图；③ 导出时控制台中每个样本的 metrics（dataW/dataH/spacing/scaleMmPerData 等），否则很难一次把「屏幕效果」和「PDF 排版」同时修对。
 
+- **Export PDF 单样本标题与 Multi-gene、标题不重复（2026-02）**
+  - **问题**：① 单样本导出 PDF 没有标题；② Multi-gene 单样本导出 PDF 所有点为灰色，无多基因表达；③ 单/多样本导出后 PDF 中出现两个样本名（一个在标题带，一个在图内）。
+  - **根因**：① 单样本分支 scatter 任务传了 `title: undefined`，且 draw 函数未画标题；后改为传 `singleTitle` 并在 App 的标题带画标题。② 单样本分支未按 `plotColorMode` 分支，Multi-gene 时仍走 scatter，`colorByToHex` 无 multigene 分支→灰色；改为 `plotColorMode === "multigene"` 时构建 **multigene** 任务（spots + legendLayers），与多样本一致。③ 标题在 App 布局的 **title band**（cellTop + 3.5）已画一次，传入 draw 的 `pageRect` 实为 **contentRect**（绘图区）；若在 `drawPlotToPdfVector`/`drawMultigenePlotToPdfVector` 内再画 title，会画在 contentRect 顶部即图内→重复。  
+  - **约定**：**样本标题只画一次**，在 App.tsx 的 PDF 布局循环里、按 cell 的 title band 位置画（`cellLeft + cellSize/2`, `cellTop + 3.5`）；`exportPlotVector.ts` 的 draw 函数**不再**画 title，只负责背景+图+图例。单样本导出须与多样本一致按 **plotColorMode** 分支：multigene → 建 multigene 任务（layers、vmin/vmax、spots、legendLayers），否则 → scatter。
+  - **下次提问要点**：报 PDF 导出问题时说明：单样本还是多样本、当前是 Gene/Annotation/Multi-gene/Co-expression、现象是缺标题/颜色全灰/标题重复/图例错位等；若方便附导出 PDF 截图与当前界面截图。
+
 ---
 
 ## 5. 开发经验规则总结（快速参考）
@@ -258,5 +271,5 @@
 | **Multi-gene** | 与 Gene 模式共用 Color range（pmin/pmax）/Log scale 的解析与状态流；Grid 布局统一像素、仅画 proportion≥5%；useMemo 依赖含 genes/layout/layer 等。**部分基因缺失**：至少一个基因有数据即显示 multigene；传入的 layers 排除全 NaN 的基因；SpatialPlot 中 NaN 按 0、vmin/vmax 做 fallback。 |
 | **侧栏滚动** | 主内容区用 `.sidebar-scroll`（index.html 定义）+ overflow auto；列表区块设 minHeight/maxHeight 与 flexShrink:0，避免压扁。 |
 | **JSX 结构** | 增删条件块或嵌套 div 后跑 build 校验；每个开标签必须有对应闭标签，注意层级。 |
-| **Export PDF** | 通过 `exportPlotVector.ts` + jsPDF 直接画向量，生成单页 **180×210 mm** PDF；spots/文字/图例为矢量、组织背景为栅格；前端为每样本计算 `panelRect`，PDF 端所有 categorical/gene/multigene 图例与 color bar 统一对齐到对应样本 panel 的右下角，Gene 模式竖条顶部代表高表达。 |
+| **Export PDF** | 通过 `exportPlotVector.ts` + jsPDF 直接画向量，生成单页 **180×210 mm** PDF；spots/文字/图例为矢量、组织背景为栅格；样本标题仅在 App 布局的 title band 画一次，draw 函数只收 contentRect、不画 title（避免重复）；单样本 Multi-gene 须建 multigene 任务，否则灰点；图例对齐 panel 右下角。 |
 

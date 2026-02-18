@@ -85,6 +85,7 @@ The **Makefile** is a thin wrapper: each target runs `pixi run <task>`. You can 
   - **Categorical legend**: Background box with padding; rows of swatch + label (light) + count (grey), with a fixed one-character gap between label and count; content offset (`contentY = boxTop + PAD + 1.5`) so the block sits vertically centered in the box.  
   - **Gene color bar**: Background box contains a title line (gene or numeric field name, left-aligned with the bar), then a vertical gradient bar (high at top, low at bottom) and hi/mid/lo labels; bar uses `continuousToRgb` and the same palette/reverse as the UI.  
   - **Multi-gene legend**: Rows of narrow gradient bar + "gene vmin–vmax" text; each row uses a shared `centerY` so the bar and text are vertically centered. Same palettes and ranges as the on-screen multigene legend.
+  - **Sample title**: Drawn **only once per cell** in the layout **title band** (App.tsx, before calling the draw functions). The draw functions receive `contentRect` (plot area only), so they must **not** draw the title—otherwise the title would appear twice (once in the band, once inside the plot). Single-sample export: when `plotColorMode === "multigene"`, App builds a **multigene** task (spots + legendLayers) instead of scatter, so the PDF shows the same pie/grid colors as the UI.
 
 ## Pixi tasks / Makefile targets
 

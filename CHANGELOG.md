@@ -36,6 +36,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ### Fixed
 
 - **SpatialPlot JSX**: The canvas container `div` (ref={containerRef}) was missing a closing tag after the multigene color bar block, causing "JSX element 'div' has no corresponding closing tag" and build failure. Added the missing `</div>`.
+- **Export PDF single-sample and title**: Single-sample PDF now shows the sample name in the **title band** above the plot (same format as multi-sample). Single-sample **Multi-gene** export now builds a multigene task (spots + legendLayers) so the PDF shows the same pie/grid colors as the UI instead of gray points. Sample title is drawn **only once** per cell, in the layout title band (App.tsx); the vector draw functions receive only the content rect and do not draw the title, so the title no longer appears twice (once in the band, once inside the plot).
+
+## [0.2.6] - 2026-02-18
+
+### Changed
+
+- **Version bump**: 0.2.5 → 0.2.6. Version strings updated in `spatialxgene/__init__.py`, `pyproject.toml`, `spatialxgene/frontend/package.json`, `spatialxgene/frontend/package-lock.json`, `pixi.toml`, and README.
 
 ## [0.2.4] - 2026-02-14
 

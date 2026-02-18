@@ -51,7 +51,8 @@
 - [x] **v0.2 查看器**：Embedding 切换（Spatial/UMAP），UMAP 下隐藏背景图；favicon 与侧栏 logo；spot 悬停 tooltip（Spot # + annotation/gene）；Annotation legend（按数量排序、显示 spot count）；画布工具栏 − / + / Reset；缩放以光标为中心；未选 annotation/gene 时全点灰色显示；切换数据集时主区域 Loading overlay；响应式全屏无滚动条；percentile 直方图法避免爆栈；Safari/Firefox 性能优化（rAF 节流、DPR 上限、Firefox LOD）；文档与 CHANGELOG 更新至 v0.2。
 - [x] **v0.2.3**：Co-expression 模式（双基因、四角调色板、log scale）；Layer 选项（X + adata.layers）；Token 认证（--token，默认 zhaoslab）；启动时打印带 token 的 Access URL；host `::` 支持与 IPv6 Access 行；docs/deployment.md（systemd、Nginx）；README/CHANGELOG 更新。
 - [x] **v0.2.4**：seurat2h5ad 子命令（Seurat RDS → h5ad，Visium 风格组织图）；子路径部署、加载进度、无空间/UMAP 提示、preprocess 输出与 dataset 路径等修复；RULES/CHANGELOG 经验与版本文档更新。
-- [ ] **v0.2.5**：Export PDF 矢量导出与 legend/color bar 行为调整（单页 180×210 mm、panel 对齐 categorical/gene/multigene 图例与 color bar），README/docs/RULES 已更新；如有额外改动可在此条下继续补充。
+- [x] **v0.2.5**：Export PDF 矢量导出与 legend/color bar 行为调整（单页 180×210 mm、panel 对齐 categorical/gene/multigene 图例与 color bar）；单样本 PDF 在标题带显示样本名、Multi-gene 单样本导出使用 multigene 任务（正确 Pie/Grid 颜色）；样本标题仅在 App 布局的标题带绘制一次，不在 exportPlotVector 内绘制，避免重复；侧栏去掉 Spot size / Color range 固定提示与 Multi-gene 百分位时的有效数字显示；版本文档已更新。
+- [x] **v0.2.6**：版本号 bump（0.2.5 → 0.2.6）；代码与文档中版本字符串已同步。
 - [x] **Preprocess + CellTypist**：自动细胞类型注释（obs['auto_cell_type']）、物种推断（人/鼠）、模型路由与 majority_voting；可选 obs['auto_cell_type_coarse']；依赖 celltypist（PyPI）；RULES §4.2/§4.3、CHANGELOG、README 已更新。
 - [x] **visium2h5ad**：子命令 `spatialxgene visium2h5ad -i path_to_visium -o h5ad_file`；使用 scanpy.read_visium；支持 --count-file、--no-images；自动 var_names_make_unique，抑制 anndata 重复名警告。
 - [x] **seurat2h5ad**：子命令 `spatialxgene seurat2h5ad <file.rds|file.rds.gz> [-o out.h5ad]`；R 脚本（Seurat + Matrix）导出 matrix/obs/空间坐标/组织图，Python 构建 AnnData，按 Visium 风格写 `uns['spatial']`（hires/lowres、scale 1.0 与 spot 对齐）；`pixi run test` 在存在 `tests/P2N_Spatial.rds.gz` 时执行 seurat2h5ad；经验见 RULES.md §4.3。

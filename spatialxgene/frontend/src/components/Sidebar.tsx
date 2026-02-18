@@ -1234,46 +1234,63 @@ export function Sidebar({
                   <>
                     <label style={{ fontSize: 12, fontWeight: 600, color: "#a0a0a0" }}>Color range</label>
                     <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "nowrap" }}>
-                      <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 2 }}>
-                        <input
-                          type="text"
-                          placeholder="p0 / number"
-                          value={multigeneRangeMinInput}
-                          onChange={(e) => onMultigeneRangeMinInputChange(e.target.value)}
-                          style={{
-                            width: 64,
-                            padding: "4px 6px",
-                            borderRadius: 4,
-                            border: "1px solid #0f3460",
-                            background: "#1a1a2e",
-                            color: "#eee",
-                            fontSize: 12,
-                          }}
-                        />
-                        <span style={{ fontSize: 10, color: "#666" }}>
-                          {effectiveMultigeneColorMin != null ? formatExpr(effectiveMultigeneColorMin) : "—"}
-                        </span>
-                      </div>
-                      <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 2 }}>
-                        <input
-                          type="text"
-                          placeholder="p100 / number"
-                          value={multigeneRangeMaxInput}
-                          onChange={(e) => onMultigeneRangeMaxInputChange(e.target.value)}
-                          style={{
-                            width: 64,
-                            padding: "4px 6px",
-                            borderRadius: 4,
-                            border: "1px solid #0f3460",
-                            background: "#1a1a2e",
-                            color: "#eee",
-                            fontSize: 12,
-                          }}
-                        />
-                        <span style={{ fontSize: 10, color: "#666" }}>
-                          {effectiveMultigeneColorMax != null ? formatExpr(effectiveMultigeneColorMax) : "—"}
-                        </span>
-                      </div>
+                      {(() => {
+                        const isPercentile = (s: string) => /^p\d+(\.\d+)?$/i.test(String(s).trim());
+                        const showEffectiveNumbers =
+                          !isPercentile(multigeneRangeMinInput) || !isPercentile(multigeneRangeMaxInput);
+                        return (
+                          <>
+                            <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 2 }}>
+                              <input
+                                type="text"
+                                placeholder="p0 / number"
+                                value={multigeneRangeMinInput}
+                                onChange={(e) => onMultigeneRangeMinInputChange(e.target.value)}
+                                style={{
+                                  width: 64,
+                                  padding: "4px 6px",
+                                  borderRadius: 4,
+                                  border: "1px solid #0f3460",
+                                  background: "#1a1a2e",
+                                  color: "#eee",
+                                  fontSize: 12,
+                                }}
+                              />
+                              <span style={{ fontSize: 10, color: "#666" }}>
+                                {showEffectiveNumbers
+                                  ? effectiveMultigeneColorMin != null
+                                    ? formatExpr(effectiveMultigeneColorMin)
+                                    : "—"
+                                  : ""}
+                              </span>
+                            </div>
+                            <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 2 }}>
+                              <input
+                                type="text"
+                                placeholder="p100 / number"
+                                value={multigeneRangeMaxInput}
+                                onChange={(e) => onMultigeneRangeMaxInputChange(e.target.value)}
+                                style={{
+                                  width: 64,
+                                  padding: "4px 6px",
+                                  borderRadius: 4,
+                                  border: "1px solid #0f3460",
+                                  background: "#1a1a2e",
+                                  color: "#eee",
+                                  fontSize: 12,
+                                }}
+                              />
+                              <span style={{ fontSize: 10, color: "#666" }}>
+                                {showEffectiveNumbers
+                                  ? effectiveMultigeneColorMax != null
+                                    ? formatExpr(effectiveMultigeneColorMax)
+                                    : "—"
+                                  : ""}
+                              </span>
+                            </div>
+                          </>
+                        );
+                      })()}
                       <label
                         style={{
                           display: "flex",
@@ -1523,11 +1540,6 @@ export function Sidebar({
                         </div>
                       </div>
                     )}
-                    {selectedDatasetIds.length > 1 && isNumericPaletteMode && (
-                      <div style={{ marginTop: 4, fontSize: 10, color: "#888" }}>
-                        Color bar shown in each sample; p1/p99 = per-sample scale, numbers = shared scale.
-                      </div>
-                    )}
                   </>
                 )}
               </>
@@ -1621,13 +1633,11 @@ export function Sidebar({
                 value={spotSizeScale}
                 onChange={(e) => onSpotSizeScaleChange(Number(e.target.value))}
                 style={{ flex: 1, accentColor: "#e94560" }}
-                title="100% = tangent (diameter = neighbor distance); max 300%"
               />
               <span style={{ fontSize: 11, color: "#888", minWidth: 36 }}>
                 {Math.round(spotSizeScale * 100)}%
               </span>
             </div>
-            <div style={{ fontSize: 10, color: "#666" }}>100% = tangent</div>
 
             <label style={{ fontSize: 12, fontWeight: 600, color: "#a0a0a0" }}>Opacity</label>
             <div style={{ display: "flex", alignItems: "center", gap: 10 }}>

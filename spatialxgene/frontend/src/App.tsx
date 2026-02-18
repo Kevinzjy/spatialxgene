@@ -1211,48 +1211,160 @@ export default function App() {
                   const plotIds: string[] = [];
 
                   if (showSinglePlot && spatial) {
-                    const colorByHex = colorByToHex(colorByValues, plotColorMode, {
-                      catMap: globalCatMap ?? undefined,
-                      colorMin: continuousColorRange?.colorMin,
-                      colorMax: continuousColorRange?.colorMax,
-                      logScale,
-                      palette: continuousPalette,
-                      reverse: continuousPaletteReverse,
-                    });
-                    const legend: VectorExportLegendEntry[] =
-                      plotColorMode === "categorical" && categoricalLegendForPlot
-                        ? categoricalLegendForPlot.map((e) => ({ label: e.label, color: e.color, count: e.count }))
-                        : [];
-                    const colorBarStatsSingle =
-                      plotColorMode === "continuous" && continuousColorRange
-                        ? { lo: continuousColorRange.colorMin, mid: continuousColorBarMid, hi: continuousColorRange.colorMax }
-                        : undefined;
-                    plotTasks.push({
-                      type: "scatter",
-                      options: {
-                        x: spatial.x,
-                        y: spatial.y,
-                        colorByHex,
-                        bounds,
-                        spotSizeScale,
-                        title: undefined,
-                        legend,
-                        colorBarStats: colorBarStatsSingle,
-                        colorBarTitle:
-                          plotColorMode === "continuous"
-                            ? colorMode === "gene"
-                              ? selectedGene ?? undefined
-                              : selectedObsCol ?? undefined
-                            : undefined,
-                        continuousPalette,
-                        continuousPaletteReverse,
-                        backgroundImageDataUrl: undefined,
-                        backgroundImageBounds: backgroundImageBounds ?? null,
-                        backgroundOpacity,
-                        spotOpacity,
-                      },
-                    });
-                    plotIds.push(primaryId ?? "");
+                    const singleTitle =
+                      primaryId && meta
+                        ? `${primaryId}${embeddingMode === "umap" ? " (UMAP)" : " (Spatial)"}`
+                        : primaryId ?? undefined;
+
+                    if (plotColorMode === "multigene" && selectedMultigeneGenes.length > 0) {
+                      // Single-sample multigene export: build multigene spots and per-gene vmin/vmax, same as multiPlot.
+                      const n = spatial.x.length;
+                      const byGene = multigeneExpressionByDataset[primaryId ?? ""];
+                      const layers =
+                        byGene && selectedMultigeneGenes.length > 0
+                          ? selectedMultigeneGenes
+                              .map((entry) => {
+                                const values = byGene[entry.gene];
+                                if (!values || values.length < n) return null;
+                                const slice = values.slice(0, n);
+                                const hasFinite = slice.some((v) => Number.isFinite(v));
+                                if (!hasFinite) return null;
+                                return { name: entry.gene, values: slice, paletteId: entry.paletteId };
+                              })
+                              .filter(
+                                (l): l is { name: string; values: number[]; paletteId: string } => l !== null
+                              )
+                          : [];
+                      const K = layers.length;
+                      if (K > 0) {
+                        const vminByLayer: number[] = [];
+                        const vmaxByLayer: number[] = [];
+                        const minParsed = parseMultigeneRange(multigeneRangeMinInput);
+                        const maxParsed = parseMultigeneRange(multigeneRangeMaxInput);
+                        for (let g = 0; g < K; g++) {
+                          const vals = layers[g].values;
+                          let vmin: number, vmax: number;
+                          if (minParsed?.type === "percentile" && maxParsed?.type === "percentile") {
+                            vmin = percentile(vals, minParsed.p);
+                            vmax = percentile(vals, maxParsed.p);
+                          } else if (minParsed?.type === "raw" && maxParsed?.type === "raw") {
+                            vmin = minParsed.value;
+                            vmax = maxParsed.value;
+                          } else {
+                            const { min: dataMin, max: dataMax } = finiteMinMax(vals);
+                            vmin = dataMin;
+                            vmax = dataMax <= vmin ? vmin + 1 : dataMax;
+                          }
+                          if (!Number.isFinite(vmin)) vmin = 0;
+                          if (!Number.isFinite(vmax) || vmax <= vmin) vmax = vmin + 1;
+                          vminByLayer.push(vmin);
+                          vmaxByLayer.push(vmax);
+                        }
+
+                        const spots: Array<{ x: number; y: number; segments: MultigeneSegment[] }> = [];
+                        for (let i = 0; i < n; i++) {
+                          let sum = 0;
+                          const expr: number[] = [];
+                          for (let g = 0; g < K; g++) {
+                            const raw = layers[g].values[i];
+                            const v = Number.isFinite(raw) ? Math.max(0, raw) : 0;
+                            const e = multigeneLogScale ? Math.log1p(v) : v;
+                            expr.push(e);
+                            sum += e;
+                          }
+                          if (!Number.isFinite(sum) || sum <= 0) continue;
+                          const segments: MultigeneSegment[] = [];
+                          for (let g = 0; g < K; g++) {
+                            const proportion = expr[g] / sum;
+                            segments.push({
+                              proportion,
+                              color: multigeneValueToHex(
+                                layers[g].values[i] ?? 0,
+                                vminByLayer[g],
+                                vmaxByLayer[g],
+                                layers[g].paletteId,
+                                multigeneLogScale
+                              ),
+                            });
+                          }
+                          segments.sort((a, b) => b.proportion - a.proportion);
+                          spots.push({ x: spatial.x[i], y: spatial.y[i], segments });
+                        }
+
+                        plotTasks.push({
+                          type: "multigene",
+                          options: {
+                            spots,
+                            bounds,
+                            spotSizeScale,
+                            layout: multigeneLayout,
+                            title: singleTitle,
+                            legendLayers: layers.map((l, g) => ({
+                              name: l.name,
+                              paletteId: l.paletteId,
+                              vmin: vminByLayer[g] ?? 0,
+                              vmax: vmaxByLayer[g] ?? 1,
+                            })),
+                            backgroundImageDataUrl: undefined,
+                            backgroundImageBounds: backgroundImageBounds ?? null,
+                            backgroundOpacity,
+                            spotOpacity,
+                          },
+                        });
+                        plotIds.push(primaryId ?? "");
+                      }
+                    } else {
+                      const colorByHex = colorByToHex(colorByValues, plotColorMode, {
+                        catMap: globalCatMap ?? undefined,
+                        colorMin: continuousColorRange?.colorMin,
+                        colorMax: continuousColorRange?.colorMax,
+                        logScale,
+                        palette: continuousPalette,
+                        reverse: continuousPaletteReverse,
+                      });
+                      const legend: VectorExportLegendEntry[] =
+                        plotColorMode === "categorical" && categoricalLegendForPlot
+                          ? categoricalLegendForPlot.map((e) => ({
+                              label: e.label,
+                              color: e.color,
+                              count: e.count,
+                            }))
+                          : [];
+                      const colorBarStatsSingle =
+                        plotColorMode === "continuous" && continuousColorRange
+                          ? {
+                              lo: continuousColorRange.colorMin,
+                              mid: continuousColorBarMid,
+                              hi: continuousColorRange.colorMax,
+                            }
+                          : undefined;
+                      plotTasks.push({
+                        type: "scatter",
+                        options: {
+                          x: spatial.x,
+                          y: spatial.y,
+                          colorByHex,
+                          bounds,
+                          spotSizeScale,
+                          title: singleTitle,
+                          legend,
+                          colorBarStats: colorBarStatsSingle,
+                          colorBarTitle:
+                            plotColorMode === "continuous"
+                              ? colorMode === "gene"
+                                ? selectedGene ?? undefined
+                                : selectedObsCol ?? undefined
+                              : undefined,
+                          continuousPalette,
+                          continuousPaletteReverse,
+                          backgroundImageDataUrl: undefined,
+                          backgroundImageBounds: backgroundImageBounds ?? null,
+                          backgroundOpacity,
+                          spotOpacity,
+                        },
+                      });
+                      plotIds.push(primaryId ?? "");
+                    }
                   } else if (multiPlot) {
                     for (const id of selectedDatasetIds) {
                       const d = datasetCache[id];
