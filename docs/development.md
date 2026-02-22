@@ -95,6 +95,7 @@ The **Makefile** is a thin wrapper: each target runs `pixi run <task>`. You can 
 | `pixi run build` / `make build` | Build frontend only |
 | `pixi run launch` / `make launch` | Run viewer; default DATA_DIR=./tests/h5ad (env: DATA_DIR, HOST, PORT) |
 | `pixi run test` / `make test` | Extract tests/HCC1R.tar → visium2h5ad → preprocess; if tests/P2N_Spatial.rds.gz exists, run seurat2h5ad; then launch (data-dir ./tests). On exit removes generated HCC1R*.h5ad and P2N_Spatial*.h5ad. Override HOST/PORT. |
+| `pixi run pytest` | Run backend unit tests (tests/test_server.py, tests/test_preprocess.py). |
 | `pixi run clean` / `make clean` | Remove build, node_modules, dist, caches |
 | `pixi run docker` / `make docker` | Build docker image, save to docker/spatialxgene.tar |
 | `pixi run docker-test` / `make docker-test` | Run nginx + spatialxgene for subpath test |

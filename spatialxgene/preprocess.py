@@ -95,10 +95,16 @@ def run_preprocess(
         The same object with QC, normalized X, obsm['X_pca'], obsm['X_umap'], obs['leiden'],
         obsp['neighbors']/'distances', uns['neighbors'], var['highly_variable_genes'].
     """
+    # Input validation: require non-empty adata.X and dimensions (fail fast before QC)
     if adata.X is None:
         raise ValueError("adata.X is None; cannot run preprocess.")
     if adata.n_obs == 0 or adata.n_vars == 0:
-        raise ValueError("adata has no observations or no variables.")
+        raise ValueError(
+            "adata has no observations or no variables (n_obs=%s, n_vars=%s)." % (adata.n_obs, adata.n_vars)
+        )
+    x_size = getattr(adata.X, "size", None)
+    if x_size is not None and x_size == 0:
+        raise ValueError("adata.X is empty (size 0); cannot run preprocess.")
 
     logger.info(
         "run_preprocess start: n_obs=%s n_vars=%s min_genes=%s min_cells=%s n_top_genes=%s save_raw_layer=%s run_cluster=%s",

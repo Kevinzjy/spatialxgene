@@ -236,6 +236,7 @@ export default function App() {
   const [exportProgress, setExportProgress] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [anndataError, setAnndataError] = useState<string | null>(null);
+  const [dataDir, setDataDir] = useState<string | null>(null);
   const [embeddingMode, setEmbeddingMode] = useState<"spatial" | "umap" | "pca" | "tsne">("spatial");
   const selectedIdsRef = useRef<string[]>([]);
   const loadAbortRef = useRef<AbortController | null>(null);
@@ -247,6 +248,7 @@ export default function App() {
   useEffect(() => {
     fetchConfig().then((c) => {
       setDebugMode(c.debug);
+      setDataDir(c.data_dir ?? null);
       if (c.anndata_ok === false) {
         setAnndataError(c.anndata_hint || c.anndata_error || "anndata not installed");
       } else {
@@ -274,13 +276,18 @@ export default function App() {
   }, []);
 
   const loadDatasets = useCallback(
-    async (ids: string[], currentEmbeddingMode: "spatial" | "umap" | "pca" | "tsne") => {
+    async (
+      ids: string[],
+      currentEmbeddingMode: "spatial" | "umap" | "pca" | "tsne",
+      options?: { allSelectedIds: string[] }
+    ) => {
       if (ids.length === 0) return;
+      const isIncremental = Boolean(options?.allSelectedIds && ids.length < options.allSelectedIds.length);
       loadAbortRef.current?.abort();
       const ac = new AbortController();
       loadAbortRef.current = ac;
       const signal = ac.signal;
-      debugLog("loadDatasets start", { ids });
+      debugLog("loadDatasets start", { ids, isIncremental });
       setLoading(true);
       setLoadProgress(0);
       setError(null);
@@ -335,27 +342,29 @@ export default function App() {
         }
         if (selectedIdsRef.current.length === 0) return;
         setDatasetCache((prev) => ({ ...prev, ...nextCache }));
-        if (ids.length === 1 && nextCache[ids[0]]) {
-          const obsRes = nextCache[ids[0]].obs;
-          const catCols = obsRes.columns.filter((c) => {
-            const vals = obsRes.data[c];
-            const uniq = new Set(vals?.map(String) ?? []);
-            return uniq.size <= 50 && uniq.size >= 2;
-          });
-          setSelectedObsCol(catCols.includes("leiden") ? "leiden" : catCols[0] ?? null);
-          setObsValueType("categorical");
+        if (!isIncremental) {
+          if (ids.length === 1 && nextCache[ids[0]]) {
+            const obsRes = nextCache[ids[0]].obs;
+            const catCols = obsRes.columns.filter((c) => {
+              const vals = obsRes.data[c];
+              const uniq = new Set(vals?.map(String) ?? []);
+              return uniq.size <= 50 && uniq.size >= 2;
+            });
+            setSelectedObsCol(catCols.includes("leiden") ? "leiden" : catCols[0] ?? null);
+            setObsValueType("categorical");
+          }
+          setExpressionByDataset({});
+          setSelectedGene(null);
+          setExpression1(null);
+          setExpression2(null);
+          setSelectedGene1(null);
+          setSelectedGene2(null);
+          setRangeMinInput("p0");
+          setRangeMaxInput("p100");
+          setBackgroundImageKey(null);
+          setSelectedLayer("X");
+          setBackgroundOpacity(1);
         }
-        setExpressionByDataset({});
-        setSelectedGene(null);
-        setExpression1(null);
-        setExpression2(null);
-        setSelectedGene1(null);
-        setSelectedGene2(null);
-        setRangeMinInput("p0");
-        setRangeMaxInput("p100");
-        setBackgroundImageKey(null);
-        setSelectedLayer("X");
-        setBackgroundOpacity(1);
         setLoadProgress(100);
         await new Promise<void>((resolve) => setTimeout(resolve, 400));
         if (selectedIdsRef.current.length === 0) return;
@@ -403,12 +412,13 @@ export default function App() {
     }
   }, [selectedDatasetIds]);
 
-  // Load datasets when selection changes (user picked one or more from sidebar)
+  // Load datasets when selection changes: only fetch ids not already in cache (incremental load)
   useEffect(() => {
-    if (selectedDatasetIds.length > 0) {
-      loadDatasets(selectedDatasetIds, embeddingMode);
-    }
-  }, [selectedDatasetIds]); // eslint-disable-line react-hooks/exhaustive-deps -- loadDatasets and embeddingMode read at run time
+    if (selectedDatasetIds.length === 0) return;
+    const idsToLoad = selectedDatasetIds.filter((id) => !datasetCache[id]?.spatial);
+    if (idsToLoad.length === 0) return;
+    loadDatasets(idsToLoad, embeddingMode, { allSelectedIds: selectedDatasetIds });
+  }, [selectedDatasetIds, datasetCache, embeddingMode, loadDatasets]);
 
   useEffect(() => {
     if (selectedDatasetIds.length === 0 || !selectedGene) {
@@ -946,7 +956,7 @@ export default function App() {
             style={{
               width: 280,
               height: 6,
-              background: "#0f3460",
+              background: "var(--sidebar-border)",
               borderRadius: 3,
               overflow: "hidden",
             }}
@@ -955,7 +965,7 @@ export default function App() {
               style={{
                 width: `${exportProgress}%`,
                 height: "100%",
-                background: "#e94560",
+                background: "var(--accent)",
                 borderRadius: 3,
                 transition: "width 0.2s ease-out",
               }}
@@ -979,6 +989,7 @@ export default function App() {
       <div style={{ display: "flex", flex: 1, minHeight: 0, minWidth: 0, overflow: "hidden" }}>
       <Sidebar
         datasets={datasets}
+        dataDir={dataDir}
         selectedDatasetIds={selectedDatasetIds}
         onSelectDatasets={(ids) => {
           debugLog("onSelectDatasets", { ids });
@@ -1081,8 +1092,8 @@ export default function App() {
               alignItems: "center",
               gap: 8,
               padding: "8px 12px",
-              background: "#16213e",
-              borderBottom: "1px solid #0f3460",
+              background: "var(--sidebar-bg)",
+              borderBottom: "1px solid var(--sidebar-border)",
             }}
           >
             <button
@@ -1737,8 +1748,8 @@ export default function App() {
               style={{
                 padding: "6px 12px",
                 borderRadius: 6,
-                border: "1px solid #0f3460",
-                background: exportingPdf ? "#0f3460" : "#1a1a2e",
+                border: "1px solid var(--sidebar-border)",
+                background: exportingPdf ? "var(--sidebar-border)" : "var(--bg-main)",
                 color: "#eee",
                 fontSize: 13,
                 cursor: exportingPdf ? "wait" : "pointer",
@@ -1762,7 +1773,7 @@ export default function App() {
               alignItems: "center",
               justifyContent: "center",
               gap: 16,
-              background: "#1a1a2e",
+              background: "var(--bg-main)",
               color: "#666",
               fontSize: 14,
             }}
@@ -1772,7 +1783,7 @@ export default function App() {
               style={{
                 width: 280,
                 height: 6,
-                background: "#0f3460",
+                background: "var(--sidebar-border)",
                 borderRadius: 3,
                 overflow: "hidden",
               }}
@@ -1781,7 +1792,7 @@ export default function App() {
                 style={{
                   width: `${loadProgress}%`,
                   height: "100%",
-                  background: "#e94560",
+                  background: "var(--accent)",
                   borderRadius: 3,
                   transition: "width 0.2s ease-out",
                 }}
@@ -1920,7 +1931,7 @@ export default function App() {
                   style={{
                     width: 240,
                     height: 6,
-                    background: "#0f3460",
+                    background: "var(--sidebar-border)",
                     borderRadius: 3,
                     overflow: "hidden",
                   }}
@@ -1929,7 +1940,7 @@ export default function App() {
                     style={{
                       width: "40%",
                       height: "100%",
-                      background: "#e94560",
+                      background: "var(--accent)",
                       borderRadius: 3,
                       animation: "expression-loading-shimmer 1.2s ease-in-out infinite",
                     }}
@@ -2163,8 +2174,8 @@ export default function App() {
                           ? `Loading multi-gene for ${selectedMultigeneGenes.map((e) => e.gene).join(", ")}…`
                           : "Loading…"}
                     </span>
-                    <div style={{ width: 240, height: 6, background: "#0f3460", borderRadius: 3, overflow: "hidden" }}>
-                      <div style={{ width: "40%", height: "100%", background: "#e94560", borderRadius: 3, animation: "expression-loading-shimmer 1.2s ease-in-out infinite" }} />
+                    <div style={{ width: 240, height: 6, background: "var(--sidebar-border)", borderRadius: 3, overflow: "hidden" }}>
+                      <div style={{ width: "40%", height: "100%", background: "var(--accent)", borderRadius: 3, animation: "expression-loading-shimmer 1.2s ease-in-out infinite" }} />
                     </div>
                   </div>
                 )}
@@ -2179,7 +2190,7 @@ export default function App() {
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
-              background: "#1a1a2e",
+              background: "var(--bg-main)",
               color: "#666",
               fontSize: 14,
             }}

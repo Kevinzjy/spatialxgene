@@ -64,6 +64,8 @@ r-seurat = "==5.4.0"
 
 [pypi-dependencies]
 celltypist = ">=1.7,<2"
+pytest = ">=7.0"
+httpx = ">=0.24"
 
 [tasks]
 # Install frontend & spatialxgene package
@@ -77,6 +79,9 @@ test = { cmd = "tar -xvf tests/HCC1R.tar -C ./tests && spatialxgene visium2h5ad 
 
 # Launch viewer
 launch = { cmd = "spatialxgene launch --data-dir $DATA_DIR --host $HOST --port $PORT", env = { DATA_DIR = "./tests/h5ad", HOST = "0.0.0.0", PORT = "5005" }, depends-on = ["build"] }
+
+# Run backend unit tests (server + preprocess)
+pytest = "pytest tests/ -v"
 
 # Clean temporary files
 clean = "rm -rf build spatialxgene/frontend/node_modules spatialxgene/frontend/dist spatialxgene/__pycache__ spatialxgene/*/__pycache__ .pytest_cache .ruff_cache .mypy_cache spatialxgene/frontend/tsconfig.tsbuildinfo spatialxgene.egg-info"

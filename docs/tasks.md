@@ -8,19 +8,8 @@
 
 ### 后端
 
-- [ ] **Server adata 缓存**：为 `_adata_cache` 增加 LRU 或最大条数，避免多数据集/大文件占满内存。
-- [ ] **Preprocess 日志**：用 `logging` 替代/补充 `print`，Leiden 回退时打 `warning`。
-- [ ] **Preprocess 输入校验**：`run_preprocess` 开头检查 `adata.X` 非空并提前报错。
-- [ ] **Infer platform 区分**：用户指定 `grid_shape` 时与「已知 Stereo-seq 网格」区分，在 `uns` 中写不同 platform/note。
-- [ ] **Launch 目录提示**：当 `--data-dir` 不存在时打印友好提示并列出当前 DATA_DIR。
-- [ ] **后端单测**：为 server 的 `list_datasets`、`get_dataset_meta`、`_get_plot_coordinates` 及 preprocess 核心逻辑写 pytest。
-
 ### 前端
 
-- [ ] **Expression 加载态**：基因已选、expression 尚未返回时显示 loading 或 skeleton，避免闪旧数据。
-- [ ] **空数据集提示**：当 `/api/datasets` 返回 `[]` 时在侧栏显示「未找到数据集，请检查 data-dir」。
-- [ ] **基因列表说明**：在基因列表旁注明「仅显示前 200 条，请用搜索缩小范围」或引入虚拟列表。
-- [ ] **主题色抽离**：将侧栏/强调/背景等色值抽成 CSS 变量或常量，便于换肤与维护。
 - [ ] **连续配色选项**：在 colorScale 或 UI 中增加 viridis 等选项（可选）。
 - [ ] **前端单测**：为 api、colorScale 及关键组件写单元/集成测试。
 
@@ -75,6 +64,14 @@
 - [x] **Multi-gene 部分基因缺失**：某样本中某基因无数据或全 NaN 时，该样本仍用其余有数据的基因正常绘制 multigene spot；单/多样本均按「至少一个基因有数据」显示 multigene，layers 过滤全 NaN，SpatialPlot 对 NaN 与 vmin/vmax 做防护。
 - [x] **Annotation 多样本图例按样本**：多样本时每个样本图内的 categorical 图例只显示该样本的类别与数量，不显示全样本合计（slotCategoricalLegend(id)）。
 - [x] **顶部工具栏与 Export PDF**：主内容区顶部增加工具栏，提供「Export PDF」按钮；通过 `exportPlotVector.ts` 矢量导出，单页 180×210 mm，spots/图例/文字为矢量、组织背景为栅格；图例与 color bar 对齐到每样本 **panel** 右下角（`panelRect`），含 categorical（色块+标签+数量）、Gene（标题+竖条高在上）、Multi-gene（每行竖条+基因范围，行内垂直居中）。
+- [x] **Server adata 缓存**：`_adata_cache` 改为 LRU 缓存，最大条数可配置（默认 16，环境变量 `SPATIALXGENE_CACHE_MAX_DATASETS`，范围 1–128），超出时淘汰最久未用条目，避免多数据集/大文件占满内存。
+- [x] **Preprocess 日志**：CLI 的 preprocess 分支配置 `logging.basicConfig(level=INFO)`，preprocess 进度与结果用 `logger.info`、错误用 `logger.error`；preprocess 模块内已用 `logger`，Leiden 回退时打 `logger.warning`。
+- [x] **Preprocess 输入校验**：`run_preprocess` 开头检查 `adata.X` 非空并提前报错（X is None、n_obs/n_vars 为 0、X.size 为 0 时抛出 ValueError）。
+- [x] **Launch 目录提示**：当 `--data-dir` 不存在或不是目录时，启动时在 stderr 打印友好提示并列出当前 DATA_DIR（仍会启动服务，侧栏将无数据集）。
+- [x] **后端单测**：为 server 的 `list_datasets`、`get_dataset_meta`、`_get_plot_coordinates` 及 preprocess 核心逻辑写 pytest；`tests/test_server.py`（API + _get_plot_coordinates）、`tests/test_preprocess.py`（输入校验 + 小数据 pipeline）；`pixi run pytest` 运行。
+- [x] **空数据集提示**：当 `/api/datasets` 返回 `[]` 时，侧栏 Datasets 区域显示「No datasets found. Check data-dir (e.g. --data-dir).」；后改为「No h5ad files found under {data_dir}」，data_dir 由 /api/config 提供。
+- [x] **主题色抽离**：侧栏/强调/背景等色值抽成 `index.html` 的 `:root` CSS 变量（`--sidebar-bg`、`--sidebar-border`、`--bg-main`、`--accent`、`--text-primary`、`--text-secondary`、`--text-muted`、`--error`、`--error-bg`）及 `src/theme.ts` 的 `THEME` 常量；Sidebar、App、SpatialPlot、exportPlotVector 已改用变量或 THEME，便于换肤与维护。
+- [x] **基因列表说明**：在 Gene / Gene1 / Gene2 / Multi-gene 列表标题右侧增加实心圆问号图标，悬停提示「Only the first 200 entries are shown; use search to narrow the range.」
 
 ---
 

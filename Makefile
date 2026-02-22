@@ -9,13 +9,14 @@ DEBUG    ?= 0
 
 export DATA_DIR HOST PORT DEBUG
 
-.PHONY: help install build test clean docker docker-test launch
+.PHONY: help install build test pytest clean docker docker-test launch
 
 help:
 	@echo "Spatialxgene Makefile (delegates to pixi):"
 	@echo "  make install       - pixi run install (npm install, build, pip install -e . --no-deps)"
 	@echo "  make build        - pixi run build"
 	@echo "  make test         - pixi run test (extract tar → visium2h5ad → preprocess → launch; override HOST, PORT)"
+	@echo "  make pytest       - pixi run pytest (backend unit tests)"
 	@echo "  make launch       - pixi run launch"
 	@echo "  make clean        - pixi run clean"
 	@echo "  make docker       - pixi run docker"
@@ -30,6 +31,9 @@ build:
 
 test:
 	$(PIXI) run test
+
+pytest:
+	$(PIXI) run pytest
 
 launch:
 	$(PIXI) run launch

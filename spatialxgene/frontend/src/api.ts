@@ -38,6 +38,8 @@ export type ConfigResponse = {
   anndata_ok?: boolean;
   anndata_error?: string;
   anndata_hint?: string;
+  /** Resolved data directory path (for empty-datasets hint). */
+  data_dir?: string | null;
 };
 
 export async function fetchConfig(): Promise<ConfigResponse> {

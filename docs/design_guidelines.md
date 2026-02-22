@@ -41,10 +41,11 @@
 | 连续着色（基因表达） | 默认为 blue → white → red 渐变（`vlag` 风格），支持多种连续调色板（如 viridis 等），并统一在 `colorScale.ts` 中配置；侧栏提供 palette 下拉与 Reverse 选项（类似 `vlag` / `vlag_r`）。 |
 | 未匹配 / 缺失 | 分类未匹配用 `#888`；连续 NaN 用梯度最低色。 |
 
-### 1.5 建议实现方式
+### 1.5 实现方式
 
-- 后续可将上述色值抽成 **CSS 变量**（如 `--sidebar-bg`、`--accent`、`--text-muted`），便于主题切换与维护。
-- 新组件优先使用同一套变量或常量，避免硬编码新色。
+- 主题色已抽成 **CSS 变量**（`index.html` 的 `:root`）：`--sidebar-bg`、`--sidebar-border`、`--bg-main`、`--accent`、`--text-primary`、`--text-secondary`、`--text-muted`、`--error`、`--error-bg`。组件内使用 `var(--sidebar-bg)` 等。
+- **theme.ts** 导出同名常量（`THEME.sidebarBg` 等），供 JS 环境（如 PDF 导出）使用。
+- 新组件优先使用上述变量或 `THEME`，避免硬编码新色。
 
 ---
 

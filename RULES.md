@@ -6,8 +6,8 @@
 
 ## 0. 当前状态（简要）
 
-- **已完成**：子路径部署、数据集/表达加载进度、无空间或 UMAP 时的快速提示、Annotation 类别过多/过少时的稳健展示、多级 data-dir 扫描、下拉框显示 .h5ad、preprocess 输出 leiden/louvain 与 counts layer、含多个点的 h5ad 路径解析、in_tissue 跳过 spot 过滤、adata.raw→layers['counts'] 后清空 raw、**pixi 迁移**、**seurat2h5ad**、**Preprocess + CellTypist**。**Multi-gene**：Pie/Grid 布局；Color range 与 Log scale 与 Gene 一致；无表达 spot 不画；Grid proportion≥5%；**部分基因在样本中缺失时仍正常展示**（至少一个基因有数据即显示 multigene，全 NaN 的基因层不传入，SpatialPlot 中 NaN 按 0 处理并保护 vmin/vmax）；**每样本右下角紧凑 color bar**（基因名 + 表达范围）。**多样本**：Gene/Annotation/Co-expression/Multi-gene 均支持多样本网格；**侧栏拖拽排序**已选数据集顺序；**Spot size** 最大 300%（UMAP 等适用）；**侧栏**整体上下滚动、隐蔽滚动条（`.sidebar-scroll`）、各区块 minHeight 保证可读。**Annotation 多样本图例**：每个样本图内的 categorical 图例只显示该样本的 color/label 与数量，不显示全样本合计。**顶部工具栏与 Export PDF**：主内容区顶部工具栏提供「Export PDF」按钮，通过 `exportPlotVector.ts` + jsPDF 矢量导出**单页 180×210 mm PDF**：spots、文字与图例为矢量，背景组织为栅格；所有 categorical/gene/multigene 图例与 color bar 对齐到每个样本 **panel** 的右下角，支持 Annotation（色块 + 标签 + 数量）、Gene（带标题的竖向 color bar，高在上）、Multi-gene（逐基因窄条 + 范围文字，行内垂直居中）。**超分辨相关已移除**：BayesSpace / TESLA / H&E super_resolution 已删除。
-- **待做**：见 [docs/tasks.md](docs/tasks.md)（如 server 缓存、preprocess 日志、前端单测等）。
+- **已完成**：子路径部署、数据集/表达加载进度、无空间或 UMAP 时的快速提示、Annotation 类别过多/过少时的稳健展示、多级 data-dir 扫描、下拉框显示 .h5ad、preprocess 输出 leiden/louvain 与 counts layer、含多个点的 h5ad 路径解析、in_tissue 跳过 spot 过滤、adata.raw→layers['counts'] 后清空 raw、**pixi 迁移**、**seurat2h5ad**、**Preprocess + CellTypist**。**Multi-gene**：Pie/Grid 布局；Color range 与 Log scale 与 Gene 一致；无表达 spot 不画；Grid proportion≥5%；**部分基因在样本中缺失时仍正常展示**（至少一个基因有数据即显示 multigene，全 NaN 的基因层不传入，SpatialPlot 中 NaN 按 0 处理并保护 vmin/vmax）；**每样本右下角紧凑 color bar**（基因名 + 表达范围）。**多样本**：Gene/Annotation/Co-expression/Multi-gene 均支持多样本网格；**侧栏拖拽排序**已选数据集顺序；**Spot size** 最大 300%（UMAP 等适用）；**侧栏**整体上下滚动、隐蔽滚动条（`.sidebar-scroll`）、各区块 minHeight 保证可读。**Annotation 多样本图例**：每个样本图内的 categorical 图例只显示该样本的 color/label 与数量，不显示全样本合计。**顶部工具栏与 Export PDF**：主内容区顶部工具栏提供「Export PDF」按钮，通过 `exportPlotVector.ts` + jsPDF 矢量导出**单页 180×210 mm PDF**：spots、文字与图例为矢量，背景组织为栅格；所有 categorical/gene/multigene 图例与 color bar 对齐到每个样本 **panel** 的右下角，支持 Annotation（色块 + 标签 + 数量）、Gene（带标题的竖向 color bar，高在上）、Multi-gene（逐基因窄条 + 范围文字，行内垂直居中）。**超分辨相关已移除**：BayesSpace / TESLA / H&E super_resolution 已删除。**本批**：**前端增量加载**（新增 dataset 只加载新 id，复用 cache，增量时不清 expression 等状态）；**Server adata LRU 缓存**（默认 16 条，`SPATIALXGENE_CACHE_MAX_DATASETS`）；**Preprocess 日志**（CLI 用 logging，Leiden 回退 warning）与**输入校验**（X 非空、n_obs/n_vars、X.size）；**Launch 目录提示**（data-dir 不存在或非目录时 stderr 提示 + 当前 DATA_DIR）；**后端单测**（pytest：list_datasets、get_dataset_meta、_get_plot_coordinates、run_preprocess）；**空数据集提示**（侧栏「No h5ad files found under {path}」，path 来自 /api/config 的 data_dir）；**主题色抽离**（:root CSS 变量 + theme.ts）；**基因列表说明**（Gene/Gene1/Gene2/Multi-gene 标题旁 ? 图标，悬停英文提示前 200 条 + 搜索）。
+- **待做**：见 [docs/tasks.md](docs/tasks.md)（如连续配色、前端单测、CI 等）。
 
 ---
 
@@ -61,6 +61,8 @@
 
 ### 4.1 下次我应该如何提问，帮助你一次性解决问题
 
+**面向用户的精简版**：见 [docs/how_to_ask.md](docs/how_to_ask.md)，按问题类型（功能需求 / 报错 / 资源不显示 / 导出）组织信息，一次写全可减少往返。
+
 当我报告一个问题时，尽量提供：
 
 - **复现命令**：完整命令（含参数），例如：`make dev DATA_DIR=... HOST=... PORT=...`
@@ -82,6 +84,14 @@
 - **现象**：缺标题 / 标题重复 / 点全灰 / 图例错位 / 尺度不对 / 其他（一句话描述）。
 - **可选**：导出后的 PDF 截图 + 当前界面截图（或说明「和界面一致/不一致」）。
 - **简短模板**：「Export PDF： [单样本/多样本]， [Gene/Multi-gene/…] 模式， [现象，如标题出现两次/多基因单样本全是灰点]。 [可选：附 PDF 与界面截图]。」
+
+**通用「一次提问就解决」模板（功能/需求类）：**
+
+- **目标**：用一句话说清要做什么（例如「在 Gene 标题右边加一个 ? 图标，悬停提示仅显示前 200 条」）。
+- **范围**：指明模块或文件（如「侧栏 / Sidebar」「后端 list_datasets」），避免 AI 猜错位置。
+- **约束**：如有（如「提示词用英文」「不要改 API 路径」）一并写上。
+- **可选**：期望的交互/文案/样式细节；若可接受默认实现则可不写。
+- **示例**：「在 Gene / Gene1 / Gene2 / Multi-gene 四个列表标题右侧都加上和 Gene 一样的 ? 说明图标，悬停文案统一用英文：Only the first 200 entries are shown; use search to narrow the range.」
 
 ### 4.2 教训记录（模板）
 
@@ -117,6 +127,14 @@
   - 前期默认按「标签页 favicon」处理：改后端 HTML 注入、nginx 代理、根路径重定向等，没有去查前端组件里是否还有硬编码的 `src="/favicon.svg"`。直到用户明确说「不是标签页的 favicon，是页面左侧状态栏 SPATIALxGENE 标题左边的 logo」「源码里看不到 href」，才去搜 Sidebar，发现 `<img src="/favicon.svg">` 需改成带 `API_BASE` 的路径。
 - **最有效的补充信息**：一开始就说清「是页面内容里的 logo（侧边栏/标题旁），不是浏览器标签页上的小图标」；或补充「这个图在网页源码里找不到地址」。
 - **下次提问要点**：见 4.1 中「针对 某个图片/图标/资源 404 或不显示」的提问要点。
+
+---
+
+#### 本批功能与单测（增量加载、缓存、preprocess、空数据提示、主题、基因说明）（2026-02）
+
+- **背景**：一批小需求与稳健性改进：前端增量加载 dataset、后端 adata LRU 缓存、preprocess 日志与输入校验、launch 时 data-dir 不存在提示、后端 pytest、空数据集时侧栏显示 data_dir、主题色抽离（CSS 变量 + theme.ts）、Gene/Gene1/Gene2/Multi-gene 旁 ? 说明图标。
+- **教训**：① **增量加载**：选中 id 变化时只对「未在 cache 中已有 spatial 的 id」发起加载，并传入 `allSelectedIds` 供后端按需返回；增量模式下不清 expression/gene 等状态，避免闪烁。② **LRU 缓存**：用 `OrderedDict` 实现，get 时 move_to_end；环境变量 `SPATIALXGENE_CACHE_MAX_DATASETS`（1–128）控制上限。③ **Preprocess 单测**：fixture 的 `n_vars` 需 ≥ 200（scanpy QC 的 percent_top 含 200），否则会 IndexError；若断言「返回同一对象」易因实现细节失败，可只断言返回内容。④ **空数据提示**：后端 `/api/config` 提供 `data_dir`（解析后的路径），前端侧栏无 dataset 时显示 "No h5ad files found under {path}"，避免用户不知道检查哪个目录。⑤ **主题**：`:root` 变量与 `theme.ts` 同步，组件用 `var(--...)`，导出 SVG 时用 `THEME.xxx` 保证一致。⑥ **一次提问**：功能类需求若在第一次就给出「目标 + 范围 + 约束 + 可选细节」（见 4.1 通用模板），可减少多轮补充。
+- **下次提问要点**：见 4.1「通用『一次提问就解决』模板（功能/需求类）」。
 
 ### 4.3 项目规范与发布教训（Spatialxgene）
 

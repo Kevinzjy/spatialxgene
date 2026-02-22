@@ -3,7 +3,9 @@ FastAPI backend for spatialxgene: serve h5ad spatial data and expression to the 
 """
 import io
 import json
+import os
 import re
+from collections import OrderedDict
 from pathlib import Path
 from typing import Any, Callable, Optional
 
@@ -73,8 +75,48 @@ def set_api_base(value: str) -> None:
         return
     p = value.strip().strip("/")
     API_BASE = "/" + p if p else ""
-# Cache loaded adata by dataset id to avoid reloading
-_adata_cache: dict[str, Any] = {}
+# LRU cache for loaded adata: max entries to avoid unbounded memory (multi-dataset / large files)
+def _max_adata_cache_entries() -> int:
+    try:
+        return max(1, min(128, int(os.environ.get("SPATIALXGENE_CACHE_MAX_DATASETS", "16"))))
+    except (TypeError, ValueError):
+        return 16
+
+
+class _AdataLRUCache:
+    """Bounded LRU cache for AnnData by dataset id. Evicts least recently used when full."""
+
+    def __init__(self, max_entries: int) -> None:
+        self._max_entries = max_entries
+        self._order: OrderedDict[str, Any] = OrderedDict()
+
+    def __contains__(self, key: str) -> bool:
+        return key in self._order
+
+    def __getitem__(self, key: str) -> Any:
+        if key not in self._order:
+            raise KeyError(key)
+        self._order.move_to_end(key)
+        return self._order[key]
+
+    def __setitem__(self, key: str, value: Any) -> None:
+        if key in self._order:
+            self._order.move_to_end(key)
+        else:
+            while len(self._order) >= self._max_entries:
+                self._order.popitem(last=False)
+        self._order[key] = value
+
+    def get(self, key: str, default: Any = None) -> Any:
+        if key not in self._order:
+            return default
+        self._order.move_to_end(key)
+        return self._order[key]
+
+
+# Cache instance: use OrderedDict as storage so __setitem__ can store the adata (value)
+# We need to store (key -> value). OrderedDict is key -> value; we use it as our only store.
+_adata_cache: _AdataLRUCache = _AdataLRUCache(_max_adata_cache_entries())
 
 
 def _get_dataset_path(dataset_id: str) -> Optional[Path]:
@@ -218,8 +260,12 @@ class ObsResponse(BaseModel):
 
 @app.get("/api/config")
 def get_config():
-    """Frontend config: debug enables verbose console logging; anndata_ok / anndata_error for backend status."""
+    """Frontend config: debug enables verbose console logging; anndata_ok / anndata_error for backend status; data_dir for empty-datasets hint."""
     out: dict[str, Any] = {"debug": DEBUG}
+    if DATA_DIR is not None:
+        out["data_dir"] = str(DATA_DIR.resolve())
+    else:
+        out["data_dir"] = None
     if ad is not None:
         out["anndata_ok"] = True
     else:

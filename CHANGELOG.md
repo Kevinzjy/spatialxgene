@@ -8,6 +8,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Added
 
+- **Incremental dataset loading**: When adding a new dataset to the selection, only the newly selected dataset(s) are loaded; already loaded ones are reused from cache. Expression/gene state is preserved during incremental load to avoid flicker.
+- **Server adata LRU cache**: Backend keeps loaded AnnData in an LRU cache (default max 16 datasets). Size is configurable via `SPATIALXGENE_CACHE_MAX_DATASETS` (1–128).
+- **Preprocess logging and input validation**: Preprocess CLI uses `logging` (INFO) for messages; invalid input (e.g. `adata.X` None, empty, or zero n_obs/n_vars) raises `ValueError` with clear messages.
+- **Launch data-dir hint**: If `--data-dir` does not exist or is not a directory, a friendly message is printed to stderr with the current DATA_DIR; the server still starts.
+- **Backend unit tests**: Pytest suite for server (list_datasets, get_dataset_meta, _get_plot_coordinates) and preprocess (input validation and small pipeline with `run_celltypist=False`). Run with `pixi run pytest` or `make pytest`.
+- **Empty datasets hint with data_dir**: When no h5ad files are found, the sidebar shows "No h5ad files found under {path}" (path from `/api/config` data_dir) or "(data-dir not set)".
+- **Theme CSS variables and theme.ts**: `index.html` defines `:root` CSS variables for sidebar, background, accent, and text colors; `src/theme.ts` exports the same values for use in export/SVG. Sidebar, App, SpatialPlot, and exportPlotVector use these instead of hardcoded colors.
+- **Gene list info tooltip**: A small "?" icon next to Gene, Gene1, Gene2, and Multi-gene labels in the sidebar shows a tooltip: "Only the first 200 entries are shown; use search to narrow the range."
 - **Top toolbar and Export PDF**: A toolbar at the top of the main content shows an **Export PDF** button when at least one dataset has loaded. Clicking it captures all visible plot cards (single plot or one per sample in the grid) via `html2canvas`, adds each as a centered page in an A4 PDF, and downloads `spatialxgene-plots.pdf`. Plot containers are marked with `data-export-plot` so only the relevant nodes are captured.
 - **Annotation categorical legend per sample**: In multi-sample view, the in-plot categorical legend for each sample now shows only that sample’s category counts (color/label and count), not the sum across all samples. Single-sample view is unchanged (one sample’s counts).
 - **Multi-sample comparison and drag reorder**: When multiple datasets are selected, the viewer shows a grid of plots for Gene, Annotation, Co-expression, and Multi-gene modes. In the sidebar, a "Drag to reorder display" list appears; drag rows to change the order of samples in the grid.

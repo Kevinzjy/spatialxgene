@@ -44,6 +44,8 @@ function formatExpr(v: number): string {
 
 type SidebarProps = {
   datasets: DatasetItem[];
+  /** Resolved data directory path from server (for empty-datasets hint). */
+  dataDir?: string | null;
   /** One or more selected dataset ids (for single or multi-dataset comparison). */
   selectedDatasetIds: string[];
   onSelectDatasets: (ids: string[]) => void;
@@ -129,6 +131,7 @@ type SidebarProps = {
 
 export function Sidebar({
   datasets,
+  dataDir,
   selectedDatasetIds,
   onSelectDatasets,
   onReorderDatasets,
@@ -294,11 +297,11 @@ export function Sidebar({
     if (obsValueType === "categorical") {
       if (uniq > ANNOTATION_MAX_CATEGORIES) {
         const colorMap = getCategoricalColors([LABEL_NAN_TOO_MANY], categoricalPalette, continuousPaletteReverse);
-        return [{ label: LABEL_NAN_TOO_MANY, count: vals.length, color: colorMap.get(LABEL_NAN_TOO_MANY) ?? "#888888" }];
+        return [{ label: LABEL_NAN_TOO_MANY, count: vals.length, color: colorMap.get(LABEL_NAN_TOO_MANY) ?? "var(--text-muted)" }];
       }
       if (uniq < ANNOTATION_MIN_CATEGORIES) {
         const colorMap = getCategoricalColors([LABEL_NAN_TOO_FEW], categoricalPalette, continuousPaletteReverse);
-        return [{ label: LABEL_NAN_TOO_FEW, count: vals.length, color: colorMap.get(LABEL_NAN_TOO_FEW) ?? "#888888" }];
+        return [{ label: LABEL_NAN_TOO_FEW, count: vals.length, color: colorMap.get(LABEL_NAN_TOO_FEW) ?? "var(--text-muted)" }];
       }
     }
 
@@ -319,7 +322,7 @@ export function Sidebar({
     return entries.map(([label, count]) => ({
       label,
       count,
-      color: colorMap.get(label) ?? "#888888",
+      color: colorMap.get(label) ?? "var(--text-muted)",
     }));
   }, [annotationLegendEntriesProp, obs, selectedObsCol, obsValueType, categoricalPalette, continuousPaletteReverse]);
 
@@ -356,19 +359,19 @@ export function Sidebar({
       style={{
         width: collapsed ? SIDEBAR_COLLAPSED_WIDTH : SIDEBAR_WIDTH,
         minWidth: collapsed ? SIDEBAR_COLLAPSED_WIDTH : SIDEBAR_WIDTH,
-        background: "#16213e",
-        color: "#eee",
+        background: "var(--sidebar-bg)",
+        color: "var(--text-primary)",
         display: "flex",
         flexDirection: "column",
         overflow: "hidden",
-        borderRight: "1px solid #0f3460",
+        borderRight: "1px solid var(--sidebar-border)",
         transition: "width 0.2s ease, min-width 0.2s ease",
       }}
     >
       <div
         style={{
           padding: collapsed ? "12px 8px" : "12px 14px",
-          borderBottom: "1px solid #0f3460",
+          borderBottom: "1px solid var(--sidebar-border)",
           fontWeight: 600,
           fontSize: 15,
           display: "flex",
@@ -386,9 +389,9 @@ export function Sidebar({
             style={{
               padding: 8,
               borderRadius: 6,
-              border: "1px solid #0f3460",
-              background: "#1a1a2e",
-              color: "#eee",
+              border: "1px solid var(--sidebar-border)",
+              background: "var(--bg-main)",
+              color: "var(--text-primary)",
               cursor: "pointer",
               display: "flex",
               alignItems: "center",
@@ -416,9 +419,9 @@ export function Sidebar({
               style={{
                 padding: 6,
                 borderRadius: 6,
-                border: "1px solid #0f3460",
-                background: "#1a1a2e",
-                color: "#eee",
+                border: "1px solid var(--sidebar-border)",
+                background: "var(--bg-main)",
+                color: "var(--text-primary)",
                 cursor: "pointer",
                 display: "flex",
                 alignItems: "center",
@@ -435,45 +438,52 @@ export function Sidebar({
       </div>
       {!collapsed && (
       <div className="sidebar-scroll" style={{ padding: 12, display: "flex", flexDirection: "column", gap: 12, overflow: "auto", flex: 1, minHeight: 0 }}>
-        <label style={{ fontSize: 12, fontWeight: 600, color: "#a0a0a0", flexShrink: 0 }}>Datasets</label>
-        <div style={{ fontSize: 11, color: "#888", marginBottom: 4, flexShrink: 0 }} />
-        <div className="sidebar-scroll" style={{ display: "flex", flexDirection: "column", gap: 4, minHeight: 100, maxHeight: 200, overflowY: "auto", flexShrink: 0 }}>
-          {datasets.map((d) => {
-            const checked = selectedDatasetIds.includes(d.id);
-            return (
-              <label
-                key={d.id}
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 8,
-                  cursor: "pointer",
-                  fontSize: 12,
-                  color: "#ddd",
-                }}
-              >
-                <input
-                  type="checkbox"
-                  checked={checked}
-                  onChange={() => {
-                    if (checked) {
-                      onSelectDatasets(selectedDatasetIds.filter((id) => id !== d.id));
-                    } else {
-                      onSelectDatasets([...selectedDatasetIds, d.id]);
-                    }
+        <div style={{ display: "flex", flexDirection: "column", gap: 4, flexShrink: 0 }}>
+          <label style={{ fontSize: 12, fontWeight: 600, color: "var(--text-secondary)" }}>Datasets</label>
+          <div className="sidebar-scroll" style={{ display: "flex", flexDirection: "column", gap: 4, minHeight: 100, maxHeight: 200, overflowY: "auto" }}>
+          {datasets.length === 0 ? (
+            <div style={{ fontSize: 11, color: "var(--text-muted)", padding: "8px 0" }}>
+              No h5ad files found under {dataDir != null && dataDir !== "" ? dataDir : "(data-dir not set)"}.
+            </div>
+          ) : (
+            datasets.map((d) => {
+              const checked = selectedDatasetIds.includes(d.id);
+              return (
+                <label
+                  key={d.id}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 8,
+                    cursor: "pointer",
+                    fontSize: 12,
+                    color: "var(--text-primary)",
                   }}
-                />
-                <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={d.path}>
-                  {d.path}
-                </span>
-              </label>
-            );
-          })}
+                >
+                  <input
+                    type="checkbox"
+                    checked={checked}
+                    onChange={() => {
+                      if (checked) {
+                        onSelectDatasets(selectedDatasetIds.filter((id) => id !== d.id));
+                      } else {
+                        onSelectDatasets([...selectedDatasetIds, d.id]);
+                      }
+                    }}
+                  />
+                  <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={d.path}>
+                    {d.path}
+                  </span>
+                </label>
+              );
+            })
+          )}
+          </div>
         </div>
 
         {selectedDatasetIds.length > 1 && onReorderDatasets && (
           <>
-            <div style={{ fontSize: 11, color: "#888", marginTop: 4, flexShrink: 0 }}>Drag to reorder display</div>
+            <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 4, flexShrink: 0 }}>Drag to reorder display</div>
             <div className="sidebar-scroll" style={{ display: "flex", flexDirection: "column", gap: 2, minHeight: 60, maxHeight: 140, overflowY: "auto", flexShrink: 0 }}>
               {selectedDatasetIds.map((id, index) => {
                 const d = datasets.find((x) => x.id === id);
@@ -506,13 +516,13 @@ export function Sidebar({
                       gap: 6,
                       padding: "4px 6px",
                       borderRadius: 4,
-                      background: "#0f3460",
+                      background: "var(--sidebar-border)",
                       fontSize: 11,
-                      color: "#ddd",
+                      color: "var(--text-primary)",
                       cursor: "grab",
                     }}
                   >
-                    <span style={{ color: "#888", flexShrink: 0 }} title="Drag to reorder">
+                    <span style={{ color: "var(--text-muted)", flexShrink: 0 }} title="Drag to reorder">
                       ⋮⋮
                     </span>
                     <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={label}>
@@ -527,14 +537,14 @@ export function Sidebar({
 
         {meta && (
           <>
-            <div style={{ fontSize: 11, color: "#888" }}>
+            <div style={{ fontSize: 11, color: "var(--text-muted)" }}>
               {selectedDatasetIds.length > 1
                 ? `${selectedDatasetIds.length} datasets`
                 : `${meta.n_obs.toLocaleString()} cells · ${meta.n_vars.toLocaleString()} genes`}
             </div>
             {(meta.has_spatial || meta.has_umap || meta.has_pca || meta.has_tsne) && (
               <>
-                <label style={{ fontSize: 12, fontWeight: 600, color: "#a0a0a0" }}>Embedding</label>
+                <label style={{ fontSize: 12, fontWeight: 600, color: "var(--text-secondary)" }}>Embedding</label>
                 <div style={{ display: "flex", gap: 8 }}>
                   {meta.has_spatial && (
                     <button
@@ -543,9 +553,9 @@ export function Sidebar({
                       style={{
                         padding: "6px 10px",
                         borderRadius: 6,
-                        border: "1px solid #0f3460",
-                        background: embeddingMode === "spatial" ? "#e94560" : "#1a1a2e",
-                        color: "#eee",
+                        border: "1px solid var(--sidebar-border)",
+                        background: embeddingMode === "spatial" ? "var(--accent)" : "var(--bg-main)",
+                        color: "var(--text-primary)",
                         fontSize: 12,
                         cursor: "pointer",
                       }}
@@ -560,9 +570,9 @@ export function Sidebar({
                       style={{
                         padding: "6px 10px",
                         borderRadius: 6,
-                        border: "1px solid #0f3460",
-                        background: embeddingMode === "umap" ? "#e94560" : "#1a1a2e",
-                        color: "#eee",
+                        border: "1px solid var(--sidebar-border)",
+                        background: embeddingMode === "umap" ? "var(--accent)" : "var(--bg-main)",
+                        color: "var(--text-primary)",
                         fontSize: 12,
                         cursor: "pointer",
                       }}
@@ -577,9 +587,9 @@ export function Sidebar({
                       style={{
                         padding: "6px 10px",
                         borderRadius: 6,
-                        border: "1px solid #0f3460",
-                        background: embeddingMode === "pca" ? "#e94560" : "#1a1a2e",
-                        color: "#eee",
+                        border: "1px solid var(--sidebar-border)",
+                        background: embeddingMode === "pca" ? "var(--accent)" : "var(--bg-main)",
+                        color: "var(--text-primary)",
                         fontSize: 12,
                         cursor: "pointer",
                       }}
@@ -594,9 +604,9 @@ export function Sidebar({
                       style={{
                         padding: "6px 10px",
                         borderRadius: 6,
-                        border: "1px solid #0f3460",
-                        background: embeddingMode === "tsne" ? "#e94560" : "#1a1a2e",
-                        color: "#eee",
+                        border: "1px solid var(--sidebar-border)",
+                        background: embeddingMode === "tsne" ? "var(--accent)" : "var(--bg-main)",
+                        color: "var(--text-primary)",
                         fontSize: 12,
                         cursor: "pointer",
                       }}
@@ -610,16 +620,16 @@ export function Sidebar({
 
             {embeddingMode === "spatial" && (meta.image_keys?.length ?? 0) > 0 && (
               <>
-                <label style={{ fontSize: 12, fontWeight: 600, color: "#a0a0a0" }}>Background image</label>
+                <label style={{ fontSize: 12, fontWeight: 600, color: "var(--text-secondary)" }}>Background image</label>
                 <select
                   value={backgroundImageKey ?? ""}
                   onChange={(e) => onBackgroundImageKeyChange(e.target.value || null)}
                   style={{
                     padding: "8px 10px",
                     borderRadius: 6,
-                    border: "1px solid #0f3460",
-                    background: "#1a1a2e",
-                    color: "#eee",
+                    border: "1px solid var(--sidebar-border)",
+                    background: "var(--bg-main)",
+                    color: "var(--text-primary)",
                     fontSize: 13,
                     width: "100%",
                   }}
@@ -633,7 +643,7 @@ export function Sidebar({
                 </select>
                 {backgroundImageKey && (
                   <>
-                    <label style={{ fontSize: 12, fontWeight: 600, color: "#a0a0a0", marginTop: 6 }}>
+                    <label style={{ fontSize: 12, fontWeight: 600, color: "var(--text-secondary)", marginTop: 6 }}>
                       Background opacity
                     </label>
                     <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
@@ -644,9 +654,9 @@ export function Sidebar({
                         step={0.05}
                         value={backgroundOpacity}
                         onChange={(e) => onBackgroundOpacityChange(Number(e.target.value))}
-                        style={{ flex: 1, accentColor: "#e94560" }}
+                        style={{ flex: 1, accentColor: "var(--accent)" }}
                       />
-                      <span style={{ fontSize: 11, color: "#888", minWidth: 36 }}>
+                      <span style={{ fontSize: 11, color: "var(--text-muted)", minWidth: 36 }}>
                         {Math.round(backgroundOpacity * 100)}%
                       </span>
                     </div>
@@ -655,7 +665,7 @@ export function Sidebar({
               </>
             )}
 
-            <label style={{ fontSize: 12, fontWeight: 600, color: "#a0a0a0" }}>Color by</label>
+            <label style={{ fontSize: 12, fontWeight: 600, color: "var(--text-secondary)" }}>Color by</label>
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
               <button
                 type="button"
@@ -663,9 +673,9 @@ export function Sidebar({
                 style={{
                   padding: "6px 10px",
                   borderRadius: 6,
-                  border: "1px solid #0f3460",
-                  background: colorMode === "annotation" ? "#e94560" : "#1a1a2e",
-                  color: "#eee",
+                  border: "1px solid var(--sidebar-border)",
+                  background: colorMode === "annotation" ? "var(--accent)" : "var(--bg-main)",
+                  color: "var(--text-primary)",
                   fontSize: 12,
                   cursor: "pointer",
                 }}
@@ -678,9 +688,9 @@ export function Sidebar({
                 style={{
                   padding: "6px 10px",
                   borderRadius: 6,
-                  border: "1px solid #0f3460",
-                  background: colorMode === "gene" ? "#e94560" : "#1a1a2e",
-                  color: "#eee",
+                  border: "1px solid var(--sidebar-border)",
+                  background: colorMode === "gene" ? "var(--accent)" : "var(--bg-main)",
+                  color: "var(--text-primary)",
                   fontSize: 12,
                   cursor: "pointer",
                 }}
@@ -693,9 +703,9 @@ export function Sidebar({
                 style={{
                   padding: "6px 10px",
                   borderRadius: 6,
-                  border: "1px solid #0f3460",
-                  background: colorMode === "coexpression" ? "#e94560" : "#1a1a2e",
-                  color: "#eee",
+                  border: "1px solid var(--sidebar-border)",
+                  background: colorMode === "coexpression" ? "var(--accent)" : "var(--bg-main)",
+                  color: "var(--text-primary)",
                   fontSize: 12,
                   cursor: "pointer",
                 }}
@@ -708,9 +718,9 @@ export function Sidebar({
                 style={{
                   padding: "6px 10px",
                   borderRadius: 6,
-                  border: "1px solid #0f3460",
-                  background: colorMode === "multigene" ? "#e94560" : "#1a1a2e",
-                  color: "#eee",
+                  border: "1px solid var(--sidebar-border)",
+                  background: colorMode === "multigene" ? "var(--accent)" : "var(--bg-main)",
+                  color: "var(--text-primary)",
                   fontSize: 12,
                   cursor: "pointer",
                 }}
@@ -721,16 +731,16 @@ export function Sidebar({
 
             {(colorMode === "gene" || colorMode === "coexpression" || colorMode === "multigene") && (
               <>
-                <label style={{ fontSize: 12, fontWeight: 600, color: "#a0a0a0" }}>Layer</label>
+                <label style={{ fontSize: 12, fontWeight: 600, color: "var(--text-secondary)" }}>Layer</label>
                 <select
                   value={selectedLayer}
                   onChange={(e) => onLayerChange(e.target.value)}
                   style={{
                     padding: "8px 10px",
                     borderRadius: 6,
-                    border: "1px solid #0f3460",
-                    background: "#1a1a2e",
-                    color: "#eee",
+                    border: "1px solid var(--sidebar-border)",
+                    background: "var(--bg-main)",
+                    color: "var(--text-primary)",
                     fontSize: 13,
                     width: "100%",
                   }}
@@ -747,16 +757,16 @@ export function Sidebar({
 
             {colorMode === "annotation" && (
               <>
-                <label style={{ fontSize: 12, fontWeight: 600, color: "#a0a0a0" }}>Annotation</label>
+                <label style={{ fontSize: 12, fontWeight: 600, color: "var(--text-secondary)" }}>Annotation</label>
                 <select
                   value={selectedObsCol ?? ""}
                   onChange={(e) => onColorByAnnotation(e.target.value || null)}
                   style={{
                     padding: "8px 10px",
                     borderRadius: 6,
-                    border: "1px solid #0f3460",
-                    background: "#1a1a2e",
-                    color: "#eee",
+                    border: "1px solid var(--sidebar-border)",
+                    background: "var(--bg-main)",
+                    color: "var(--text-primary)",
                     fontSize: 13,
                     width: "100%",
                   }}
@@ -771,7 +781,7 @@ export function Sidebar({
 
                 {selectedObsCol && selectedObsStats && (
                   <>
-                    <label style={{ fontSize: 12, fontWeight: 600, color: "#a0a0a0", marginTop: 8 }}>
+                    <label style={{ fontSize: 12, fontWeight: 600, color: "var(--text-secondary)", marginTop: 8 }}>
                       Variable type
                     </label>
                     <div style={{ display: "flex", gap: 8, marginBottom: 4 }}>
@@ -781,9 +791,9 @@ export function Sidebar({
                         style={{
                           padding: "4px 8px",
                           borderRadius: 6,
-                          border: "1px solid #0f3460",
-                          background: obsValueType === "categorical" ? "#e94560" : "#1a1a2e",
-                          color: "#eee",
+                          border: "1px solid var(--sidebar-border)",
+                          background: obsValueType === "categorical" ? "var(--accent)" : "var(--bg-main)",
+                          color: "var(--text-primary)",
                           fontSize: 11,
                           cursor: "pointer",
                         }}
@@ -796,9 +806,9 @@ export function Sidebar({
                         style={{
                           padding: "4px 8px",
                           borderRadius: 6,
-                          border: "1px solid #0f3460",
-                          background: obsValueType === "numeric" ? "#e94560" : "#1a1a2e",
-                          color: "#eee",
+                          border: "1px solid var(--sidebar-border)",
+                          background: obsValueType === "numeric" ? "var(--accent)" : "var(--bg-main)",
+                          color: "var(--text-primary)",
                           fontSize: 11,
                           cursor: "pointer",
                         }}
@@ -814,7 +824,28 @@ export function Sidebar({
 
             {colorMode === "gene" && (
               <>
-                <label style={{ fontSize: 12, fontWeight: 600, color: "#a0a0a0" }}>Gene</label>
+                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                  <label style={{ fontSize: 12, fontWeight: 600, color: "var(--text-secondary)" }}>Gene</label>
+                  <span
+                    title="Only the first 200 entries are shown; use search to narrow the range."
+                    style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      width: 14,
+                      height: 14,
+                      borderRadius: "50%",
+                      background: "var(--text-muted)",
+                      color: "var(--sidebar-bg)",
+                      fontSize: 10,
+                      fontWeight: 700,
+                      cursor: "help",
+                    }}
+                    aria-label="Gene list info"
+                  >
+                    ?
+                  </span>
+                </div>
                 <input
                   type="text"
                   placeholder="Search gene…"
@@ -823,9 +854,9 @@ export function Sidebar({
                   style={{
                     padding: "8px 10px",
                     borderRadius: 6,
-                    border: "1px solid #0f3460",
-                    background: "#1a1a2e",
-                    color: "#eee",
+                    border: "1px solid var(--sidebar-border)",
+                    background: "var(--bg-main)",
+                    color: "var(--text-primary)",
                     fontSize: 13,
                     width: "100%",
                     boxSizing: "border-box",
@@ -837,9 +868,9 @@ export function Sidebar({
                     minHeight: 120,
                     maxHeight: 240,
                     overflow: "auto",
-                    border: "1px solid #0f3460",
+                    border: "1px solid var(--sidebar-border)",
                     borderRadius: 6,
-                    background: "#1a1a2e",
+                    background: "var(--bg-main)",
                   }}
                 >
                   {filteredGenes.map((g) => (
@@ -850,7 +881,7 @@ export function Sidebar({
                         padding: "6px 10px",
                         fontSize: 12,
                         cursor: "pointer",
-                        background: selectedGene === g ? "#e94560" : "transparent",
+                        background: selectedGene === g ? "var(--accent)" : "transparent",
                       }}
                     >
                       {g}
@@ -862,7 +893,28 @@ export function Sidebar({
 
             {colorMode === "coexpression" && (
               <>
-                <label style={{ fontSize: 12, fontWeight: 600, color: "#a0a0a0" }}>Gene1</label>
+                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                  <label style={{ fontSize: 12, fontWeight: 600, color: "var(--text-secondary)" }}>Gene1</label>
+                  <span
+                    title="Only the first 200 entries are shown; use search to narrow the range."
+                    style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      width: 14,
+                      height: 14,
+                      borderRadius: "50%",
+                      background: "var(--text-muted)",
+                      color: "var(--sidebar-bg)",
+                      fontSize: 10,
+                      fontWeight: 700,
+                      cursor: "help",
+                    }}
+                    aria-label="Gene list info"
+                  >
+                    ?
+                  </span>
+                </div>
                 <input
                   type="text"
                   placeholder="Search gene…"
@@ -871,9 +923,9 @@ export function Sidebar({
                   style={{
                     padding: "8px 10px",
                     borderRadius: 6,
-                    border: "1px solid #0f3460",
-                    background: "#1a1a2e",
-                    color: "#eee",
+                    border: "1px solid var(--sidebar-border)",
+                    background: "var(--bg-main)",
+                    color: "var(--text-primary)",
                     fontSize: 13,
                     width: "100%",
                     boxSizing: "border-box",
@@ -885,9 +937,9 @@ export function Sidebar({
                     minHeight: 80,
                     maxHeight: 160,
                     overflow: "auto",
-                    border: "1px solid #0f3460",
+                    border: "1px solid var(--sidebar-border)",
                     borderRadius: 6,
-                    background: "#1a1a2e",
+                    background: "var(--bg-main)",
                   }}
                 >
                   {filteredGenes1.map((g) => (
@@ -898,14 +950,35 @@ export function Sidebar({
                         padding: "6px 10px",
                         fontSize: 12,
                         cursor: "pointer",
-                        background: selectedGene1 === g ? "#e94560" : "transparent",
+                        background: selectedGene1 === g ? "var(--accent)" : "transparent",
                       }}
                     >
                       {g}
                     </div>
                   ))}
                 </div>
-                <label style={{ fontSize: 12, fontWeight: 600, color: "#a0a0a0" }}>Gene2</label>
+                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                  <label style={{ fontSize: 12, fontWeight: 600, color: "var(--text-secondary)" }}>Gene2</label>
+                  <span
+                    title="Only the first 200 entries are shown; use search to narrow the range."
+                    style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      width: 14,
+                      height: 14,
+                      borderRadius: "50%",
+                      background: "var(--text-muted)",
+                      color: "var(--sidebar-bg)",
+                      fontSize: 10,
+                      fontWeight: 700,
+                      cursor: "help",
+                    }}
+                    aria-label="Gene list info"
+                  >
+                    ?
+                  </span>
+                </div>
                 <input
                   type="text"
                   placeholder="Search gene…"
@@ -914,9 +987,9 @@ export function Sidebar({
                   style={{
                     padding: "8px 10px",
                     borderRadius: 6,
-                    border: "1px solid #0f3460",
-                    background: "#1a1a2e",
-                    color: "#eee",
+                    border: "1px solid var(--sidebar-border)",
+                    background: "var(--bg-main)",
+                    color: "var(--text-primary)",
                     fontSize: 13,
                     width: "100%",
                     boxSizing: "border-box",
@@ -928,9 +1001,9 @@ export function Sidebar({
                     minHeight: 80,
                     maxHeight: 160,
                     overflow: "auto",
-                    border: "1px solid #0f3460",
+                    border: "1px solid var(--sidebar-border)",
                     borderRadius: 6,
-                    background: "#1a1a2e",
+                    background: "var(--bg-main)",
                   }}
                 >
                   {filteredGenes2.map((g) => (
@@ -941,14 +1014,14 @@ export function Sidebar({
                         padding: "6px 10px",
                         fontSize: 12,
                         cursor: "pointer",
-                        background: selectedGene2 === g ? "#e94560" : "transparent",
+                        background: selectedGene2 === g ? "var(--accent)" : "transparent",
                       }}
                     >
                       {g}
                     </div>
                   ))}
                 </div>
-                <label style={{ fontSize: 12, fontWeight: 600, color: "#a0a0a0" }}>Color palette</label>
+                <label style={{ fontSize: 12, fontWeight: 600, color: "var(--text-secondary)" }}>Color palette</label>
                 <div
                   style={{
                     display: "grid",
@@ -966,10 +1039,10 @@ export function Sidebar({
                       onChange={(e) =>
                         onCoexpressionPaletteChange({ ...coexpressionPalette, c00: e.target.value })
                       }
-                      style={{ width: 36, height: 28, padding: 0, border: "1px solid #0f3460", borderRadius: 4, cursor: "pointer" }}
+                      style={{ width: 36, height: 28, padding: 0, border: "1px solid var(--sidebar-border)", borderRadius: 4, cursor: "pointer" }}
                       title="Both low (0)"
                     />
-                    <span style={{ fontSize: 9, color: "#888" }}>0</span>
+                    <span style={{ fontSize: 9, color: "var(--text-muted)" }}>0</span>
                   </div>
                   <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 2 }}>
                     <input
@@ -978,10 +1051,10 @@ export function Sidebar({
                       onChange={(e) =>
                         onCoexpressionPaletteChange({ ...coexpressionPalette, c10: e.target.value })
                       }
-                      style={{ width: 36, height: 28, padding: 0, border: "1px solid #0f3460", borderRadius: 4, cursor: "pointer" }}
+                      style={{ width: 36, height: 28, padding: 0, border: "1px solid var(--sidebar-border)", borderRadius: 4, cursor: "pointer" }}
                       title="Gene1 high"
                     />
-                    <span style={{ fontSize: 9, color: "#888" }}>Gene1</span>
+                    <span style={{ fontSize: 9, color: "var(--text-muted)" }}>Gene1</span>
                   </div>
                   <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 2 }}>
                     <input
@@ -990,10 +1063,10 @@ export function Sidebar({
                       onChange={(e) =>
                         onCoexpressionPaletteChange({ ...coexpressionPalette, c01: e.target.value })
                       }
-                      style={{ width: 36, height: 28, padding: 0, border: "1px solid #0f3460", borderRadius: 4, cursor: "pointer" }}
+                      style={{ width: 36, height: 28, padding: 0, border: "1px solid var(--sidebar-border)", borderRadius: 4, cursor: "pointer" }}
                       title="Gene2 high"
                     />
-                    <span style={{ fontSize: 9, color: "#888" }}>Gene2</span>
+                    <span style={{ fontSize: 9, color: "var(--text-muted)" }}>Gene2</span>
                   </div>
                   <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 2 }}>
                     <input
@@ -1002,10 +1075,10 @@ export function Sidebar({
                       onChange={(e) =>
                         onCoexpressionPaletteChange({ ...coexpressionPalette, c11: e.target.value })
                       }
-                      style={{ width: 36, height: 28, padding: 0, border: "1px solid #0f3460", borderRadius: 4, cursor: "pointer" }}
+                      style={{ width: 36, height: 28, padding: 0, border: "1px solid var(--sidebar-border)", borderRadius: 4, cursor: "pointer" }}
                       title="Co-expression"
                     />
-                    <span style={{ fontSize: 9, color: "#888" }}>Both</span>
+                    <span style={{ fontSize: 9, color: "var(--text-muted)" }}>Both</span>
                   </div>
                 </div>
                 <label
@@ -1032,9 +1105,30 @@ export function Sidebar({
 
             {colorMode === "multigene" && (
               <>
-                <label style={{ fontSize: 12, fontWeight: 600, color: "#a0a0a0" }}>
-                  Genes (dots per spot by expression)
-                </label>
+                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                  <label style={{ fontSize: 12, fontWeight: 600, color: "var(--text-secondary)" }}>
+                    Genes (dots per spot by expression)
+                  </label>
+                  <span
+                    title="Only the first 200 entries are shown; use search to narrow the range."
+                    style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      width: 14,
+                      height: 14,
+                      borderRadius: "50%",
+                      background: "var(--text-muted)",
+                      color: "var(--sidebar-bg)",
+                      fontSize: 10,
+                      fontWeight: 700,
+                      cursor: "help",
+                    }}
+                    aria-label="Gene list info"
+                  >
+                    ?
+                  </span>
+                </div>
                 {selectedMultigeneGenes.map((entry, idx) => (
                   <div
                     key={`${entry.gene}-${idx}`}
@@ -1045,11 +1139,11 @@ export function Sidebar({
                       gap: 6,
                       marginBottom: 6,
                       padding: "6px 8px",
-                      background: "#0f3460",
+                      background: "var(--sidebar-border)",
                       borderRadius: 6,
                     }}
                   >
-                    <span style={{ minWidth: 0, fontSize: 12, color: "#eee", overflow: "hidden", textOverflow: "ellipsis" }}>
+                    <span style={{ minWidth: 0, fontSize: 12, color: "var(--text-primary)", overflow: "hidden", textOverflow: "ellipsis" }}>
                       {entry.gene}
                     </span>
                     <div
@@ -1068,9 +1162,9 @@ export function Sidebar({
                           width: "100%",
                           padding: "4px 6px",
                           borderRadius: 4,
-                          border: "1px solid #0f3460",
-                          background: "#1a1a2e",
-                          color: "#eee",
+                          border: "1px solid var(--sidebar-border)",
+                          background: "var(--bg-main)",
+                          color: "var(--text-primary)",
                           fontSize: 11,
                           cursor: "pointer",
                           textAlign: "left",
@@ -1081,7 +1175,7 @@ export function Sidebar({
                             width: 16,
                             height: 16,
                             borderRadius: 3,
-                            background: MULTIGENE_PALETTE_ACCENT[entry.paletteId] ?? "#888",
+                            background: MULTIGENE_PALETTE_ACCENT[entry.paletteId] ?? "var(--text-muted)",
                             border: "1px solid #555",
                             flexShrink: 0,
                           }}
@@ -1102,8 +1196,8 @@ export function Sidebar({
                             maxHeight: 200,
                             overflow: "auto",
                             borderRadius: 4,
-                            border: "1px solid #0f3460",
-                            background: "#1a1a2e",
+                            border: "1px solid var(--sidebar-border)",
+                            background: "var(--bg-main)",
                             zIndex: 100,
                             boxShadow: "0 4px 12px rgba(0,0,0,0.3)",
                           }}
@@ -1125,8 +1219,8 @@ export function Sidebar({
                                 width: "100%",
                                 padding: "6px 8px",
                                 border: "none",
-                                background: entry.paletteId === id ? "#0f3460" : "transparent",
-                                color: "#eee",
+                                background: entry.paletteId === id ? "var(--sidebar-border)" : "transparent",
+                                color: "var(--text-primary)",
                                 fontSize: 11,
                                 cursor: "pointer",
                                 textAlign: "left",
@@ -1137,7 +1231,7 @@ export function Sidebar({
                                   width: 16,
                                   height: 16,
                                   borderRadius: 3,
-                                  background: MULTIGENE_PALETTE_ACCENT[id] ?? "#888",
+                                  background: MULTIGENE_PALETTE_ACCENT[id] ?? "var(--text-muted)",
                                   border: "1px solid #555",
                                   flexShrink: 0,
                                 }}
@@ -1185,9 +1279,9 @@ export function Sidebar({
                       style={{
                         padding: "6px 8px",
                         borderRadius: 6,
-                        border: "1px solid #0f3460",
-                        background: "#1a1a2e",
-                        color: "#eee",
+                        border: "1px solid var(--sidebar-border)",
+                        background: "var(--bg-main)",
+                        color: "var(--text-primary)",
                         fontSize: 12,
                         width: "100%",
                         boxSizing: "border-box",
@@ -1199,9 +1293,9 @@ export function Sidebar({
                         minHeight: 80,
                         maxHeight: 160,
                         overflow: "auto",
-                        border: "1px solid #0f3460",
+                        border: "1px solid var(--sidebar-border)",
                         borderRadius: 6,
-                        background: "#1a1a2e",
+                        background: "var(--bg-main)",
                       }}
                     >
                       {filteredGenesMultigene.map((g) => (
@@ -1221,7 +1315,7 @@ export function Sidebar({
                             fontSize: 12,
                             cursor: "pointer",
                             background: selectedMultigeneGenes.some((e) => e.gene === g) ? "#333" : "transparent",
-                            color: selectedMultigeneGenes.some((e) => e.gene === g) ? "#888" : "#eee",
+                            color: selectedMultigeneGenes.some((e) => e.gene === g) ? "var(--text-muted)" : "var(--text-primary)",
                           }}
                         >
                           {g}
@@ -1232,7 +1326,7 @@ export function Sidebar({
                 )}
                 {selectedMultigeneGenes.length > 0 && (
                   <>
-                    <label style={{ fontSize: 12, fontWeight: 600, color: "#a0a0a0" }}>Color range</label>
+                    <label style={{ fontSize: 12, fontWeight: 600, color: "var(--text-secondary)" }}>Color range</label>
                     <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "nowrap" }}>
                       {(() => {
                         const isPercentile = (s: string) => /^p\d+(\.\d+)?$/i.test(String(s).trim());
@@ -1250,9 +1344,9 @@ export function Sidebar({
                                   width: 64,
                                   padding: "4px 6px",
                                   borderRadius: 4,
-                                  border: "1px solid #0f3460",
-                                  background: "#1a1a2e",
-                                  color: "#eee",
+                                  border: "1px solid var(--sidebar-border)",
+                                  background: "var(--bg-main)",
+                                  color: "var(--text-primary)",
                                   fontSize: 12,
                                 }}
                               />
@@ -1274,9 +1368,9 @@ export function Sidebar({
                                   width: 64,
                                   padding: "4px 6px",
                                   borderRadius: 4,
-                                  border: "1px solid #0f3460",
-                                  background: "#1a1a2e",
-                                  color: "#eee",
+                                  border: "1px solid var(--sidebar-border)",
+                                  background: "var(--bg-main)",
+                                  color: "var(--text-primary)",
                                   fontSize: 12,
                                 }}
                               />
@@ -1318,7 +1412,7 @@ export function Sidebar({
 
             {(colorMode === "gene" || (colorMode === "annotation" && selectedObsCol)) && (
               <>
-                <label style={{ fontSize: 12, fontWeight: 600, color: "#a0a0a0" }}>Color palette</label>
+                <label style={{ fontSize: 12, fontWeight: 600, color: "var(--text-secondary)" }}>Color palette</label>
                 <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                   <div ref={paletteDropdownRef} style={{ position: "relative", flex: 1, minWidth: 0 }}>
                     <button
@@ -1328,9 +1422,9 @@ export function Sidebar({
                         width: "100%",
                         padding: "8px 10px",
                         borderRadius: 6,
-                        border: "1px solid #0f3460",
-                        background: "#1a1a2e",
-                        color: "#eee",
+                        border: "1px solid var(--sidebar-border)",
+                        background: "var(--bg-main)",
+                        color: "var(--text-primary)",
                         fontSize: 13,
                         textAlign: "left",
                         cursor: "pointer",
@@ -1373,8 +1467,8 @@ export function Sidebar({
                           maxHeight: 280,
                           overflow: "auto",
                           borderRadius: 6,
-                          border: "1px solid #0f3460",
-                          background: "#1a1a2e",
+                          border: "1px solid var(--sidebar-border)",
+                          background: "var(--bg-main)",
                           zIndex: 100,
                           boxShadow: "0 4px 12px rgba(0,0,0,0.3)",
                         }}
@@ -1401,9 +1495,9 @@ export function Sidebar({
                               background:
                                 (!isCategoricalPaletteMode && id === continuousPalette) ||
                                 (isCategoricalPaletteMode && id === categoricalPalette)
-                                  ? "#0f3460"
+                                  ? "var(--sidebar-border)"
                                   : "transparent",
-                              color: "#eee",
+                              color: "var(--text-primary)",
                               fontSize: 12,
                               cursor: "pointer",
                               textAlign: "left",
@@ -1453,7 +1547,7 @@ export function Sidebar({
 
                 {isNumericPaletteMode && continuousValues && continuousValues.length > 0 && (
                   <>
-                    <label style={{ fontSize: 12, fontWeight: 600, color: "#a0a0a0" }}>Color range</label>
+                    <label style={{ fontSize: 12, fontWeight: 600, color: "var(--text-secondary)" }}>Color range</label>
                     <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "nowrap" }}>
                       <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 2 }}>
                         <input
@@ -1465,9 +1559,9 @@ export function Sidebar({
                             width: 64,
                             padding: "4px 6px",
                             borderRadius: 4,
-                            border: "1px solid #0f3460",
-                            background: "#1a1a2e",
-                            color: "#eee",
+                            border: "1px solid var(--sidebar-border)",
+                            background: "var(--bg-main)",
+                            color: "var(--text-primary)",
                             fontSize: 12,
                           }}
                         />
@@ -1485,9 +1579,9 @@ export function Sidebar({
                             width: 64,
                             padding: "4px 6px",
                             borderRadius: 4,
-                            border: "1px solid #0f3460",
-                            background: "#1a1a2e",
-                            color: "#eee",
+                            border: "1px solid var(--sidebar-border)",
+                            background: "var(--bg-main)",
+                            color: "var(--text-primary)",
                             fontSize: 12,
                           }}
                         />
@@ -1547,7 +1641,7 @@ export function Sidebar({
 
             {colorMode === "annotation" && obsValueType === "categorical" && annotationLegend.length > 0 && (
               <>
-                <label style={{ fontSize: 12, fontWeight: 600, color: "#a0a0a0", marginTop: 8 }}>
+                <label style={{ fontSize: 12, fontWeight: 600, color: "var(--text-secondary)", marginTop: 8 }}>
                   Annotation legend
                 </label>
                 <div
@@ -1557,8 +1651,8 @@ export function Sidebar({
                     maxHeight: 320,
                     overflow: "auto",
                     borderRadius: 6,
-                    border: "1px solid #0f3460",
-                    background: "#1a1a2e",
+                    border: "1px solid var(--sidebar-border)",
+                    background: "var(--bg-main)",
                     padding: "4px 6px",
                     marginTop: 4,
                   }}
@@ -1584,10 +1678,10 @@ export function Sidebar({
                           flexShrink: 0,
                         }}
                       />
-                      <span style={{ color: "#eee", flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      <span style={{ color: "var(--text-primary)", flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                         {item.label}
                       </span>
-                      <span style={{ color: "#888", fontSize: 10, flexShrink: 0 }}>
+                      <span style={{ color: "var(--text-muted)", fontSize: 10, flexShrink: 0 }}>
                         {item.count.toLocaleString()}
                       </span>
                     </div>
@@ -1598,32 +1692,32 @@ export function Sidebar({
 
             {colorMode === "multigene" && (
               <>
-                <label style={{ fontSize: 12, fontWeight: 600, color: "#a0a0a0" }}>Layout</label>
+                <label style={{ fontSize: 12, fontWeight: 600, color: "var(--text-secondary)" }}>Layout</label>
                 <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                  <label style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 12, color: "#a0a0a0", cursor: "pointer" }}>
+                  <label style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 12, color: "var(--text-secondary)", cursor: "pointer" }}>
                     <input
                       type="radio"
                       name="multigeneLayout"
                       checked={multigeneLayout === "pie"}
                       onChange={() => onMultigeneLayoutChange("pie")}
-                      style={{ accentColor: "#e94560" }}
+                      style={{ accentColor: "var(--accent)" }}
                     />
                     <span>Pie (round)</span>
                   </label>
-                  <label style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 12, color: "#a0a0a0", cursor: "pointer" }}>
+                  <label style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 12, color: "var(--text-secondary)", cursor: "pointer" }}>
                     <input
                       type="radio"
                       name="multigeneLayout"
                       checked={multigeneLayout === "grid"}
                       onChange={() => onMultigeneLayoutChange("grid")}
-                      style={{ accentColor: "#e94560" }}
+                      style={{ accentColor: "var(--accent)" }}
                     />
                     <span>Grid (square)</span>
                   </label>
                 </div>
               </>
             )}
-            <label style={{ fontSize: 12, fontWeight: 600, color: "#a0a0a0" }}>Spot size</label>
+            <label style={{ fontSize: 12, fontWeight: 600, color: "var(--text-secondary)" }}>Spot size</label>
             <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
               <input
                 type="range"
@@ -1632,14 +1726,14 @@ export function Sidebar({
                 step={0.05}
                 value={spotSizeScale}
                 onChange={(e) => onSpotSizeScaleChange(Number(e.target.value))}
-                style={{ flex: 1, accentColor: "#e94560" }}
+                style={{ flex: 1, accentColor: "var(--accent)" }}
               />
-              <span style={{ fontSize: 11, color: "#888", minWidth: 36 }}>
+              <span style={{ fontSize: 11, color: "var(--text-muted)", minWidth: 36 }}>
                 {Math.round(spotSizeScale * 100)}%
               </span>
             </div>
 
-            <label style={{ fontSize: 12, fontWeight: 600, color: "#a0a0a0" }}>Opacity</label>
+            <label style={{ fontSize: 12, fontWeight: 600, color: "var(--text-secondary)" }}>Opacity</label>
             <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
               <input
                 type="range"
@@ -1648,9 +1742,9 @@ export function Sidebar({
                 step={0.05}
                 value={spotOpacity}
                 onChange={(e) => onSpotOpacityChange(Number(e.target.value))}
-                style={{ flex: 1, accentColor: "#e94560" }}
+                style={{ flex: 1, accentColor: "var(--accent)" }}
               />
-              <span style={{ fontSize: 11, color: "#888", minWidth: 36 }}>
+              <span style={{ fontSize: 11, color: "var(--text-muted)", minWidth: 36 }}>
                 {Math.round(spotOpacity * 100)}%
               </span>
             </div>

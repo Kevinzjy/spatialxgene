@@ -2,6 +2,7 @@
 Spatialxgene CLI: subcommands launch (browser viewer), preprocess (QC + reduce + cluster), visium2h5ad, seurat2h5ad.
 """
 import argparse
+import logging
 import os
 import re
 import socket
@@ -10,6 +11,8 @@ import sys
 import warnings
 from pathlib import Path
 from typing import Optional
+
+logger = logging.getLogger(__name__)
 
 # Suppress louvain's pkg_resources deprecation warning (setuptools>=81; RULES.md: we pin setuptools<81)
 warnings.filterwarnings(
@@ -197,7 +200,16 @@ def _cmd_launch(args: argparse.Namespace) -> None:
     import uvicorn
     from spatialxgene.server.main import get_app, set_data_dir, set_static_dir, set_debug, set_token, set_api_base, mount_static
 
-    set_data_dir(args.data_dir.resolve())
+    data_dir_resolved = args.data_dir.resolve()
+    set_data_dir(data_dir_resolved)
+    if not data_dir_resolved.exists():
+        print("Data directory does not exist: %s" % data_dir_resolved, file=sys.stderr)
+        print("Current DATA_DIR (used by the server): %s" % data_dir_resolved, file=sys.stderr)
+        print("Create the directory or run with --data-dir /path/to/your/h5ad", file=sys.stderr)
+    elif not data_dir_resolved.is_dir():
+        print("Data directory is not a directory: %s" % data_dir_resolved, file=sys.stderr)
+        print("Current DATA_DIR (used by the server): %s" % data_dir_resolved, file=sys.stderr)
+
     set_static_dir(static_dir)
     set_debug(getattr(args, "debug", False))
     set_token(getattr(args, "token", None))
@@ -263,36 +275,39 @@ def _cmd_preprocess(args: argparse.Namespace) -> None:
         celltypist_min_prop=getattr(args, "celltypist_min_prop", 0.0),
     )
 
+    # So preprocess pipeline logger.info/warning (e.g. Leiden fallback) are visible
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
+
     if input_path.is_file():
         if input_path.suffix != ".h5ad":
-            print("Input must be a .h5ad file when passing a file.", file=sys.stderr)
+            logger.error("Input must be a .h5ad file when passing a file.")
             sys.exit(1)
         out = output_path or input_path.parent / f"{input_path.stem}_processed.h5ad"
         if out.is_dir():
-            print("Output must be a file path (e.g. preprocessed.h5ad), not a directory.", file=sys.stderr)
+            logger.error("Output must be a file path (e.g. preprocessed.h5ad), not a directory.")
             sys.exit(1)
         out = out.resolve()
-        print(f"Preprocessing {input_path} -> {out}")
+        logger.info("Preprocessing %s -> %s", input_path, out)
         written = preprocess_file(input_path, out, **kwargs)
-        print(f"Wrote {written}")
+        logger.info("Wrote %s", written)
         return
 
     if input_path.is_dir():
         out_dir = output_path or input_path / "preprocessed"
         if out_dir.is_file():
-            print("When input is a directory, output must be a directory.", file=sys.stderr)
+            logger.error("When input is a directory, output must be a directory.")
             sys.exit(1)
-        print(f"Preprocessing all .h5ad in {input_path} -> {out_dir}")
+        logger.info("Preprocessing all .h5ad in %s -> %s", input_path, out_dir)
         preprocess_directory(
             input_path,
             out_dir,
             exclude_name_containing=args.exclude,
             **kwargs,
         )
-        print("Done.")
+        logger.info("Done.")
         return
 
-    print(f"Input not found: {input_path}", file=sys.stderr)
+    logger.error("Input not found: %s", input_path)
     sys.exit(1)
 
 

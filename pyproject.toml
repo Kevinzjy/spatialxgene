@@ -32,3 +32,12 @@ include = ["spatialxgene*"]
 # Pre-built frontend (run "pixi run build" before packaging); R script for seurat2h5ad
 [tool.setuptools.package-data]
 spatialxgene = ["frontend/dist/*", "frontend/dist/**/*", "scripts/*.R"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_functions = ["test_*"]
+filterwarnings = [
+    "ignore:.*pkg_resources is deprecated.*:UserWarning",
+    "ignore:.*superseded by the.*leidenalg.*:DeprecationWarning",
+]
