@@ -1713,6 +1713,10 @@ export default function App() {
                     }
                     task.options.spotSpacingData = spacingData;
                     task.options.panelRect = panelRectForLegend;
+                    // Group plot content (background + tissue image + spots) as one Form XObject so it appears as a single group in Illustrator; placement unchanged.
+                    task.options.plotFormKey = `PlotForm_${i}`;
+                    // Group color bar / legend and its background box as one Form XObject for easier editing in Illustrator.
+                    task.options.legendFormKey = `LegendForm_${i}`;
 
                     const plotTitle = task.options.title;
                     if (plotTitle) {
@@ -1723,9 +1727,9 @@ export default function App() {
 
                     setExportProgress(5 + Math.round(95 * (i + 0.5) / N));
                     if (task.type === "scatter") {
-                      drawPlotToPdfVector(pdf, task.options, contentRect, GStateClass);
+                      drawPlotToPdfVector(pdf, task.options, contentRect, GStateClass, PAGE_H_MM);
                     } else {
-                      drawMultigenePlotToPdfVector(pdf, task.options, contentRect, GStateClass);
+                      drawMultigenePlotToPdfVector(pdf, task.options, contentRect, GStateClass, PAGE_H_MM);
                     }
                     setExportProgress(5 + Math.round(95 * (i + 1) / N));
                   }

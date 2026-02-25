@@ -6,7 +6,7 @@
 
 ## 0. 当前状态（简要）
 
-- **已完成**：子路径部署、数据集/表达加载进度、无空间或 UMAP 时的快速提示、Annotation 类别过多/过少时的稳健展示、多级 data-dir 扫描、下拉框显示 .h5ad、preprocess 输出 leiden/louvain 与 counts layer、含多个点的 h5ad 路径解析、in_tissue 跳过 spot 过滤、adata.raw→layers['counts'] 后清空 raw、**pixi 迁移**、**seurat2h5ad**、**Preprocess + CellTypist**。**Multi-gene**：Pie/Grid 布局；Color range 与 Log scale 与 Gene 一致；无表达 spot 不画；Grid proportion≥5%；**部分基因在样本中缺失时仍正常展示**（至少一个基因有数据即显示 multigene，全 NaN 的基因层不传入，SpatialPlot 中 NaN 按 0 处理并保护 vmin/vmax）；**每样本右下角紧凑 color bar**（基因名 + 表达范围）。**多样本**：Gene/Annotation/Co-expression/Multi-gene 均支持多样本网格；**侧栏拖拽排序**已选数据集顺序；**Spot size** 最大 300%（UMAP 等适用）；**侧栏**整体上下滚动、隐蔽滚动条（`.sidebar-scroll`）、各区块 minHeight 保证可读。**Annotation 多样本图例**：每个样本图内的 categorical 图例只显示该样本的 color/label 与数量，不显示全样本合计。**顶部工具栏与 Export PDF**：主内容区顶部工具栏提供「Export PDF」按钮，通过 `exportPlotVector.ts` + jsPDF 矢量导出**单页 180×210 mm PDF**：spots、文字与图例为矢量，背景组织为栅格；所有 categorical/gene/multigene 图例与 color bar 对齐到每个样本 **panel** 的右下角，支持 Annotation（色块 + 标签 + 数量）、Gene（带标题的竖向 color bar，高在上）、Multi-gene（逐基因窄条 + 范围文字，行内垂直居中）。**超分辨相关已移除**：BayesSpace / TESLA / H&E super_resolution 已删除。**本批**：**前端增量加载**（新增 dataset 只加载新 id，复用 cache，增量时不清 expression 等状态）；**Server adata LRU 缓存**（默认 16 条，`SPATIALXGENE_CACHE_MAX_DATASETS`）；**Preprocess 日志**（CLI 用 logging，Leiden 回退 warning）与**输入校验**（X 非空、n_obs/n_vars、X.size）；**Launch 目录提示**（data-dir 不存在或非目录时 stderr 提示 + 当前 DATA_DIR）；**后端单测**（pytest：list_datasets、get_dataset_meta、_get_plot_coordinates、run_preprocess）；**空数据集提示**（侧栏「No h5ad files found under {path}」，path 来自 /api/config 的 data_dir）；**主题色抽离**（:root CSS 变量 + theme.ts）；**基因列表说明**（Gene/Gene1/Gene2/Multi-gene 标题旁 ? 图标，悬停英文提示前 200 条 + 搜索）。
+- **已完成**：子路径部署、数据集/表达加载进度、无空间或 UMAP 时的快速提示、Annotation 类别过多/过少时的稳健展示、多级 data-dir 扫描、下拉框显示 .h5ad、preprocess 输出 leiden/louvain 与 counts layer、含多个点的 h5ad 路径解析、in_tissue 跳过 spot 过滤、adata.raw→layers['counts'] 后清空 raw、**pixi 迁移**、**seurat2h5ad**、**Preprocess + CellTypist**。**Multi-gene**：Pie/Grid 布局；Color range 与 Log scale 与 Gene 一致；无表达 spot 不画；Grid proportion≥5%；**部分基因在样本中缺失时仍正常展示**（至少一个基因有数据即显示 multigene，全 NaN 的基因层不传入，SpatialPlot 中 NaN 按 0 处理并保护 vmin/vmax）；**每样本右下角紧凑 color bar**（基因名 + 表达范围）。**多样本**：Gene/Annotation/Co-expression/Multi-gene 均支持多样本网格；**侧栏拖拽排序**已选数据集顺序；**Spot size** 最大 300%（UMAP 等适用）；**侧栏**整体上下滚动、隐蔽滚动条（`.sidebar-scroll`）、各区块 minHeight 保证可读。**Annotation 多样本图例**：每个样本图内的 categorical 图例只显示该样本的 color/label 与数量，不显示全样本合计。**顶部工具栏与 Export PDF**：主内容区顶部工具栏提供「Export PDF」按钮，通过 `exportPlotVector.ts` + jsPDF 矢量导出**单页 180×210 mm PDF**：spots、文字与图例为矢量，背景组织为栅格；所有 categorical/gene/multigene 图例与 color bar 对齐到每个样本 **panel** 的右下角，支持 Annotation（色块 + 标签 + 数量）、Gene（带标题的竖向 color bar，高在上）、Multi-gene（逐基因窄条 + 范围文字，行内垂直居中）。**Export PDF 编组**：每样本 plot（背景+组织图+spots）与 legend（color bar/图例+背景框）分别输出为 Form XObject（plotFormKey、legendFormKey），Illustrator 中可整体拖动；Form BBox 与 doFormObject 矩阵统一为 points（scaleFactor），位置与尺寸正确。**超分辨相关已移除**：BayesSpace / TESLA / H&E super_resolution 已删除。**本批**：**前端增量加载**（新增 dataset 只加载新 id，复用 cache，增量时不清 expression 等状态）；**Server adata LRU 缓存**（默认 16 条，`SPATIALXGENE_CACHE_MAX_DATASETS`）；**Preprocess 日志**（CLI 用 logging，Leiden 回退 warning）与**输入校验**（X 非空、n_obs/n_vars、X.size）；**Launch 目录提示**（data-dir 不存在或非目录时 stderr 提示 + 当前 DATA_DIR）；**后端单测**（pytest：list_datasets、get_dataset_meta、_get_plot_coordinates、run_preprocess）；**空数据集提示**（侧栏「No h5ad files found under {path}」，path 来自 /api/config 的 data_dir）；**主题色抽离**（:root CSS 变量 + theme.ts）；**基因列表说明**（Gene/Gene1/Gene2/Multi-gene 标题旁 ? 图标，悬停英文提示前 200 条 + 搜索）。
 - **待做**：见 [docs/tasks.md](docs/tasks.md)（如连续配色、前端单测、CI 等）。
 
 ---
@@ -270,6 +270,15 @@
 
 ---
 
+#### Export PDF Form XObject 编组与单位统一（2026-02）
+
+- **需求**：导出的 PDF 中「组织图+spots」和「color bar/图例+背景」在 Illustrator 中能分别整体拖动；编组后位置与大小需与未编组时一致。
+- **实现**：① App 在导出循环中为每个样本设置 `plotFormKey`、`legendFormKey`，使 `exportPlotVector.ts` 将 plot 与 legend 分别画入 Form XObject 再 `doFormObject` 放置。② **单位统一**：jsPDF 在 COMPAT 下写入 stream 时用 `scale()`，坐标为 **points**（scaleFactor×用户单位）；Form 的 BBox 来自 `beginFormObject` 的 width/height，若传 mm 则 BBox 为 mm、stream 为 points，会错位与缩放错误。修复：用 `getScaleFactor(pdf)`（`pdf.internal.scaleFactor`，mm 下约 72/25.4），`beginFormObject(0, 0, w*scaleFactor, h*scaleFactor)` 使 BBox 与 stream 均为 points；`formPlaceMatrix` 的 tx/ty 改为 `x*scaleFactor`、`(pageHeightMm - y - h)*scaleFactor`，与页面 stream 单位一致。
+- **教训**：使用 jsPDF Form XObject 时，**BBox 与 doFormObject 的矩阵必须与 Form 内部 stream 及页面 stream 单位一致**（均为 points）；用户单位（如 mm）需乘 `scaleFactor` 后再传 `beginFormObject` 和放置矩阵。
+- **下次提问要点**：若导出 PDF「编组后位置/大小不对」，说明是 plot 还是 legend、现象（偏左下/尺寸错等），并附 PDF 截图；便于判断是否为 Form 单位或放置矩阵问题。
+
+---
+
 ## 5. 开发经验规则总结（快速参考）
 
 以下为 §4 的提炼，新成员或 AI 协作时优先遵守。
@@ -289,5 +298,5 @@
 | **Multi-gene** | 与 Gene 模式共用 Color range（pmin/pmax）/Log scale 的解析与状态流；Grid 布局统一像素、仅画 proportion≥5%；useMemo 依赖含 genes/layout/layer 等。**部分基因缺失**：至少一个基因有数据即显示 multigene；传入的 layers 排除全 NaN 的基因；SpatialPlot 中 NaN 按 0、vmin/vmax 做 fallback。 |
 | **侧栏滚动** | 主内容区用 `.sidebar-scroll`（index.html 定义）+ overflow auto；列表区块设 minHeight/maxHeight 与 flexShrink:0，避免压扁。 |
 | **JSX 结构** | 增删条件块或嵌套 div 后跑 build 校验；每个开标签必须有对应闭标签，注意层级。 |
-| **Export PDF** | 通过 `exportPlotVector.ts` + jsPDF 直接画向量，生成单页 **180×210 mm** PDF；spots/文字/图例为矢量、组织背景为栅格；样本标题仅在 App 布局的 title band 画一次，draw 函数只收 contentRect、不画 title（避免重复）；单样本 Multi-gene 须建 multigene 任务，否则灰点；图例对齐 panel 右下角。 |
+| **Export PDF** | 通过 `exportPlotVector.ts` + jsPDF 直接画向量，生成单页 **180×210 mm** PDF；spots/文字/图例为矢量、组织背景为栅格；样本标题仅在 App 布局的 title band 画一次，draw 函数只收 contentRect、不画 title（避免重复）；单样本 Multi-gene 须建 multigene 任务，否则灰点；图例对齐 panel 右下角。**编组**：plot 与 legend 分别用 Form XObject（plotFormKey/legendFormKey），Illustrator 可整体拖动；BBox 与放置矩阵用 scaleFactor 统一为 points。 |
 

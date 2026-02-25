@@ -86,6 +86,7 @@ The **Makefile** is a thin wrapper: each target runs `pixi run <task>`. You can 
   - **Gene color bar**: Background box contains a title line (gene or numeric field name, left-aligned with the bar), then a vertical gradient bar (high at top, low at bottom) and hi/mid/lo labels; bar uses `continuousToRgb` and the same palette/reverse as the UI.  
   - **Multi-gene legend**: Rows of narrow gradient bar + "gene vmin–vmax" text; each row uses a shared `centerY` so the bar and text are vertically centered. Same palettes and ranges as the on-screen multigene legend.
   - **Sample title**: Drawn **only once per cell** in the layout **title band** (App.tsx, before calling the draw functions). The draw functions receive `contentRect` (plot area only), so they must **not** draw the title—otherwise the title would appear twice (once in the band, once inside the plot). Single-sample export: when `plotColorMode === "multigene"`, App builds a **multigene** task (spots + legendLayers) instead of scatter, so the PDF shows the same pie/grid colors as the UI.
+  - **Grouping for Illustrator**: Each sample’s plot (background rect + tissue image + spots) and its legend (color bar or categorical legend + background box) are drawn as separate **Form XObjects** (`plotFormKey`, `legendFormKey`), so in Illustrator they appear as two groups per panel that can be moved or edited independently. Form BBox and placement matrix use the same units (points via `pdf.internal.scaleFactor`) so position and size match the layout.
 
 ## Pixi tasks / Makefile targets
 

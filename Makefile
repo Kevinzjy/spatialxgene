@@ -6,6 +6,7 @@ DATA_DIR ?= ./tests/h5ad
 HOST     ?= 192.168.31.101
 PORT     ?= 5005
 DEBUG    ?= 0
+PROJECT  ?= spatialxgene
 
 export DATA_DIR HOST PORT DEBUG
 
@@ -13,12 +14,13 @@ export DATA_DIR HOST PORT DEBUG
 
 help:
 	@echo "Spatialxgene Makefile (delegates to pixi):"
-	@echo "  make install       - pixi run install (npm install, build, pip install -e . --no-deps)"
+	@echo "  make install      - pixi run install (npm install, build, pip install -e . --no-deps)"
 	@echo "  make build        - pixi run build"
 	@echo "  make test         - pixi run test (extract tar → visium2h5ad → preprocess → launch; override HOST, PORT)"
 	@echo "  make pytest       - pixi run pytest (backend unit tests)"
 	@echo "  make launch       - pixi run launch"
 	@echo "  make clean        - pixi run clean"
+	@echo "  make global       - pixi global install --path ./"
 	@echo "  make docker       - pixi run docker"
 	@echo "  make docker-test  - pixi run docker-test"
 	@echo "  List all tasks:   $(PIXI) task list"
@@ -40,6 +42,9 @@ launch:
 
 clean:
 	$(PIXI) run clean
+
+global: install
+	$(PIXI) global uninstall $(PROJECT) && $(PIXI) global install --path ./
 
 docker:
 	$(PIXI) run docker
