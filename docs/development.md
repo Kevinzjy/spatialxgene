@@ -12,6 +12,10 @@ The project uses **[pixi](https://pixi.sh/)** for environment management (instal
 
 Run `pixi run launch`; the install task runs `pip install -e . --no-deps` so the package uses pixi-installed deps. Add more R or conda packages in `pixi.toml` as needed.
 
+**Pixi env sync:** If `pixi list <pkg>` shows a package but `pixi run python -c "import <pkg>"` fails (e.g. pytz, dateutil), the on-disk environment is out of sync with the lockfile. Run `pixi reinstall` to reinstall the default environment from the lockfile. Explicit deps like `pytz` and `python-dateutil` in `pixi.toml` ensure pandas timezone support; after adding them, run `pixi install` (or `pixi lock` then `pixi reinstall` if the env was created earlier).
+
+**API robustness:** Datasets with zero observations (empty x/y coordinate arrays) are handled in `get_dataset_meta`: default bounds (0, 1) are returned instead of calling `np.nanmin`/`np.nanmax` on empty arrays, avoiding 500 errors.
+
 The **Makefile** is a thin wrapper: each target runs `pixi run <task>`. You can run tasks directly with `pixi run <task>` (e.g. `pixi run install`, `pixi run launch`).
 
 ## Project layout

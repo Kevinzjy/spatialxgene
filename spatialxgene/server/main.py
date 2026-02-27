@@ -610,6 +610,14 @@ def get_dataset_meta(dataset_id: str):
         image_keys = []
         image_info = {}
     layer_keys = list(adata.layers.keys()) if hasattr(adata, "layers") and adata.layers else []
+    # Empty coordinate arrays (e.g. n_obs==0) make nanmin/nanmax raise ValueError
+    if x.size == 0 or y.size == 0:
+        x_min, x_max, y_min, y_max = 0.0, 1.0, 0.0, 1.0
+    else:
+        x_min = float(np.nanmin(x))
+        x_max = float(np.nanmax(x))
+        y_min = float(np.nanmin(y))
+        y_max = float(np.nanmax(y))
     return DatasetMeta(
         id=dataset_id,
         name=dataset_id,
@@ -617,10 +625,10 @@ def get_dataset_meta(dataset_id: str):
         n_vars=adata.n_vars,
         obs_columns=list(adata.obs.columns),
         var_index=list(adata.var.index.astype(str)),
-        x_min=float(np.nanmin(x)),
-        x_max=float(np.nanmax(x)),
-        y_min=float(np.nanmin(y)),
-        y_max=float(np.nanmax(y)),
+        x_min=x_min,
+        x_max=x_max,
+        y_min=y_min,
+        y_max=y_max,
         layout=layout,
         has_spatial=has_spatial,
         has_umap=has_umap,

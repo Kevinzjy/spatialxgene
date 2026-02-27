@@ -84,4 +84,6 @@ Preprocessed h5ad for `launch` should have:
 - **Tissue images** (optional): Visium-style `uns['spatial'][sample]['images']` (e.g. `hires`, `lowres`) and `scalefactors`.
 - **Layers** (optional): For gene/co-expression/multi-gene coloring, `adata.layers` (e.g. `counts` before normalization, logcounts) are listed; default is `X`. The `preprocess` command saves `counts` before normalizing so you can switch between raw and normalized in the viewer.
 
+**Notes:** Always run the viewer with the pixi environment (e.g. `pixi run launch`). If the backend reports "Unable to import required dependencies: pytz" or "dateutil", the environment may be out of sync with the lockfile—run `pixi reinstall`. Datasets with zero observations (empty coordinate arrays) are supported: the API returns default bounds so the viewer does not 500.
+
 For all options: `spatialxgene launch --help`, `spatialxgene visium2h5ad --help`, `spatialxgene seurat2h5ad --help`, `spatialxgene preprocess --help`. Backend unit tests: `pixi run pytest` (or `make pytest`). To run as a long-lived service on Linux, see [docs/deployment.md](docs/deployment.md).

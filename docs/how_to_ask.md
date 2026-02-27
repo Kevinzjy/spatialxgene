@@ -45,13 +45,34 @@
 
 ---
 
-## 5. 小结
+## 5. Pixi 依赖 / 环境问题（如 pytz、dateutil 找不到）
 
-| 类型       | 必给信息 |
-|------------|----------|
-| 功能/需求  | 目标 + 范围 + 约束（可选：细节） |
-| 报错/Bug   | 复现命令 + 完整输出 + 环境 + 期望 |
-| 资源不显示 | 哪个 UI 元素、是否标签页图标、源码里能否找到地址 |
-| 导出问题   | 单/多样本、颜色模式、现象（+ 截图更佳） |
+- **现象**：后端启动或 `pixi run python -c "import xxx"` 报 `ModuleNotFoundError: No module named 'pytz'`（或 dateutil），但 `pixi list pytz` 显示该包已存在。
+- **说明**：`pixi list` 显示的是 **lockfile 里解析出的包**，不是当前磁盘环境的安装结果。若环境是早期创建的，lockfile 后来才加入该依赖，需要重新同步环境。
+- **一次说清**：① 是否始终用 `pixi run launch` / `pixi run python`（不要用系统或其它环境的 Python）。② 报错全文 + `pixi list <包名>` 的输出。③ 若已加依赖到 pixi.toml，说明是否已执行过 `pixi install` 或 `pixi reinstall`。
+
+**简短模板**：「依赖由 pixi 管理。现象： [报错原文]。`pixi list pytz` 有该包，但 `pixi run python -c \"import pytz\"` 报 ModuleNotFoundError。我用的启动方式是 [pixi run launch / 其他]。」
+
+---
+
+## 6. API 500 / 后端报错（如 dataset meta、坐标相关）
+
+- **必给**：完整 traceback（含最后一层 ValueError/TypeError 与文件名、行号）；请求的 API 路径与参数（如 `GET /api/datasets/xxx`）；若与具体数据集相关，提供该数据集 id 或说明其特点（如 n_obs=0、无 spatial 等）。
+- **可选**：该数据集是否特殊（空 h5ad、只有 meta 无坐标、中间带点的 id 等）；期望是返回 200 带默认值还是 404。
+
+**简短模板**：「请求 [方法 + 路径，如 GET /api/datasets/MB_18mth-22_masked] 返回 500。报错： [粘贴完整 traceback]。该数据集 [是否为空/零观测/其它特点]。期望 [正常返回 meta / 返回 404]。」
+
+---
+
+## 7. 小结
+
+| 类型           | 必给信息 |
+|----------------|----------|
+| 功能/需求      | 目标 + 范围 + 约束（可选：细节） |
+| 报错/Bug       | 复现命令 + 完整输出 + 环境 + 期望 |
+| 资源不显示     | 哪个 UI 元素、是否标签页图标、源码里能否找到地址 |
+| 导出问题       | 单/多样本、颜色模式、现象（+ 截图更佳） |
+| Pixi 依赖      | 报错全文 + 是否用 pixi run、是否做过 reinstall |
+| API 500/后端   | 完整 traceback + 请求路径 + 数据集 id/特点 + 期望 |
 
 一次把上述信息写全，助手就能更快定位并给出正确修改，减少多轮补充。

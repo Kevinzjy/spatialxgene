@@ -6,7 +6,7 @@
 
 ## 0. 当前状态（简要）
 
-- **已完成**：子路径部署、数据集/表达加载进度、无空间或 UMAP 时的快速提示、Annotation 类别过多/过少时的稳健展示、多级 data-dir 扫描、下拉框显示 .h5ad、preprocess 输出 leiden/louvain 与 counts layer、含多个点的 h5ad 路径解析、in_tissue 跳过 spot 过滤、adata.raw→layers['counts'] 后清空 raw、**pixi 迁移**、**seurat2h5ad**、**Preprocess + CellTypist**。**Multi-gene**：Pie/Grid 布局；Color range 与 Log scale 与 Gene 一致；无表达 spot 不画；Grid proportion≥5%；**部分基因在样本中缺失时仍正常展示**（至少一个基因有数据即显示 multigene，全 NaN 的基因层不传入，SpatialPlot 中 NaN 按 0 处理并保护 vmin/vmax）；**每样本右下角紧凑 color bar**（基因名 + 表达范围）。**多样本**：Gene/Annotation/Co-expression/Multi-gene 均支持多样本网格；**侧栏拖拽排序**已选数据集顺序；**Spot size** 最大 300%（UMAP 等适用）；**侧栏**整体上下滚动、隐蔽滚动条（`.sidebar-scroll`）、各区块 minHeight 保证可读。**Annotation 多样本图例**：每个样本图内的 categorical 图例只显示该样本的 color/label 与数量，不显示全样本合计。**顶部工具栏与 Export PDF**：主内容区顶部工具栏提供「Export PDF」按钮，通过 `exportPlotVector.ts` + jsPDF 矢量导出**单页 180×210 mm PDF**：spots、文字与图例为矢量，背景组织为栅格；所有 categorical/gene/multigene 图例与 color bar 对齐到每个样本 **panel** 的右下角，支持 Annotation（色块 + 标签 + 数量）、Gene（带标题的竖向 color bar，高在上）、Multi-gene（逐基因窄条 + 范围文字，行内垂直居中）。**Export PDF 编组**：每样本 plot（背景+组织图+spots）与 legend（color bar/图例+背景框）分别输出为 Form XObject（plotFormKey、legendFormKey），Illustrator 中可整体拖动；Form BBox 与 doFormObject 矩阵统一为 points（scaleFactor），位置与尺寸正确。**超分辨相关已移除**：BayesSpace / TESLA / H&E super_resolution 已删除。**本批**：**前端增量加载**（新增 dataset 只加载新 id，复用 cache，增量时不清 expression 等状态）；**Server adata LRU 缓存**（默认 16 条，`SPATIALXGENE_CACHE_MAX_DATASETS`）；**Preprocess 日志**（CLI 用 logging，Leiden 回退 warning）与**输入校验**（X 非空、n_obs/n_vars、X.size）；**Launch 目录提示**（data-dir 不存在或非目录时 stderr 提示 + 当前 DATA_DIR）；**后端单测**（pytest：list_datasets、get_dataset_meta、_get_plot_coordinates、run_preprocess）；**空数据集提示**（侧栏「No h5ad files found under {path}」，path 来自 /api/config 的 data_dir）；**主题色抽离**（:root CSS 变量 + theme.ts）；**基因列表说明**（Gene/Gene1/Gene2/Multi-gene 标题旁 ? 图标，悬停英文提示前 200 条 + 搜索）。
+- **已完成**：子路径部署、数据集/表达加载进度、无空间或 UMAP 时的快速提示、Annotation 类别过多/过少时的稳健展示、多级 data-dir 扫描、下拉框显示 .h5ad、preprocess 输出 leiden/louvain 与 counts layer、含多个点的 h5ad 路径解析、in_tissue 跳过 spot 过滤、adata.raw→layers['counts'] 后清空 raw、**pixi 迁移**、**seurat2h5ad**、**Preprocess + CellTypist**。**Multi-gene**：Pie/Grid 布局；Color range 与 Log scale 与 Gene 一致；无表达 spot 不画；Grid proportion≥5%；**部分基因在样本中缺失时仍正常展示**（至少一个基因有数据即显示 multigene，全 NaN 的基因层不传入，SpatialPlot 中 NaN 按 0 处理并保护 vmin/vmax）；**每样本右下角紧凑 color bar**（基因名 + 表达范围）。**多样本**：Gene/Annotation/Co-expression/Multi-gene 均支持多样本网格；**侧栏拖拽排序**已选数据集顺序；**Spot size** 最大 300%（UMAP 等适用）；**侧栏**整体上下滚动、隐蔽滚动条（`.sidebar-scroll`）、各区块 minHeight 保证可读。**Annotation 多样本图例**：每个样本图内的 categorical 图例只显示该样本的 color/label 与数量，不显示全样本合计。**顶部工具栏与 Export PDF**：主内容区顶部工具栏提供「Export PDF」按钮，通过 `exportPlotVector.ts` + jsPDF 矢量导出**单页 180×210 mm PDF**：spots、文字与图例为矢量，背景组织为栅格；所有 categorical/gene/multigene 图例与 color bar 对齐到每个样本 **panel** 的右下角，支持 Annotation（色块 + 标签 + 数量）、Gene（带标题的竖向 color bar，高在上）、Multi-gene（逐基因窄条 + 范围文字，行内垂直居中）。**Export PDF 编组**：每样本 plot（背景+组织图+spots）与 legend（color bar/图例+背景框）分别输出为 Form XObject（plotFormKey、legendFormKey），Illustrator 中可整体拖动；Form BBox 与 doFormObject 矩阵统一为 points（scaleFactor），位置与尺寸正确。**超分辨相关已移除**：BayesSpace / TESLA / H&E super_resolution 已删除。**本批**：**前端增量加载**（新增 dataset 只加载新 id，复用 cache，增量时不清 expression 等状态）；**Server adata LRU 缓存**（默认 16 条，`SPATIALXGENE_CACHE_MAX_DATASETS`）；**Preprocess 日志**（CLI 用 logging，Leiden 回退 warning）与**输入校验**（X 非空、n_obs/n_vars、X.size）；**Launch 目录提示**（data-dir 不存在或非目录时 stderr 提示 + 当前 DATA_DIR）；**后端单测**（pytest：list_datasets、get_dataset_meta、_get_plot_coordinates、run_preprocess）；**空数据集提示**（侧栏「No h5ad files found under {path}」，path 来自 /api/config 的 data_dir）；**主题色抽离**（:root CSS 变量 + theme.ts）；**基因列表说明**（Gene/Gene1/Gene2/Multi-gene 标题旁 ? 图标，悬停英文提示前 200 条 + 搜索）。**Pixi 依赖**：pytz、python-dateutil 在 pixi.toml 中显式声明（pandas 时区等）；lockfile 与磁盘环境不同步时用 `pixi reinstall` 同步。**get_dataset_meta 空坐标**：当 x/y 坐标数组为空（如 n_obs=0）时不再对空数组调用 np.nanmin/nanmax，改为返回默认 bounds (0,1)，避免 500。
 - **待做**：见 [docs/tasks.md](docs/tasks.md)（如连续配色、前端单测、CI 等）。
 
 ---
@@ -92,6 +92,14 @@
 - **约束**：如有（如「提示词用英文」「不要改 API 路径」）一并写上。
 - **可选**：期望的交互/文案/样式细节；若可接受默认实现则可不写。
 - **示例**：「在 Gene / Gene1 / Gene2 / Multi-gene 四个列表标题右侧都加上和 Gene 一样的 ? 说明图标，悬停文案统一用英文：Only the first 200 entries are shown; use search to narrow the range.」
+
+**针对「pixi 依赖 / 环境」类（如 pytz、dateutil 找不到）：**
+
+- 说明是否始终用 `pixi run launch` / `pixi run python`；贴报错全文与 `pixi list <包名>` 输出；若刚在 toml 里加了依赖，说明是否已执行 `pixi install` 或 `pixi reinstall`。详见 docs/how_to_ask.md §5。
+
+**针对「API 500 / 后端报错」类：**
+
+- 贴完整 traceback（含最后一层异常与文件名、行号）；请求方法与路径（如 GET /api/datasets/xxx）；若与某数据集相关，给 dataset id 或说明特点（如 n_obs=0、空坐标）；期望是 200 带默认值还是 404。详见 docs/how_to_ask.md §6。
 
 ### 4.2 教训记录（模板）
 
@@ -270,6 +278,25 @@
 
 ---
 
+#### Pixi 依赖与环境不同步（pytz/dateutil 等，2026-02）
+
+- **问题**：后端报 "Unable to import required dependencies: pytz" 或 "dateutil"；`pixi list pytz` 显示包已存在，但 `pixi run python -c "import pytz"` 报 ModuleNotFoundError。
+- **根因**：`pixi list` 显示的是 **lockfile 解析结果**，不是磁盘上当前环境的安装列表。若环境是 lockfile 更新前创建的，或 install 未把新依赖写入磁盘，就会出现「list 有、import 无」。
+- **修复**：① 在 pixi.toml 中显式声明 `pytz` 与 `python-dateutil`（pandas 时区等需要）。② 运行 **`pixi reinstall`** 按 lockfile 完整重装 default 环境，缺失的包会被装上。仅 `pixi install` 有时不会补装已存在于 lockfile 但未写入 env 的包。
+- **下次提问要点**：说明是否用 `pixi run` 启动；贴报错与 `pixi list` 输出；若刚改过 toml，说明是否已执行 reinstall。见 4.1「pixi 依赖/环境」与 docs/how_to_ask.md §5。
+
+---
+
+#### get_dataset_meta 空坐标数组导致 500（2026-02）
+
+- **问题**：请求 `GET /api/datasets/{id}` 返回 500，traceback 为 `ValueError: zero-size array to reduction operation fmin which has no identity`，发生在 `get_dataset_meta` 的 `np.nanmin(x)`。
+- **根因**：当数据集 **n_obs=0** 或坐标数组 x/y 为空时，`np.nanmin`/`np.nanmax` 对空数组归约会抛错。
+- **修复**：在计算 bounds 前判断 `x.size == 0 or y.size == 0`；若为空则使用默认 `(0.0, 1.0, 0.0, 1.0)` 作为 x_min/x_max/y_min/y_max，与「无空间/无 UMAP」时的 fallback 一致，API 仍返回 200，前端可正常展示空数据集。
+- **教训**：对来自 adata 的坐标做 nanmin/nanmax 前应先检查数组 size，避免零长数组归约。
+- **下次提问要点**：API 500 类需贴完整 traceback + 请求路径 + 数据集 id 或特点（是否空/零观测）。见 4.1「API 500/后端」与 docs/how_to_ask.md §6。
+
+---
+
 #### Export PDF Form XObject 编组与单位统一（2026-02）
 
 - **需求**：导出的 PDF 中「组织图+spots」和「color bar/图例+背景」在 Illustrator 中能分别整体拖动；编组后位置与大小需与未编组时一致。
@@ -299,4 +326,6 @@
 | **侧栏滚动** | 主内容区用 `.sidebar-scroll`（index.html 定义）+ overflow auto；列表区块设 minHeight/maxHeight 与 flexShrink:0，避免压扁。 |
 | **JSX 结构** | 增删条件块或嵌套 div 后跑 build 校验；每个开标签必须有对应闭标签，注意层级。 |
 | **Export PDF** | 通过 `exportPlotVector.ts` + jsPDF 直接画向量，生成单页 **180×210 mm** PDF；spots/文字/图例为矢量、组织背景为栅格；样本标题仅在 App 布局的 title band 画一次，draw 函数只收 contentRect、不画 title（避免重复）；单样本 Multi-gene 须建 multigene 任务，否则灰点；图例对齐 panel 右下角。**编组**：plot 与 legend 分别用 Form XObject（plotFormKey/legendFormKey），Illustrator 可整体拖动；BBox 与放置矩阵用 scaleFactor 统一为 points。 |
+| **Pixi 环境** | 依赖在 pixi.toml 显式声明（如 pytz、python-dateutil）；若 `pixi list` 有包但运行时 import 失败，说明磁盘环境与 lockfile 不同步，用 **`pixi reinstall`** 重装。 |
+| **后端空数组** | 对坐标等做 `np.nanmin`/`np.nanmax` 前检查 `array.size`，空则用默认 bounds（如 0,1），避免 zero-size array reduction 报错（如 get_dataset_meta）。 |
 
