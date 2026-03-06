@@ -8,6 +8,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Added
 
+- **Release Pipeline (`make release`)**: A fully automated pipeline that builds the frontend, Python Wheel (`dist/*.whl`), versioned Docker image tarball (`docker/spatialxgene-V.tar`), and versioned Singularity Image Format (`docker/spatialxgene-V.sif`) in one command.
+- **Singularity (Apptainer) Support**: Dedicated tasks and documentation for running Spatialxgene on HPC clusters or old systems (e.g., CentOS 7 with glibc 2.17). SIF images bypass host library constraints.
+- **Versioned Distribution Artifacts**: Docker tarballs and Singularity SIF files are now automatically named with the project version (e.g., `spatialxgene-0.2.6.sif`).
+- **Chinese README**: The root `README.md` is now fully translated into Chinese, including a reorganized "Quick Start" manual for easier navigation.
+- **Containerized Deployment Manual**: `docker/README.md` reorganized to distinguish between Docker Compose (web service) and Singularity (HPC/quick view) use cases, with direct container commands (no pixi/make required in production).
+
+### Changed
+
+- **Build Task (`whl`)**: Switched from `python -m build` to `pip wheel . --no-deps -w dist/` to avoid conflicts with the local `build/` folder and simplify dependencies.
+- **Environment Management**: Unified the Pixi environment for development while providing clear container-based paths for old glibc deployments. Node.js remains in the default environment for build convenience.
+- **README Reorganization**: The "Quick Start" section of the root README is now a modular manual with dedicated sections for Basic Operations, Visualization Modes, and Exporting.
+
+### Added (Previous Unreleased Items)
+
 - **Frontend E2E Tests (Playwright)**: Full suite of smoke tests covering dataset selection, embedding toggles, coloring by annotation/gene, multi-gene layouts, and PDF export. Run with `pixi run test-e2e` or `make test-e2e`.
 - **Linux Dependency Management via Pixi**: System-level libraries for Chromium (nss, atk, gtk3, pango, alsa-lib) are now managed within the Pixi environment using `[target.linux-64.dependencies]`, allowing E2E tests to run in headless environments without global `sudo` installs.
 - **Improved Sidebar Selectors**: Added `data-testid` and ARIA roles (`role="button"`) to dataset items in the sidebar for more robust automated testing.

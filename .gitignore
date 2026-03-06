@@ -80,5 +80,6 @@ tests/h5ad
 
 # Docker images
 docker/*.tar
+docker/*.sif
 
 images/

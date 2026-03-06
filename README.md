@@ -1,89 +1,112 @@
 # Spatialxgene
 
-**v0.2.6** — Browser-based spatial transcriptomics viewer and preprocessing (cellxgene-style). Launch the viewer to explore spatial plots (zoom/pan, color by **annotation**, **gene**, or **co-expression**; optional tissue image; expression from `X` or `adata.layers`), or run **preprocess** on raw h5ad. Convert **Visium** Space Ranger output to h5ad with **visium2h5ad**, or **Seurat RDS** to h5ad with **seurat2h5ad**.
+**v0.2.6** — 基于浏览器的空间转录组可视化分析与预处理工具（cellxgene 风格）。启动查看器以探索空间图谱（支持缩放/平移，按 **注释 (Annotation)**、**基因 (Gene)**、**共表达 (Co-expression)** 或 **多基因 (Multi-gene)** 着色；可选组织背景图；支持从 `X` 或 `adata.layers` 读取表达值），或对原始 h5ad 进行 **预处理 (preprocess)**。支持通过 **visium2h5ad** 将 **Visium** Space Ranger 输出转换为 h5ad，或通过 **seurat2h5ad** 将 **Seurat RDS** 转换为 h5ad。
 
-## Requirements
+## 环境要求
 
-- [pixi](https://pixi.sh/) (recommended) or Python ≥3.9 + Node.js for building the frontend. The packaged app includes the built frontend.
+- [pixi](https://pixi.sh/) (推荐) 或 Python ≥3.9 + Node.js (用于构建前端)。打包后的应用程序已包含构建好的前端。
 
-## Install
+## 安装说明
 
-### From source with pixi (recommended)
+### 从源码安装 (推荐使用 pixi)
 
 ```bash
 git clone <repo> && cd spatialxgene
 pixi run install
 ```
 
-Then run `spatialxgene` from the pixi env (e.g. `pixi run launch` or `pixi run spatialxgene launch`). Default data dir for the viewer is `./tests/h5ad`; put preprocessed h5ad there or pass `--data-dir /path`.
+然后从 pixi 环境运行 `spatialxgene`（例如 `pixi run launch` 或 `pixi run spatialxgene launch`）。查看器的默认数据目录为 `./tests/h5ad`；请将预处理好的 h5ad 放入该目录，或通过 `--data-dir /path` 指定路径。
 
-Or, install globally (from the project root):
+或者，进行全局安装（在项目根目录）：
 
 ```bash
 pixi global install --path .
 ```
 
-Then `spatialxgene` is exposed to your `$PATH` (ensure `~/.pixi/bin` is on PATH).
+安装后 `spatialxgene` 将被添加到你的 `$PATH` 中（请确保 `~/.pixi/bin` 在 PATH 中）。
 
-## Commands
+## 容器化部署 (Docker & Singularity)
 
-| Command | Description |
+为了解决不同服务器环境（特别是 **CentOS 7** 等旧版本系统）下的 **glibc 兼容性**问题，本项目提供了完整的容器化分发方案：
+
+- **Docker Compose**: 适用于 Web 服务器，作为长期稳定的服务运行。
+- **Singularity (Apptainer)**: 适用于超算集群 (HPC) 或无 root 权限环境，提供单文件 (`.sif`) 部署。
+
+> **详细说明请参考：[docker/README.md](docker/README.md)**
+
+## 核心命令
+
+| 命令 | 描述 |
 |---------|-------------|
-| `spatialxgene launch` | Start the browser viewer; serve preprocessed h5ad from a directory. |
-| `spatialxgene visium2h5ad <dir>` | Convert Visium Space Ranger output directory to a single h5ad file (default output: dir.h5ad). |
-| `spatialxgene seurat2h5ad <file>` | Convert Seurat spatial RDS (.rds or .rds.gz) to a single h5ad file. Requires R with Seurat (pixi env includes r-seurat). |
-| `spatialxgene preprocess <file or dir>` | Expression pipeline: QC, normalize, HVG, PCA, UMAP, Leiden; optional CellTypist auto cell-type annotation (`obs['auto_cell_type']`). Input: single .h5ad or directory. Does not change spatial. Use `--no-celltypist` to skip annotation. |
+| `spatialxgene launch` | 启动浏览器查看器；提供指定目录下的预处理 h5ad 文件。 |
+| `spatialxgene visium2h5ad <dir>` | 将 Visium Space Ranger 输出目录转换为单个 h5ad 文件（默认输出：目录名.h5ad）。 |
+| `spatialxgene seurat2h5ad <file>` | 将 Seurat 空间 RDS (.rds 或 .rds.gz) 转换为单个 h5ad 文件。需要安装了 Seurat 的 R 环境（pixi 环境已包含 r-seurat）。 |
+| `spatialxgene preprocess <file or dir>` | 表达量处理流程：QC、标准化、HVG、PCA、UMAP、Leiden 聚类；可选 CellTypist 自动细胞类型注释 (`obs['auto_cell_type']`)。输入：单个 .h5ad 或目录。不改变空间坐标。使用 `--no-celltypist` 跳过注释。 |
 
-## Quick start
+## 快速上手
 
-1. **Launch the viewer**
+1. **启动查看器**
 
    ```bash
    pixi run launch
-   # or: spatialxgene launch --data-dir /path/to/h5ad
+   # 或者手动指定数据目录、主机和端口
+   spatialxgene launch --data-dir /path/to/h5ad --host 0.0.0.0 --port 5005
    ```
-   Default data dir is `./tests/h5ad`. Put preprocessed h5ad there, or override with `--data-dir`. If the directory is missing, launch prints a hint to stderr; if it is empty, the sidebar shows “No h5ad files found under &lt;path&gt;” (path comes from the server). When you add another dataset to the selection, only the new one is loaded (incremental load); the server keeps an LRU cache of loaded adata (default max 16 datasets; set `SPATIALXGENE_CACHE_MAX_DATASETS` to change). Gene lists show the first 200 entries; use the search box to narrow results. A small (?) icon next to **Gene** / **Gene1** / **Gene2** / **Genes** explains this on hover.
 
-   Opens http://127.0.0.1:5005 by default (use `--host` and `--port` to change). A **toolbar** at the top of the plot area includes an **Export PDF** button to download all visible plots as a single-page, vector-based PDF (180×210 mm): spots and legends are editable vectors; tissue images are raster. Legends (categorical swatches + label/count, gene color bar with title, multi-gene gradient bars) are drawn in the bottom-right of each sample **panel** with a compact background box. In the exported PDF, the **plot** (background + tissue image + spots) and the **legend** (color bar or categorical legend + background box) are each output as a single grouped object so you can move or edit them as a whole in Illustrator. Each sample name appears once in the **title band** above the plot (single- or multi-sample). Single-sample multi-gene export uses the same pie/grid colors as on screen. Use the sidebar to pick one or more datasets (h5ad files are discovered in the data directory and all subdirectories; the dropdown shows paths including `.h5ad`). When multiple datasets are selected, a **comparison grid** is shown for **Gene**, **Annotation**, **Co-expression**, and **Multi-gene** modes; you can **drag to reorder** the selected list to change display order. Color by **Annotation**, **Gene**, **Co-expression** (two genes, 2D palette), or **Multi-gene** (multiple genes per spot: **Pie** or **Grid** layout, color range pmin/pmax and Log scale; each sample shows a compact **color bar** in the bottom-right with per-gene expression range; if a gene is missing in a sample, that sample still shows spots using the other genes). In multi-sample Annotation mode, the in-plot categorical legend shows **per-sample** category counts (not the total across samples). Choose a **Layer** (X or adata.layers) when coloring by gene; choose a tissue background image (if present). **Spot size** can be set up to 300% (useful for UMAP). The sidebar scrolls when content is long (subtle scrollbar); Datasets/Gene lists have minimum height so they stay readable. Zoom/pan the plot. Optional `--token` (default `zhaoslab`) enables simple auth — open the app with `?token=zhaoslab` in the URL once. Use `--token ""` to disable. When behind nginx at a subpath (e.g. `/spatialxgene/`), use `--api-base spatialxgene` so assets and API use that path.
+   ### 基础操作
+   *   **数据加载**：默认扫描 `./tests/h5ad` 及其子目录下的所有 `.h5ad` 文件。支持**增量加载**（切换数据集时仅加载新增项）和后端 **LRU 缓存**（默认缓存 16 个数据集）。
+   *   **多样本对比**：在侧边栏选中多个数据集后，主界面将自动切换为**对比网格**。你可以通过**拖拽排序**侧边栏的已选列表来调整显示顺序。
+   *   **显示调节**：支持调节 **Spot Size**（最高 300%），适用于 UMAP 或低密度切片。
 
-2. **Convert Visium to h5ad** (Space Ranger output → single h5ad)
+   ### 可视化模式
+   *   **Annotation (注释)**：按细胞类型或聚类着色。图例显示单样本内的类别计数。
+   *   **Gene (基因)**：支持从 `X` 或 `layers` 读取数据，支持颜色范围调节 (pmin/pmax) 与 Log 缩放。
+   *   **Co-expression (共表达)**：选择两个基因，使用 2D 调色板展示它们的空间分布。
+   *   **Multi-gene (多基因)**：单点展示多个基因。支持 **Pie (饼图)** 或 **Grid (网格)** 布局。每个样本右下角带有独立的颜色指示条。
+
+   ### 结果导出 (Export PDF)
+   *   **矢量导出**：点击顶部工具栏的 **Export PDF**，生成单页矢量 PDF (180x210mm)。
+   *   **图例对齐**：所有图例与色带均自动对齐到样本面板的右下角。
+   *   **后期友好**：导出的 PDF 中，图表区与图例区已分别**自动编组**。在 Adobe Illustrator 中可以直接选中并整体移动，极大方便科研作图。
+
+2. **将 Visium 转换为 h5ad** (Space Ranger 输出 → 单个 h5ad)
 
    ```bash
    spatialxgene visium2h5ad /path/to/visium_sample
    spatialxgene visium2h5ad /path/to/visium_sample -o output.h5ad
    ```
 
-   Input is the Visium sample directory; output defaults to that path with `.h5ad` (e.g. `a/b/c` → `a/b/c.h5ad`). Use the output with `launch` or run **preprocess** next.
+   输入为 Visium 样本目录；输出默认为该路径加 `.h5ad`。产物可直接用于 `launch` 或下一步的 **preprocess**。
 
-3. **Convert Seurat RDS to h5ad** (spatial RDS → single h5ad)
+3. **将 Seurat RDS 转换为 h5ad** (空间 RDS → 单个 h5ad)
 
    ```bash
    spatialxgene seurat2h5ad tests/P2N_Spatial.rds.gz
    spatialxgene seurat2h5ad sample.rds -o sample.h5ad
    ```
 
-   Input is a Seurat spatial object saved as `.rds` or `.rds.gz`. Output defaults to the input stem with `.h5ad` (e.g. `P2N_Spatial.rds.gz` → `P2N_Spatial.h5ad`). Requires R with Seurat (use `pixi run install` so the pixi env has `r-seurat`). Use the output with `launch` or run **preprocess** next.
+   输入为保存为 `.rds` 或 `.rds.gz` 的 Seurat 空间对象。输出默认为输入文件名加 `.h5ad`。需要安装了 Seurat 的 R 环境（建议使用 `pixi run install` 以确保 pixi 环境中有 `r-seurat`）。产物可直接用于 `launch` 或下一步的 **preprocess**。
 
-4. **Preprocess expression** (QC, normalize, reduce, cluster, optional CellTypist annotation)
+4. **预处理表达量** (QC、标准化、降维聚类、可选 CellTypist 注释)
 
    ```bash
    spatialxgene preprocess raw.h5ad
    spatialxgene preprocess raw.h5ad -o custom.h5ad
-   spatialxgene preprocess raw.h5ad --no-celltypist    # skip auto cell-type annotation
+   spatialxgene preprocess raw.h5ad --no-celltypist    # 跳过自动细胞类型注释
    ```
 
-   Follows scanpy tutorial: QC, normalize_total, log1p, HVG (used only for PCA/UMAP/Leiden); output keeps **all genes** that passed QC. Writes **leiden** (and **louvain** when used) to `obs`, and **counts** to `adata.layers` before normalization. When **CellTypist** is enabled (default), species (human/mouse) is inferred from gene symbols and cell types are predicted with model routing and majority voting; results go to **`obs['auto_cell_type']`** (and optionally **`obs['auto_cell_type_coarse']`** for immune-enriched samples). Use `--no-celltypist` to skip annotation; `--celltypist-model NAME` to force a model. When `obs['in_tissue']` exists (e.g. Visium), spot filtering by gene count is skipped; when the input has `adata.raw`, it is copied into `layers['counts']` when possible before writing. Default output: same dir with `*_processed.h5ad` or `input/preprocessed/` for a directory.
+   遵循 scanpy 标准流程：QC、normalize_total、log1p、HVG（仅用于 PCA/UMAP/Leiden）；输出保留**所有通过 QC 的基因**。在 `obs` 中写入 **leiden**（及 **louvain**，如果运行了），并在标准化前将原始计数存入 **`adata.layers['counts']`**。开启 **CellTypist**（默认）时，根据基因名自动推断物种（人/鼠），通过模型路由和 majority voting 预测细胞类型；结果存入 **`obs['auto_cell_type']`**（免疫富集样本可选存入 `obs['auto_cell_type_coarse']`）。使用 `--no-celltypist` 跳过注释；`--celltypist-model NAME` 强制指定模型。当存在 `obs['in_tissue']`（如 Visium）时，跳过按基因数过滤 Spot；如果输入含 `adata.raw`，写盘前会尽可能将其拷贝到 `layers['counts']` 并清空 raw。默认输出：同目录下 `*_processed.h5ad`，或对目录输入产生 `input/preprocessed/`。
 
-## Data format (viewer)
+## 数据格式说明 (查看器)
 
-Preprocessed h5ad for `launch` should have:
+用于 `launch` 的预处理 h5ad 建议包含：
 
-- **Spatial**: `obsm['spatial']` or `obs['x']` and `obs['y']`.
-- **Expression**: `X`, `var` index = gene names.
-- **Annotations** (optional): e.g. `obs['leiden']`, `obs['louvain']`, `obs['auto_cell_type']` for coloring (written by `preprocess`; `auto_cell_type` from CellTypist when not disabled).
-- **Tissue images** (optional): Visium-style `uns['spatial'][sample]['images']` (e.g. `hires`, `lowres`) and `scalefactors`.
-- **Layers** (optional): For gene/co-expression/multi-gene coloring, `adata.layers` (e.g. `counts` before normalization, logcounts) are listed; default is `X`. The `preprocess` command saves `counts` before normalizing so you can switch between raw and normalized in the viewer.
+- **空间坐标 (Spatial)**: `obsm['spatial']` 或 `obs['x']` 和 `obs['y']`。
+- **基因表达 (Expression)**: `X` 矩阵，`var` 索引为基因名。
+- **注释信息 (Annotations)** (可选): 例如用于着色的 `obs['leiden']`、`obs['louvain']`、`obs['auto_cell_type']`（由 `preprocess` 写入）。
+- **组织图像 (Tissue images)** (可选): Visium 风格的 `uns['spatial'][sample]['images']`（例如 `hires`、`lowres`）及 `scalefactors`。
+- **数据层 (Layers)** (可选): 用于基因/共表达/多基因着色的 `adata.layers`（如标准化前的 `counts`、logcounts）；默认为 `X`。`preprocess` 命令在标准化前会自动保存 `counts`，以便在查看器中切换原始计数和标准化值。
 
-**Notes:** Always run the viewer with the pixi environment (e.g. `pixi run launch`). If the backend reports "Unable to import required dependencies: pytz" or "dateutil", the environment may be out of sync with the lockfile—run `pixi reinstall`. Datasets with zero observations (empty coordinate arrays) are supported: the API returns default bounds so the viewer does not 500.
+**注意：** 始终建议在 pixi 环境中运行查看器（如 `pixi run launch`）。如果后端报错 "Unable to import required dependencies: pytz" 或 "dateutil"，说明磁盘环境可能与 lockfile 不同步，请运行 `pixi reinstall`。支持零观测（空坐标数组）的数据集：API 会返回默认范围，查看器不会报 500 错误。
 
-For all options: `spatialxgene launch --help`, `spatialxgene visium2h5ad --help`, `spatialxgene seurat2h5ad --help`, `spatialxgene preprocess --help`. Backend unit tests: `pixi run pytest` (or `make pytest`). To run as a long-lived service on Linux, see [docs/deployment.md](docs/deployment.md).
+查看所有选项：`spatialxgene launch --help`, `spatialxgene visium2h5ad --help`, `spatialxgene seurat2h5ad --help`, `spatialxgene preprocess --help`。后端单元测试：`pixi run pytest` (或 `make pytest`)。如需在 Linux 上作为长期服务运行，请参阅 [docs/deployment.md](docs/deployment.md)。

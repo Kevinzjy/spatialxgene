@@ -1,22 +1,52 @@
 # Deployment
 
-How to run Spatialxgene as a long-running service: **Docker Compose** (recommended, especially on servers with older glibc) or **systemd** on Linux.
+How to run Spatialxgene as a long-running service: **Docker Compose** (recommended for permanent web services) or **Singularity** (recommended for HPC/clusters with old glibc like CentOS 7).
+
+---
+
+## Singularity (HPC & Old glibc Compatibility)
+
+Singularity (Apptainer) is the best solution for running Spatialxgene on **HPC clusters** or servers with old glibc (e.g., **CentOS 7**). It encapsulates the entire environment into a single `.sif` file, bypassing host system library constraints.
+
+### 1. Build SIF Image
+
+Build the Singularity Image Format (SIF) file on a machine that has Singularity installed:
+
+```bash
+# First, build and save the Docker image to a tar archive
+make docker-save
+# Then, build the SIF from the tar archive
+make singularity-build
+# This produces docker/spatialxgene.sif
+```
+
+### 2. Run on Server
+
+Copy `docker/spatialxgene.sif` to your server and run it. Use `--bind` to mount your data directory to `/data` inside the container.
+
+```bash
+singularity run --bind /path/to/h5ad:/data docker/spatialxgene.sif --token zhaoslab
+```
+
+- **Data**: Mount host data to `/data`.
+- **Token**: Set access token (default: `zhaoslab`).
+- **Port/Host**: Use `--port` and `--host` to override defaults.
 
 ---
 
 ## Docker Compose
 
-Recommended for portability and to avoid glibc/Python-version issues. From the project root:
+Recommended for permanent web services, especially when using reverse proxies like Nginx.
 
 ```bash
 docker compose -f docker/docker-compose.yml up -d
 ```
 
-- **Data**: Default volume is `./tests/h5ad` → `/data` in the container (see `docker/docker-compose.yml`); edit `volumes` to use another path. The viewer discovers `.h5ad` files in that directory and all subdirectories; dataset ids are relative paths without the `.h5ad` suffix (e.g. `subdir/sample`, `subdir/sample_v1.3`). Filenames with multiple dots (e.g. version numbers) are supported.
-- **Token**: Default `--token zhaoslab`. Override with `command: ["--token", "your-secret"]` or `command: ["--token", ""]` to disable.
-- **Port**: Default `5005`; change `ports` in the compose file if needed.
+- **Data**: Default volume is `./tests/h5ad` → `/data` in the container. Edit `docker/docker-compose.yml` to use your actual path.
+- **Token**: Default `--token zhaoslab`. Override in `command` section.
+- **Port**: Default `5005`.
 
-See [docker/README.md](../docker/README.md) for more options. If you only have a single nginx location (e.g. `/spatialxgene/`), set `--api-base spatialxgene` or `SPATIALXGENE_API_BASE=spatialxgene` so all assets and API use that path; see RULES.md §4.3 (server network permission).
+See [docker/README.md](../docker/README.md) for more details.
 
 ---
 

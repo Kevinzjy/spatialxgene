@@ -4,19 +4,28 @@ Project layout, build and run from source, and where to find design/plan docs.
 
 ## Environment: pixi (Python from conda-forge)
 
-The project uses **[pixi](https://pixi.sh/)** for environment management (install at `~/.pixi/bin/pixi` or ensure `pixi` is on PATH). Pixi manifest reference: <https://pixi.prefix.dev/latest/reference/pixi_manifest>. Pixi provides:
+The project uses **[pixi](https://pixi.sh/)** for environment management. For development simplicity, all dependencies (Python, R, and Node.js) are included in the default environment.
 
-- **Python and Python packages** — From conda-forge (numpy, scanpy, anndata, fastapi, uvicorn, etc.); versions are pinned in `pixi.toml`.
-- **nodejs** — Frontend (npm install, npm run build)
-- **r-base** — R runtime for future R dependencies
+### Deployment on Old Systems (CentOS 7)
 
-Run `pixi run launch`; the install task runs `pip install -e . --no-deps` so the package uses pixi-installed deps. Add more R or conda packages in `pixi.toml` as needed.
+Because the latest versions of Node.js and some Python libraries require glibc 2.28+ (available in CentOS 8+), running `pixi install` directly on a CentOS 7 host (glibc 2.17) may fail.
 
-**Pixi env sync:** If `pixi list <pkg>` shows a package but `pixi run python -c "import <pkg>"` fails (e.g. pytz, dateutil), the on-disk environment is out of sync with the lockfile. Run `pixi reinstall` to reinstall the default environment from the lockfile. Explicit deps like `pytz` and `python-dateutil` in `pixi.toml` ensure pandas timezone support; after adding them, run `pixi install` (or `pixi lock` then `pixi reinstall` if the env was created earlier).
+**The recommended strategy is to use the Singularity/Docker containerization path, which bundles all necessary libraries (including a modern glibc) inside the image.**
 
-**API robustness:** Datasets with zero observations (empty x/y coordinate arrays) are handled in `get_dataset_meta`: default bounds (0, 1) are returned instead of calling `np.nanmin`/`np.nanmax` on empty arrays, avoiding 500 errors.
+### Automatic Release Pipeline
 
-The **Makefile** is a thin wrapper: each target runs `pixi run <task>`. You can run tasks directly with `pixi run <task>` (e.g. `pixi run install`, `pixi run launch`).
+Use the full release pipeline on a modern development machine to build all distribution formats:
+
+```bash
+make release
+```
+
+This will automatically:
+1.  **Build Frontend**: `npm install` and `npm run build` to generate `spatialxgene/frontend/dist`.
+2.  **Build Wheel**: Generate a Python `.whl` in `dist/`.
+3.  **Build Docker**: Create a `spatialxgene:latest` image.
+4.  **Save Docker Tar**: Export the image to `docker/spatialxgene.tar`.
+5.  **Build Singularity**: Convert the tarball to `docker/spatialxgene.sif`.
 
 ## Project layout
 

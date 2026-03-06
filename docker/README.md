@@ -1,44 +1,60 @@
-# Docker 部署
+# 容器化部署 (Docker & Singularity)
 
-## 服务器上的用法（你当前流程）
+本项目提供 Docker 与 Singularity 两种容器化部署方式，主要用于解决不同操作系统（如 CentOS 7）下的 **glibc 版本兼容性** 问题。
 
-1. **本机**：构建并打包镜像，上传到服务器。
-   ```bash
-   # 在项目根目录
-   docker build -f docker/Dockerfile -t spatialxgene:latest .
-   docker save -o spatialxgene.tar spatialxgene:latest
-   # 把 spatialxgene.tar 拷到服务器
-   ```
+**重要提示：** 预构建的 Docker/Singularity 镜像主要用于 **`spatialxgene launch` 可视化分析**，并不包含 `preprocess` 或 `visium2h5ad` 等预处理功能。请在现代开发机上完成预处理（`.h5ad` 生成）后，再将数据挂载到镜像中查看。
 
-2. **服务器**：加载镜像，在放有 `docker-compose.yml` 的目录（如 `docker/`）里起服务。
-   ```bash
-   docker load -i spatialxgene.tar
-   cd docker
-   docker compose up -d
-   ```
+## 使用场景建议
 
-3. **docker-compose.yml 示例**（只保留你需要的部分即可）：
-   ```yaml
-   services:
-     spatialxgene:
-       image: spatialxgene:latest
-       ports:
-         - "5005:5005"
-       volumes:
-         - /path/on/host/to/h5ad:/data
-       command: ["--token", "zhaoslab", "--api-base", "spatialxgene"]
-   ```
-   - 若 nginx 反代路径不是 `/spatialxgene/`，把 `--api-base` 改成对应路径名。
-   - 数据目录：宿主机路径挂载到容器内 `/data`；仓库内默认用 `../tests/h5ad`（见 docker-compose.yml）。容器会递归扫描该目录及子目录下的所有 `.h5ad`；文件名中含多个点（如 `sample_v1.3.h5ad`）也支持。
+| 方式 | 建议场景 | 特点 |
+| :--- | :--- | :--- |
+| **Docker Compose** | 网站服务器、长期运行的服务。 | 支持自动重启、多容器协同（如 Nginx 反代）、管理方便。 |
+| **Singularity (Apptainer)** | 超算集群 (HPC)、开发机快速查看、无 root 权限环境。 | **单文件 (.sif)** 分发、无 root 权限运行、完美适配 CentOS 7 等老旧 glibc 环境。 |
 
 ---
 
-## 本地一键测子路径（可选）
+## 1. Docker Compose (长期服务)
 
-在项目根目录执行：
+1. **加载镜像**（以 0.2.6 版本为例）：
+   ```bash
+   docker load -i spatialxgene-0.2.6.tar
+   ```
 
+2. **启动服务**：
+   在 `docker/` 目录下（确保已有 `docker-compose.yml`）：
+   ```bash
+   docker compose up -d
+   ```
+
+3. **配置说明**：
+   - 默认映射端口 `5005`。
+   - 默认数据挂载 `./tests/h5ad` 到容器内 `/data`，请根据实际情况在 `docker-compose.yml` 中修改 `volumes`。
+
+---
+
+## 2. Singularity (超算/集群快速查看)
+
+在 CentOS 7 等老旧系统上，Singularity 是解决 glibc 报错的最佳方案。
+
+1. **运行 SIF 镜像**（以 0.2.6 版本为例）：
+   ```bash
+   # --bind 挂载宿主机数据目录到容器内 /data
+   # 使用 --token 设置访问令牌（默认 zhaoslab）
+   singularity run --bind /path/to/your/h5ad:/data spatialxgene-0.2.6.sif --token zhaoslab
+   ```
+
+2. **常用参数**：
+   - `--token`: 设置访问令牌（如 `--token ""` 禁用）。
+   - `--port`: 修改监听端口。
+   - `--host`: 修改监听地址（默认 0.0.0.0）。
+   - `--no-browser`: 禁用自动打开浏览器（服务器环境必需）。
+
+---
+
+## 本地子路径测试 (Docker)
+
+(此部分仅供开发者测试使用)
 ```bash
 docker compose -f docker/docker-compose.nginx-test.yml up --build
 ```
-
-浏览器打开 http://localhost:8888/spatialxgene/ 。数据目录为 `./tests/h5ad`。
+打开 http://localhost:8888/spatialxgene/ 即可查看模拟子路径部署的效果。

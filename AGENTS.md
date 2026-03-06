@@ -146,12 +146,10 @@
 
 ### 4.3 项目规范与发布教训（Spatialxgene）
 
-- **开发环境（pixi + Python conda-forge）**
-  - **pixi 文档**：manifest 等参考 https://pixi.prefix.dev/latest/reference/pixi_manifest/
-  - 整体环境由 **pixi** 管理（推荐安装到 `~/.pixi/bin/pixi`）。Python 依赖在 pixi.toml 中锁定（conda-forge）；pyproject.toml 保留包元数据与 setuptools，用于 `pip install -e . --no-deps`。pixi 提供 python、nodejs、r-base；日常用 `pixi run install`、`pixi run launch`、`pixi run test`。**CLI 统一**：所有任务通过 `spatialxgene` 命令调用（不再混用 `python -m spatialxgene.cli`）。
-  - 若环境中为 **NumPy 2.x**，scanpy 及其依赖（如 numba）可能尚未兼容，会报 `numpy.core.multiarray failed to import` 或 `_ARRAY_API not found`。pixi.toml 已约束 numpy 为 1.x（如 1.26.4）；新增依赖时注意与 NumPy 2 的兼容性。
-  - **visium2h5ad**：使用 `scanpy.read_visium()` 读取 Visium 目录并写出 h5ad。需保证 setuptools<81（见上）及可用的 numba/scanpy，否则可回退为不依赖 scanpy 的自实现（见 git 历史）。
-  - **Conda 包运行依赖（`[package.run-dependencies]`）**：打出的 conda 包（`pixi build`）的 run 依赖必须与 `[dependencies]` 中**运行时所需**的包版本一致（使用明确版本号 `==x.y.z`），以便 `mamba install spatialxgene-*.conda` 时自动安装相同版本。**约定**：`[package.run-dependencies]` 与 `[dependencies]` 中除 nodejs、r-base 外的运行时依赖保持版本一致；升级任一处时需同步另一处。当前明确版本（与 pixi.toml 一致）：python 3.9.23、numpy 1.26.4、setuptools 80.9.0、scanpy 1.10.3、anndata 0.10.9、leidenalg 0.10.2、pandas 2.3.1、h5py 3.14.0、fastapi 0.116.1、uvicorn 0.35.0、pillow 11.3.0、louvain 0.8.2。**注意**：须在 `[package.build.config]` 中设置 `ignore-pypi-mapping = false`，否则 pixi-build-python 不会把 run 依赖写入 conda 包，空环境安装时只会装上 spatialxgene 本身；启用后 backend 先从 pyproject.toml 映射出 run 依赖，再由 `[package.run-dependencies]` 覆盖为上述精确版本。
+- **环境与发布策略 (pixi + release pipeline)**
+  - **开发环境**：所有依赖（含 Node.js）统一在默认环境中，简化开发流程。
+  - **发布流程 (make release)**：在现代开发机上执行一键发布，自动产出前端静态资源、Python Wheel (`dist/`)、Docker 镜像、Docker Tar 以及 Singularity SIF 镜像 (`docker/`)。
+  - **CentOS 7 部署**：由于 CentOS 7 glibc (2.17) 过低，无法直接安装 Node.js 22+ 及部分新版 Python/R 库，**统一使用 Singularity (SIF) 镜像进行部署**。SIF 内部包含完整的运行时库，完美解决兼容性问题。详见 `docs/deployment.md`。
 
 - **测试数据与目录约定**
   - **tests/**：测试与示例数据所在目录。Visium 原始数据以 tar 存放（如 `tests/HCC1R.tar`），`pixi run test` 会解压到 `tests/HCC1R`、跑 visium2h5ad → preprocess、用 `--data-dir ./tests` 启动 viewer，退出后删除生成的 `tests/HCC1R*.h5ad`。

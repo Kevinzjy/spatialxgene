@@ -13,10 +13,9 @@
 - [ ] **连续配色选项**：在 colorScale 或 UI 中增加 viridis 等选项（可选）。
 - [ ] **前端单测**：为 api、colorScale 及关键组件写单元/集成测试。
 
-### 工程与文档
-
-- [x] **CI/CD 准备**：完成 Playwright E2E 测试框架搭建，并解决 Linux 运行环境依赖（Pixi 管理系统库）。
-- [x] **README 与 Makefile**：新增 `make test-e2e` 支持，确保新成员可通过 `make install`、`make test-e2e` 完成完整链路验证。
+- [x] **自动化发布 (make release)**：一键构建 whl、版本化 Docker tar 及 Singularity SIF 镜像，实现全环境分发。
+- [x] **CentOS 7 兼容性 (glibc 2.17)**：通过 Singularity (SIF) 镜像彻底解决旧系统 glibc 2.17 的兼容性问题，文档 (deployment.md) 已详细说明。
+- [x] **中文化 README 与操作手册**：首页 README 已完整中文化，并整理为「快速上手」手册，方便内部团队与科研用户。
 
 ---
 

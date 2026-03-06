@@ -1,7 +1,7 @@
 # Spatialxgene: pixi manages the project environment (Python from conda-forge, node, R).
-# Run with: ~/.pixi/bin/pixi run <task>  or add ~/.pixi/bin to PATH and use pixi run <task>
-# Conda package: enable pixi-build, then run `pixi run build` (frontend) before `pixi build`.
-# See https://pixi.prefix.dev/latest/reference/pixi_manifest and docs/build/backends/pixi-build-python.md
+# Development: pixi run build   (build frontend)
+# Deployment:  Use Singularity (SIF) or Docker for glibc compatibility (CentOS 7).
+# Release:     make release     (build whl, docker tar, and singularity sif)
 
 [workspace]
 name = "spatialxgene"
@@ -16,7 +16,7 @@ platforms = ["linux-64", "osx-arm64", "osx-64", "win-64"]
 preview = ["pixi-build"]
 
 [package]
-name = { workspace = true } # Inherit the name from the workspace
+name = { workspace = true }
 version = "0.2.6"
 description = "Browser-based spatial transcriptomics viewer (cellxgene-style)"
 
@@ -31,22 +31,8 @@ wheel = "*"
 extra-input-globs = ["spatialxgene/frontend/dist/**"]
 ignore-pypi-mapping = false
 
-[package.run-dependencies]
-#python = "==3.9.23"
-#numpy = "==1.26.4"
-#setuptools = "==80.9.0"
-#scanpy = "==1.10.3"
-#anndata = "==0.10.9"
-#leidenalg = "==0.10.2"
-#pandas = "==2.3.1"
-#h5py = "==3.14.0"
-#fastapi = "==0.116.1"
-#uvicorn = "==0.35.0"
-#pillow = "==11.3.0"
-#louvain = "==0.8.2"
-
 [dependencies]
-python = "==3.11"
+python = ">=3.9,<3.12"
 anndata = ">=0.12.10,<0.13"
 numpy = ">=2.3.5,<3"
 setuptools = ">=82.0.0,<83"
@@ -76,34 +62,43 @@ alsa-lib = ">=1.2"
 [pypi-dependencies]
 celltypist = ">=1.7.1, <2"
 pytz = "*"
-#celltypist = ">=1.7,<2"
-#pytest = ">=7.0"
-#httpx = ">=0.24"
 
 [tasks]
 # Install frontend & spatialxgene package
 install = "cd spatialxgene/frontend && npm install && npm run build && cd ../.. && pip install -e . --no-deps"
 
 # Build frontend
-build = { cmd = "cd spatialxgene/frontend && npm run build", cwd = "." }
-
-# Test subcommands
-test = { cmd = "tar -xvf tests/HCC1R.tar -C ./tests && spatialxgene visium2h5ad tests/HCC1R && rm -r tests/HCC1R && spatialxgene preprocess tests/HCC1R.h5ad && spatialxgene seurat2h5ad tests/P2N_Spatial.rds.gz && spatialxgene launch --data-dir ./tests --host $HOST --port $PORT --debug; rm -f tests/HCC1R*.h5ad tests/P2N_Spatial*.h5ad", env = { HOST = "0.0.0.0", PORT = "5005" }, depends-on = ["build"] }
+build = { cmd = "cd spatialxgene/frontend && npm install && npm run build", cwd = "." }
 
 # Launch viewer
-launch = { cmd = "spatialxgene launch --data-dir $DATA_DIR --host $HOST --port $PORT", env = { DATA_DIR = "./tests/h5ad", HOST = "0.0.0.0", PORT = "5005" }, depends-on = ["build"] }
+launch = { cmd = "spatialxgene launch --data-dir $DATA_DIR --host $HOST --port $PORT", env = { DATA_DIR = "./tests/h5ad", HOST = "0.0.0.0", PORT = "5005" } }
 
-# Run backend unit tests (server + preprocess)
+# Build wheel package (using pip wheel to avoid conflict with local build/ folder)
+whl = { cmd = "mkdir -p dist && pip wheel . --no-deps -w dist/" }
+
+# Build docker image (for Docker Compose/Service deployment)
+docker = "docker build -t spatialxgene:latest -f docker/Dockerfile ."
+
+# Build and export docker image to versioned tar
+docker-save = { cmd = "VERSION=$(python -c 'import spatialxgene; print(spatialxgene.__version__)') && pixi run docker && docker save spatialxgene:latest -o docker/spatialxgene-$VERSION.tar" }
+
+# Build versioned Singularity Image Format (SIF) from exported docker tar
+singularity-build = { cmd = "VERSION=$(python -c 'import spatialxgene; print(spatialxgene.__version__)') && singularity build docker/spatialxgene-$VERSION.sif docker-archive://docker/spatialxgene-$VERSION.tar" }
+
+# Full Release Pipeline: whl + docker tar + singularity sif (all versioned)
+release = { cmd = "pixi run build && pixi run whl && pixi run docker-save && pixi run singularity-build" }
+
+# Test subcommands
+test = { cmd = "tar -xvf tests/HCC1R.tar -C ./tests && spatialxgene visium2h5ad tests/HCC1R && rm -r tests/HCC1R && spatialxgene preprocess tests/HCC1R.h5ad && spatialxgene seurat2h5ad tests/P2N_Spatial.rds.gz && spatialxgene launch --data-dir ./tests --host $HOST --port $PORT --debug; rm -f tests/HCC1R*.h5ad tests/P2N_Spatial*.h5ad", env = { HOST = "0.0.0.0", PORT = "5005" } }
+
+# Run backend unit tests
 pytest = "pytest tests/ -v"
 
 # Run frontend E2E tests
 test-e2e = { cmd = "pixi run spatialxgene launch --data-dir ./tests/h5ad --port 5005 --token '' & cd spatialxgene/frontend && pixi run npx vite --host 127.0.0.1 --port 5173 & sleep 10 && cd spatialxgene/frontend && npx playwright test; kill $!", cwd = "." }
 
 # Clean temporary files
-clean = "rm -rf build spatialxgene/frontend/node_modules spatialxgene/frontend/dist spatialxgene/__pycache__ spatialxgene/*/__pycache__ .pytest_cache .ruff_cache .mypy_cache spatialxgene/frontend/tsconfig.tsbuildinfo spatialxgene.egg-info"
-
-# Build docker image
-docker = "cd docker && docker compose build && docker save -o spatialxgene.tar docker-spatialxgene:latest"
+clean = "rm -rf build dist spatialxgene/frontend/node_modules spatialxgene/frontend/dist spatialxgene/__pycache__ spatialxgene/*/__pycache__ .pytest_cache .ruff_cache .mypy_cache spatialxgene/frontend/tsconfig.tsbuildinfo spatialxgene.egg-info docker/spatialxgene-*.tar docker/spatialxgene-*.sif"
 
 # Test docker deployment environment
 docker-test = "docker compose -f docker/docker-compose.nginx-test.yml up --build"
