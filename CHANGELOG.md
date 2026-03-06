@@ -8,6 +8,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Added
 
+- **Frontend E2E Tests (Playwright)**: Full suite of smoke tests covering dataset selection, embedding toggles, coloring by annotation/gene, multi-gene layouts, and PDF export. Run with `pixi run test-e2e` or `make test-e2e`.
+- **Linux Dependency Management via Pixi**: System-level libraries for Chromium (nss, atk, gtk3, pango, alsa-lib) are now managed within the Pixi environment using `[target.linux-64.dependencies]`, allowing E2E tests to run in headless environments without global `sudo` installs.
+- **Improved Sidebar Selectors**: Added `data-testid` and ARIA roles (`role="button"`) to dataset items in the sidebar for more robust automated testing.
 - **Incremental dataset loading**: When adding a new dataset to the selection, only the newly selected dataset(s) are loaded; already loaded ones are reused from cache. Expression/gene state is preserved during incremental load to avoid flicker.
 - **Server adata LRU cache**: Backend keeps loaded AnnData in an LRU cache (default max 16 datasets). Size is configurable via `SPATIALXGENE_CACHE_MAX_DATASETS` (1–128).
 - **Preprocess logging and input validation**: Preprocess CLI uses `logging` (INFO) for messages; invalid input (e.g. `adata.X` None, empty, or zero n_obs/n_vars) raises `ValueError` with clear messages.

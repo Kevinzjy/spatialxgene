@@ -15,12 +15,14 @@
 
 ### 工程与文档
 
-- [ ] **CI**：在 CI 中增加 `ruff check`、`tsc --noEmit`（及可选 mypy），保证 MR 通过。
-- [ ] **README 与 Makefile**：确保新成员可通过 `make install`、`make build`、`pixi run launch` 完成本地开发（当前已具备，仅需随变更更新）。
+- [x] **CI/CD 准备**：完成 Playwright E2E 测试框架搭建，并解决 Linux 运行环境依赖（Pixi 管理系统库）。
+- [x] **README 与 Makefile**：新增 `make test-e2e` 支持，确保新成员可通过 `make install`、`make test-e2e` 完成完整链路验证。
 
 ---
 
 ## 可选 / 中长期
+
+- [x] **全局开发增强 (Skills)**：引入 `knowledge-to-skill` 与 `project-finalizer` 自动化总结经验，并配置了 `/commit` 自定义命令。
 
 - [ ] **大数据可视化**：70 万+ spot 时考虑 WebGL 或服务端/前端降采样。
 - [ ] **Canvas 无障碍**：为画布加 `role`、`aria-label`，缩放/平移若有按钮则支持键盘。

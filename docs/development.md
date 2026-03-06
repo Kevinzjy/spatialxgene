@@ -78,14 +78,12 @@ The **Makefile** is a thin wrapper: each target runs `pixi run <task>`. You can 
 
 - **Scope**: A small set of Playwright end-to-end smoke tests cover core flows (dataset selection, embedding/background toggles, Color by Annotation/Gene, Multi-gene layouts, Export PDF).
 - **Setup**:
-  - In `spatialxgene/frontend`, install dev deps and browsers: `npm install` (from the pixi install task) then `npx playwright install --with-deps chromium`.
-  - Tests live under `spatialxgene/frontend/tests/e2e`, configured by `playwright.config.ts` (Chromium only, Vite dev server as `webServer` on port 5173).
+  - Browser system dependencies (like `libnss3`, `libatk`) are managed automatically via `pixi.toml` for Linux.
+  - In `spatialxgene/frontend`, install dev deps: `npm install` (or `pixi run install` from root).
 - **Run locally**:
-  - Ensure the backend is running on port 5005 (e.g. `pixi run launch` from project root).
-  - From `spatialxgene/frontend`, run `npm run test:e2e` to execute the smoke suite.
-- **CI integration**:
-  - A CI job can call the same commands: set up pixi + `pixi run install`, then in `spatialxgene/frontend` run `npx playwright install --with-deps chromium` followed by `npm run test:e2e`.
-  - Keep the Playwright suite small and focused to avoid slowing down pipelines; for deeper logic, prefer unit tests at the React/TS level.
+  - Run the full test suite with: `make test-e2e` (starts backend and frontend automatically).
+- **Troubleshooting**:
+  - **PDF Export**: Full vector PDF generation for large datasets (e.g. 20k+ spots) is extremely CPU/memory intensive in headless browsers. The smoke test validates the process starts without error but does not wait for full high-res generation to avoid CI timeouts.
 
 ### Frontend behaviour: layout and PDF export
 
