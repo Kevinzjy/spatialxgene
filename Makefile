@@ -3,20 +3,21 @@
 
 PIXI    := $(HOME)/.pixi/bin/pixi
 DATA_DIR ?= ./tests/h5ad
-HOST     ?= 192.168.31.101
+HOST     ?= 0.0.0.0
 PORT     ?= 5005
 DEBUG    ?= 0
 PROJECT  ?= spatialxgene
 
 export DATA_DIR HOST PORT DEBUG
 
-.PHONY: help install build test pytest clean docker docker-test launch
+.PHONY: help install build test test-e2e pytest clean global docker docker-test launch
 
 help:
 	@echo "Spatialxgene Makefile (delegates to pixi):"
 	@echo "  make install      - pixi run install (npm install, build, pip install -e . --no-deps)"
 	@echo "  make build        - pixi run build"
-	@echo "  make test         - pixi run test (extract tar → visium2h5ad → preprocess → launch; override HOST, PORT)"
+	@echo "  make test         - pixi run test (integration: extract tar → conversion → preprocess → launch)"
+	@echo "  make test-e2e     - pixi run test-e2e (frontend Playwright E2E tests)"
 	@echo "  make pytest       - pixi run pytest (backend unit tests)"
 	@echo "  make launch       - pixi run launch"
 	@echo "  make clean        - pixi run clean"
@@ -33,6 +34,9 @@ build:
 
 test:
 	$(PIXI) run test
+
+test-e2e:
+	$(PIXI) run test-e2e
 
 pytest:
 	$(PIXI) run pytest
