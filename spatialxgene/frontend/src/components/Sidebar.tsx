@@ -440,7 +440,7 @@ export function Sidebar({
       <div className="sidebar-scroll" style={{ padding: 12, display: "flex", flexDirection: "column", gap: 12, overflow: "auto", flex: 1, minHeight: 0 }}>
         <div style={{ display: "flex", flexDirection: "column", gap: 4, flexShrink: 0 }}>
           <label style={{ fontSize: 12, fontWeight: 600, color: "var(--text-secondary)" }}>Datasets</label>
-          <div className="sidebar-scroll" style={{ display: "flex", flexDirection: "column", gap: 4, minHeight: 100, maxHeight: 200, overflowY: "auto" }}>
+          <div data-testid="dataset-list" className="sidebar-scroll" style={{ display: "flex", flexDirection: "column", gap: 4, minHeight: 100, maxHeight: 200, overflowY: "auto" }}>
           {datasets.length === 0 ? (
             <div style={{ fontSize: 11, color: "var(--text-muted)", padding: "8px 0" }}>
               No h5ad files found under {dataDir != null && dataDir !== "" ? dataDir : "(data-dir not set)"}.
@@ -451,6 +451,8 @@ export function Sidebar({
               return (
                 <label
                   key={d.id}
+                  role="button"
+                  data-testid="dataset-item"
                   style={{
                     display: "flex",
                     alignItems: "center",

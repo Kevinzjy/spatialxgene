@@ -58,27 +58,20 @@ fastapi = ">=0.133.1,<0.134"
 uvicorn = ">=0.41.0,<0.42"
 pillow = ">=11.3.0,<13"
 louvain = ">=0.8.2,<0.9"
-nodejs = ">=25.6.1,<25.7"
+nodejs = ">=22.12.0,<23"
 r-base = ">=4.4.2,<4.6"
 r-seurat = ">=5.1.0,<6"
 pytest = ">=9.0.2,<10"
 httpx = ">=0.28.1,<0.29"
 python-dateutil = ">=2.9.0.post0,<3"
-#python = "==3.9.23"
-#numpy = "==1.26.4"
-#setuptools = "==80.9.0"
-#scanpy = "==1.10.3"
-#anndata = "==0.10.9"
-#leidenalg = "==0.10.2"
-#pandas = "==2.3.1"
-#h5py = "==3.14.0"
-#fastapi = "==0.116.1"
-#uvicorn = "==0.35.0"
-#pillow = "==11.3.0"
-#louvain = "==0.8.2"
-#nodejs = "==25.2.1"
-#r-base = "==4.5.2"
-#r-seurat = "==5.4.0"
+
+[target.linux-64.dependencies]
+playwright = ">=1.49.0"
+nss = ">=3.118"
+atk = ">=2.38"
+pango = ">=1.56"
+gtk3 = ">=3.24"
+alsa-lib = ">=1.2"
 
 [pypi-dependencies]
 celltypist = ">=1.7.1, <2"
@@ -102,6 +95,9 @@ launch = { cmd = "spatialxgene launch --data-dir $DATA_DIR --host $HOST --port $
 
 # Run backend unit tests (server + preprocess)
 pytest = "pytest tests/ -v"
+
+# Run frontend E2E tests
+test-e2e = { cmd = "pixi run spatialxgene launch --data-dir ./tests/h5ad --port 5005 --token '' & cd spatialxgene/frontend && pixi run npx vite --host 127.0.0.1 --port 5173 & sleep 10 && cd spatialxgene/frontend && npx playwright test; kill $!", cwd = "." }
 
 # Clean temporary files
 clean = "rm -rf build spatialxgene/frontend/node_modules spatialxgene/frontend/dist spatialxgene/__pycache__ spatialxgene/*/__pycache__ .pytest_cache .ruff_cache .mypy_cache spatialxgene/frontend/tsconfig.tsbuildinfo spatialxgene.egg-info"
