@@ -20,15 +20,34 @@
    docker load -i spatialxgene-0.2.6.tar
    ```
 
-2. **启动服务**：
-   在 `docker/` 目录下（确保已有 `docker-compose.yml`）：
+2. **配置 `docker-compose.yml`**：
+   在服务器上，你需要根据实际环境修改 `docker/docker-compose.yml`。**关键点**是使用已加载的镜像并挂载真实的数据路径：
+
+   ```yaml
+   services:
+     spatialxgene:
+       image: spatialxgene:latest
+       # 注意：在服务器上请注释掉 build 块，直接使用上面加载的 image
+       # build:
+       #   context: ..
+       #   dockerfile: docker/Dockerfile
+       ports:
+         - "5005:5005"
+       volumes:
+         - /你的/宿主机/数据目录:/data  # 修改为真实的 h5ad 存放路径
+       environment:
+         - SPATIALXGENE_API_BASE=spatialxgene # 如果使用了 Nginx 子路径反代
+       command: ["--token", "zhaoslab", "--api-base", "spatialxgene"]
+   ```
+
+3. **启动服务**：
    ```bash
    docker compose up -d
    ```
 
-3. **配置说明**：
-   - 默认映射端口 `5005`。
-   - 默认数据挂载 `./tests/h5ad` 到容器内 `/data`，请根据实际情况在 `docker-compose.yml` 中修改 `volumes`。
+4. **访问示例**：
+   如果配置了 Nginx 反代（路径为 `/spatialxgene/`）并启用了 Token，访问地址如下：
+   `https://your-domain.com/spatialxgene/?token=zhaoslab`
 
 ---
 
