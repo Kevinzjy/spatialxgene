@@ -17,6 +17,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ### Changed
 
 - **Build Task (`whl`)**: Switched from `python -m build` to `pip wheel . --no-deps -w dist/` to avoid conflicts with the local `build/` folder and simplify dependencies.
+- **Export PDF saving**: The Export PDF button now opens the browser save dialog via the File System Access API when supported, allowing users to choose the PDF name and location. Browsers without that API fall back to a timestamped download name instead of a fixed filename.
 - **Environment Management**: Unified the Pixi environment for development while providing clear container-based paths for old glibc deployments. Node.js remains in the default environment for build convenience.
 - **README Reorganization**: The "Quick Start" section of the root README is now a modular manual with dedicated sections for Basic Operations, Visualization Modes, and Exporting.
 
@@ -60,6 +61,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Fixed
 
+- **E2E task cleanup**: `pixi run test-e2e` now runs under explicit Bash cleanup logic so backend/frontend background processes are stopped without the task failing after Playwright has passed.
 - **SpatialPlot JSX**: The canvas container `div` (ref={containerRef}) was missing a closing tag after the multigene color bar block, causing "JSX element 'div' has no corresponding closing tag" and build failure. Added the missing `</div>`.
 - **Export PDF single-sample and title**: Single-sample PDF now shows the sample name in the **title band** above the plot (same format as multi-sample). Single-sample **Multi-gene** export now builds a multigene task (spots + legendLayers) so the PDF shows the same pie/grid colors as the UI instead of gray points. Sample title is drawn **only once** per cell, in the layout title band (App.tsx); the vector draw functions receive only the content rect and do not draw the title, so the title no longer appears twice (once in the band, once inside the plot).
 

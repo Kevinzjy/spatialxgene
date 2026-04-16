@@ -95,7 +95,7 @@ test = { cmd = "tar -xvf tests/HCC1R.tar -C ./tests && spatialxgene visium2h5ad 
 pytest = "pytest tests/ -v"
 
 # Run frontend E2E tests
-test-e2e = { cmd = "pixi run spatialxgene launch --data-dir ./tests/h5ad --port 5005 --token '' & cd spatialxgene/frontend && pixi run npx vite --host 127.0.0.1 --port 5173 & sleep 10 && cd spatialxgene/frontend && npx playwright test; kill $!", cwd = "." }
+test-e2e = { cmd = "bash -lc 'set -e; pixi run spatialxgene launch --data-dir ./tests/h5ad --port 5005 --token \"\" & backend_pid=$!; cd spatialxgene/frontend && pixi run npx vite --host 127.0.0.1 --port 5173 & frontend_pid=$!; cleanup() { kill $backend_pid $frontend_pid 2>/dev/null || true; }; trap cleanup EXIT; sleep 10; cd spatialxgene/frontend && npx playwright test'", cwd = "." }
 
 # Clean temporary files
 clean = "rm -rf build dist spatialxgene/frontend/node_modules spatialxgene/frontend/dist spatialxgene/__pycache__ spatialxgene/*/__pycache__ .pytest_cache .ruff_cache .mypy_cache spatialxgene/frontend/tsconfig.tsbuildinfo spatialxgene.egg-info docker/spatialxgene-*.tar docker/spatialxgene-*.sif"

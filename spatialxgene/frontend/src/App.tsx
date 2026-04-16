@@ -33,11 +33,75 @@ import {
   getCategoricalColors,
 } from "./colorScale";
 import type { VectorExportLegendEntry, MultigeneSegment } from "./exportPlotVector";
+import type { jsPDF } from "jspdf";
 import { setDebugMode, debugLog } from "./debug";
 import { percentile } from "./utils/percentile";
 import { Sidebar, type MultigeneGeneEntry } from "./components/Sidebar";
 
-const PDF_EXPORT_FILENAME = "spatialxgene-plots.pdf";
+type SaveFilePickerWritable = {
+  write(data: Blob): Promise<void>;
+  close(): Promise<void>;
+};
+
+type SaveFilePickerHandle = {
+  createWritable(): Promise<SaveFilePickerWritable>;
+};
+
+type ShowSaveFilePicker = (options: {
+  suggestedName: string;
+  types: Array<{ description: string; accept: Record<string, string[]> }>;
+}) => Promise<SaveFilePickerHandle>;
+
+type PdfSaveTarget =
+  | { type: "file-system"; handle: SaveFilePickerHandle; filename: string }
+  | { type: "download"; filename: string };
+
+function buildPdfExportFilename(now = new Date()): string {
+  const pad = (value: number) => String(value).padStart(2, "0");
+  const stamp = [
+    now.getFullYear(),
+    pad(now.getMonth() + 1),
+    pad(now.getDate()),
+    "-",
+    pad(now.getHours()),
+    pad(now.getMinutes()),
+    pad(now.getSeconds()),
+  ].join("");
+  return `spatialxgene-${stamp}.pdf`;
+}
+
+function isAbortError(error: unknown): boolean {
+  return error instanceof DOMException && error.name === "AbortError";
+}
+
+async function choosePdfSaveTarget(filename: string): Promise<PdfSaveTarget | null> {
+  const showSaveFilePicker = (window as Window & { showSaveFilePicker?: ShowSaveFilePicker })
+    .showSaveFilePicker;
+  if (typeof showSaveFilePicker !== "function") return { type: "download", filename };
+
+  try {
+    const handle = await showSaveFilePicker({
+      suggestedName: filename,
+      types: [{ description: "PDF file", accept: { "application/pdf": [".pdf"] } }],
+    });
+    return { type: "file-system", handle, filename };
+  } catch (error) {
+    if (isAbortError(error)) return null;
+    console.warn("[Export PDF] Save dialog unavailable, falling back to browser download:", error);
+    return { type: "download", filename };
+  }
+}
+
+async function savePdfToTarget(pdf: jsPDF, target: PdfSaveTarget): Promise<void> {
+  if (target.type === "download") {
+    pdf.save(target.filename);
+    return;
+  }
+
+  const writable = await target.handle.createWritable();
+  await writable.write(pdf.output("blob") as Blob);
+  await writable.close();
+}
 
 /** Multi-sample grid: minimum width/height per cell so each sample gets at least this much space. */
 const MULTIPLOT_MIN_CELL_WIDTH_PX = 220;
@@ -1104,6 +1168,11 @@ export default function App() {
                   selectedDatasetIds.length > 1 &&
                   (colorMode === "gene" || colorMode === "annotation" || colorMode === "coexpression" || colorMode === "multigene");
                 const showSinglePlot = hasLoaded && selectedDatasetIds.length === 1 && spatial != null;
+                const pdfSaveTarget = await choosePdfSaveTarget(buildPdfExportFilename());
+                if (pdfSaveTarget == null) {
+                  console.log("[Export PDF] Save canceled");
+                  return;
+                }
 
                 setExportingPdf(true);
                 setExportProgress(0);
@@ -1735,8 +1804,8 @@ export default function App() {
                   }
 
                   setExportProgress(100);
-                  console.log("[Export PDF] Saving file:", PDF_EXPORT_FILENAME);
-                  pdf.save(PDF_EXPORT_FILENAME);
+                  console.log("[Export PDF] Saving file:", pdfSaveTarget.filename, "via", pdfSaveTarget.type);
+                  await savePdfToTarget(pdf, pdfSaveTarget);
                   console.log("[Export PDF] Done");
                 } catch (e) {
                   console.error("[Export PDF] Error:", e);

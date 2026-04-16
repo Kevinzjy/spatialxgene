@@ -89,7 +89,7 @@ test.describe("Spatialxgene core smoke flow", () => {
     expect(errors).toEqual([]);
   });
 
-  test("Export PDF triggers a download without front-end errors", async ({ page }) => {
+  test("Export PDF writes through the save dialog without front-end errors", async ({ page }) => {
     test.setTimeout(60_000);
     await page.goto("/");
     await selectFirstDataset(page);
@@ -97,13 +97,39 @@ test.describe("Spatialxgene core smoke flow", () => {
     const exportButton = page.getByRole("button", { name: /Export PDF/i });
     await expect(exportButton).toBeVisible();
 
-    // Just click and wait a bit to ensure no crash.
-    // Full vector PDF generation is too heavy for some CI environments.
+    await page.evaluate(() => {
+      (window as any).__spatialxgene_save_picker = { calls: [], wroteBytes: 0, closed: false };
+      Object.defineProperty(window, "showSaveFilePicker", {
+        configurable: true,
+        writable: true,
+        value: async (options: any) => {
+          (window as any).__spatialxgene_save_picker.calls.push(options);
+          return {
+            createWritable: async () => ({
+              write: async (data: Blob) => {
+                (window as any).__spatialxgene_save_picker.wroteBytes = data.size;
+              },
+              close: async () => {
+                (window as any).__spatialxgene_save_picker.closed = true;
+              },
+            }),
+          };
+        },
+      });
+    });
+
     await exportButton.click();
-    await page.waitForTimeout(2000);
+    await expect
+      .poll(async () => page.evaluate(() => (window as any).__spatialxgene_save_picker?.closed === true), {
+        timeout: 30_000,
+      })
+      .toBe(true);
 
     const errors = await page.evaluate(() => (window as any).__spatialxgene_errors || []);
     expect(errors).toEqual([]);
+    const savePicker = await page.evaluate(() => (window as any).__spatialxgene_save_picker);
+    expect(savePicker.calls[0].suggestedName).toMatch(/^spatialxgene-\d{8}-\d{6}\.pdf$/);
+    expect(savePicker.calls[0].types[0].accept["application/pdf"]).toContain(".pdf");
+    expect(savePicker.wroteBytes).toBeGreaterThan(0);
   });
 });
-
