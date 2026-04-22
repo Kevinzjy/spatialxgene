@@ -76,7 +76,7 @@ This will automatically:
    # or: make launch
    ```
 
-   Default data dir is `./tests/h5ad` (see pixi.toml). Override: `DATA_DIR=/path HOST=0.0.0.0 PORT=5005 pixi run launch`. Optional: `--token zhaoslab` (default); use `--token ""` to disable. See [deployment.md](deployment.md) for production deployment.
+   Default data dir is `./tests/h5ad` (see pixi.toml). Override: `DATA_DIR=/path HOST=0.0.0.0 PORT=5005 pixi run launch`. Optional: `--token YOUR_TOKEN`; default is disabled. See [deployment.md](deployment.md) for production deployment.
 
 ## Development workflow
 

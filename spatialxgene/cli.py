@@ -408,8 +408,8 @@ def main() -> None:
     launch_p.add_argument(
         "--token",
         type=str,
-        default="zhaoslab",
-        help="Auth token required for /api/* (default: zhaoslab); use empty string to disable",
+        default="",
+        help="Optional auth token for /api/*; default disabled. Use empty string to disable",
     )
     launch_p.add_argument("--no-browser", action="store_true", help="Do not open browser")
     launch_p.add_argument("--build", action="store_true", help="Build frontend before starting")

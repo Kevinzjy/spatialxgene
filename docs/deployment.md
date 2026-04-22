@@ -25,11 +25,11 @@ make singularity-build
 Copy `docker/spatialxgene.sif` to your server and run it. Use `--bind` to mount your data directory to `/data` inside the container.
 
 ```bash
-singularity run --bind /path/to/h5ad:/data docker/spatialxgene.sif --token zhaoslab
+singularity run --bind /path/to/h5ad:/data docker/spatialxgene.sif --token YOUR_TOKEN
 ```
 
 - **Data**: Mount host data to `/data`.
-- **Token**: Set access token (default: `zhaoslab`).
+- **Token**: Set access token explicitly if you want auth; default is disabled.
 - **Port/Host**: Use `--port` and `--host` to override defaults.
 
 ---
@@ -43,7 +43,7 @@ docker compose -f docker/docker-compose.yml up -d
 ```
 
 - **Data**: Default volume is `./tests/h5ad` → `/data` in the container. Edit `docker/docker-compose.yml` to use your actual path.
-- **Token**: Default `--token zhaoslab`. Override in `command` section.
+- **Token**: Set `SPATIALXGENE_TOKEN` or override `command` if you want auth; default is disabled.
 - **Port**: Default `5005`.
 
 See [docker/README.md](../docker/README.md) for more details.
@@ -86,7 +86,7 @@ User=www-data
 Group=www-data
 WorkingDirectory=/opt/spatialxgene
 Environment="PATH=/usr/local/bin:/usr/bin"
-ExecStart=/usr/local/bin/spatialxgene launch --data-dir /data/spatialxgene/data --host 0.0.0.0 --port 5005 --token zhaoslab --no-browser
+ExecStart=/usr/local/bin/spatialxgene launch --data-dir /data/spatialxgene/data --host 0.0.0.0 --port 5005 --token YOUR_TOKEN --no-browser
 Restart=always
 RestartSec=5
 
@@ -105,7 +105,7 @@ WantedBy=multi-user.target
 | `--host` | `0.0.0.0` to accept connections on all IPv4 interfaces; use `127.0.0.1` if you put a reverse proxy in front. |
 | `--port` | Port to listen on (default 5005). |
 | `--no-browser` | Required on headless servers so the process does not try to open a browser. |
-| `--token` | Optional auth token; if set, all `/api/*` requests must send this token (default: `zhaoslab`). Use `--token ""` to disable. Users open the app with `?token=YOUR_TOKEN` in the URL once to store it. |
+| `--token` | Optional auth token; if set, all `/api/*` requests must send this token. Default is disabled. Users open the app with `?token=YOUR_TOKEN` in the URL once to store it. |
 
 ### Example: from source with pixi
 
@@ -113,13 +113,13 @@ If you run from source with pixi:
 
 ```ini
 WorkingDirectory=/opt/spatialxgene
-ExecStart=/opt/spatialxgene/.pixi/envs/default/bin/spatialxgene launch --data-dir /data/spatialxgene/data --host 0.0.0.0 --port 5005 --token zhaoslab --no-browser
+ExecStart=/opt/spatialxgene/.pixi/envs/default/bin/spatialxgene launch --data-dir /data/spatialxgene/data --host 0.0.0.0 --port 5005 --token YOUR_TOKEN --no-browser
 ```
 
 ### Example: bind IPv6 only
 
 ```ini
-ExecStart=/usr/local/bin/spatialxgene launch --data-dir /data/spatialxgene/data --host :: --port 5005 --token zhaoslab --no-browser
+ExecStart=/usr/local/bin/spatialxgene launch --data-dir /data/spatialxgene/data --host :: --port 5005 --token YOUR_TOKEN --no-browser
 ```
 
 ### Example: no token (open access)
@@ -159,7 +159,7 @@ ExecStart=/usr/local/bin/spatialxgene launch --data-dir /data/spatialxgene/data 
 5. **Open in browser**
 
    From another machine: `http://<server-ip>:5005`. From the server: `http://127.0.0.1:5005`.  
-   If you use `--token` (default `zhaoslab`), open with the token once so the app can store it: `http://<server-ip>:5005/?token=zhaoslab`.
+   If you use `--token`, open with the token once so the app can store it: `http://<server-ip>:5005/?token=YOUR_TOKEN`.
 
 ### Useful commands
 

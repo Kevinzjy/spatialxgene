@@ -37,7 +37,7 @@
          - /你的/宿主机/数据目录:/data  # 修改为真实的 h5ad 存放路径
        environment:
          - SPATIALXGENE_API_BASE=spatialxgene # 如果使用了 Nginx 子路径反代
-       command: ["--token", "zhaoslab", "--api-base", "spatialxgene"]
+       command: ["--token", "${SPATIALXGENE_TOKEN:-}", "--api-base", "spatialxgene"]
    ```
 
 3. **启动服务**：
@@ -47,7 +47,7 @@
 
 4. **访问示例**：
    如果配置了 Nginx 反代（路径为 `/spatialxgene/`）并启用了 Token，访问地址如下：
-   `https://your-domain.com/spatialxgene/?token=zhaoslab`
+   `https://your-domain.com/spatialxgene/?token=YOUR_TOKEN`
 
 ---
 
@@ -58,8 +58,8 @@
 1. **运行 SIF 镜像**（以 0.2.6 版本为例）：
    ```bash
    # --bind 挂载宿主机数据目录到容器内 /data
-   # 使用 --token 设置访问令牌（默认 zhaoslab）
-   singularity run --bind /path/to/your/h5ad:/data spatialxgene-0.2.6.sif --token zhaoslab
+   # 使用 --token 设置访问令牌（示例值请替换）
+   singularity run --bind /path/to/your/h5ad:/data spatialxgene-0.2.6.sif --token YOUR_TOKEN
    ```
 
 2. **常用参数**：

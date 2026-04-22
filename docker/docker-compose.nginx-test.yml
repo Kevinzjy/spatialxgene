@@ -15,7 +15,7 @@ services:
       - SPATIALXGENE_API_BASE=spatialxgene
     volumes:
       - ../tests/h5ad:/data
-    command: ["--token", "zhaoslab"]
+    command: ["--token", "${SPATIALXGENE_TOKEN:-}"]
     # No host port; nginx proxies to this service
 
   nginx:
