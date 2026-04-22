@@ -83,3 +83,6 @@ docker/*.tar
 docker/*.sif
 
 images/
+.omx/
+
+.codex
