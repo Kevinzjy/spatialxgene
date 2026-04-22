@@ -32,7 +32,12 @@ import {
   LABEL_NAN_TOO_FEW,
   getCategoricalColors,
 } from "./colorScale";
-import type { VectorExportLegendEntry, MultigeneSegment } from "./exportPlotVector";
+import type {
+  MultigeneSegment,
+  MultigeneVectorExportOptions,
+  VectorExportLegendEntry,
+  VectorExportOptions,
+} from "./exportPlotVector";
 import type { jsPDF } from "jspdf";
 import { setDebugMode, debugLog } from "./debug";
 import { percentile } from "./utils/percentile";
@@ -217,6 +222,15 @@ function colorByToHex(
 
 import { SpatialPlot, SPOT_SIZE_DEFAULT_SCALE, type ColorMode } from "./components/SpatialPlot";
 
+type RasterizedPdfDpi = 300 | 600 | 1200;
+type PdfExportRequest =
+  | { mode: "raw" }
+  | { mode: "rasterized"; dpi: RasterizedPdfDpi };
+
+type PlotTask =
+  | { type: "scatter"; options: VectorExportOptions }
+  | { type: "multigene"; options: MultigeneVectorExportOptions };
+
 export default function App() {
   const [datasets, setDatasets] = useState<DatasetItem[]>([]);
   /** One or more dataset ids for comparison; empty = none selected. */
@@ -298,12 +312,14 @@ export default function App() {
   const [coexpressionLoading, setCoexpressionLoading] = useState(false);
   const [exportingPdf, setExportingPdf] = useState(false);
   const [exportProgress, setExportProgress] = useState(0);
+  const [exportMenuOpen, setExportMenuOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [anndataError, setAnndataError] = useState<string | null>(null);
   const [dataDir, setDataDir] = useState<string | null>(null);
   const [embeddingMode, setEmbeddingMode] = useState<"spatial" | "umap" | "pca" | "tsne">("spatial");
   const selectedIdsRef = useRef<string[]>([]);
   const loadAbortRef = useRef<AbortController | null>(null);
+  const exportMenuRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     selectedIdsRef.current = selectedDatasetIds;
@@ -326,6 +342,25 @@ export default function App() {
       .then(setDatasets)
       .catch((e) => setError(e.message));
   }, []);
+
+  useEffect(() => {
+    if (!exportMenuOpen) return;
+    const handlePointerDown = (event: MouseEvent) => {
+      const menu = exportMenuRef.current;
+      if (menu && event.target instanceof Node && !menu.contains(event.target)) {
+        setExportMenuOpen(false);
+      }
+    };
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setExportMenuOpen(false);
+    };
+    document.addEventListener("mousedown", handlePointerDown);
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("mousedown", handlePointerDown);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [exportMenuOpen]);
 
   const resolveEmbeddingMode = useCallback((m: DatasetMeta): "spatial" | "umap" | "pca" | "tsne" => {
     const hasSpatial = m.has_spatial ?? m.layout === "spatial";
@@ -995,6 +1030,655 @@ export default function App() {
     [selectedDatasetIds, meta, embeddingMode]
   );
 
+  const buildPdfPlotTasks = (): { plotTasks: PlotTask[]; plotIds: string[] } => {
+    const hasLoaded = selectedDatasetIds.length > 0 && selectedDatasetIds.some((id) => datasetCache[id]?.spatial);
+    const multiPlot =
+      selectedDatasetIds.length > 1 &&
+      (colorMode === "gene" || colorMode === "annotation" || colorMode === "coexpression" || colorMode === "multigene");
+    const showSinglePlot = hasLoaded && selectedDatasetIds.length === 1 && spatial != null;
+
+    const getSlotBounds = (s: { x: number[]; y: number[] }) => {
+      if (s.x.length === 0 || s.y.length === 0) return { xMin: 0, xMax: 1, yMin: 0, yMax: 1 };
+      let xMin = s.x[0], xMax = s.x[0], yMin = s.y[0], yMax = s.y[0];
+      for (let i = 1; i < s.x.length; i++) {
+        if (s.x[i] < xMin) xMin = s.x[i];
+        if (s.x[i] > xMax) xMax = s.x[i];
+        if (s.y[i] < yMin) yMin = s.y[i];
+        if (s.y[i] > yMax) yMax = s.y[i];
+      }
+      return { xMin, xMax, yMin, yMax };
+    };
+    const getSlotMode = (id: string): ColorMode => {
+      const d = datasetCache[id];
+      if (!d?.spatial) return "none";
+      if (colorMode === "annotation" && selectedObsCol && d.obs?.data[selectedObsCol])
+        return obsValueType === "numeric" ? "continuous" : "categorical";
+      if (colorMode === "gene" && expressionByDataset[id]?.length === d.spatial.x.length) return "continuous";
+      if (colorMode === "coexpression") {
+        const e1 = expression1ByDataset[id];
+        const e2 = expression2ByDataset[id];
+        const n = d.spatial.x.length;
+        if (e1 && e2 && e1.length >= n && e2.length >= n) return "coexpression";
+      }
+      if (colorMode === "multigene" && selectedMultigeneGenes.length > 0) {
+        const byGene = multigeneExpressionByDataset[id];
+        if (byGene && selectedMultigeneGenes.some((entry) => (byGene[entry.gene]?.length ?? 0) >= d.spatial.x.length)) {
+          return "multigene";
+        }
+      }
+      return "none";
+    };
+    const getSlotColorBy = (id: string): (string | number)[] => {
+      const d = datasetCache[id];
+      if (!d?.spatial) return [];
+      const n = d.spatial.x.length;
+      if (colorMode === "annotation" && selectedObsCol) {
+        const raw = d.obs?.data[selectedObsCol];
+        if (!raw) return new Array(n).fill("nan") as (string | number)[];
+        return raw.slice(0, n);
+      }
+      if (colorMode === "gene") {
+        const expr = expressionByDataset[id];
+        return expr ? expr.slice(0, n) : (new Array(n).fill(NaN) as (string | number)[]);
+      }
+      if (colorMode === "coexpression") {
+        const e1 = expression1ByDataset[id];
+        const e2 = expression2ByDataset[id];
+        if (!e1 || !e2 || e1.length < n || e2.length < n) return new Array(n).fill(0);
+        const mapRaw = (arr: number[]) => (coexpressionLogScale ? arr.map((x) => Math.log1p(Math.max(0, x))) : arr);
+        const log1 = mapRaw(e1.slice(0, n));
+        const log2 = mapRaw(e2.slice(0, n));
+        const { min: min1, max: max1 } = finiteMinMax(log1);
+        const { min: min2, max: max2 } = finiteMinMax(log2);
+        const range1 = max1 - min1 || 1;
+        const range2 = max2 - min2 || 1;
+        const out: string[] = [];
+        for (let i = 0; i < n; i++) {
+          const v1 = (log1[i] - min1) / range1;
+          const v2 = (log2[i] - min2) / range2;
+          out.push(coexpressionToHex(v1, v2, coexpressionPalette));
+        }
+        return out;
+      }
+      return new Array(n).fill(0);
+    };
+    const getSlotLegend = (id: string): VectorExportLegendEntry[] => {
+      if (colorMode !== "annotation" || !selectedObsCol || obsValueType !== "categorical" || !globalCatMap) return [];
+      const vals = datasetCache[id]?.obs?.data[selectedObsCol];
+      if (!vals) return [];
+      const uniq = new Set(vals.map((v) => String(v))).size;
+      if (uniq > ANNOTATION_MAX_CATEGORIES) {
+        return [{ label: LABEL_NAN_TOO_MANY, color: globalCatMap.get(LABEL_NAN_TOO_MANY) ?? "#888888", count: vals.length }];
+      }
+      if (uniq < ANNOTATION_MIN_CATEGORIES) {
+        return [{ label: LABEL_NAN_TOO_FEW, color: globalCatMap.get(LABEL_NAN_TOO_FEW) ?? "#888888", count: vals.length }];
+      }
+      const counts = new Map<string, number>();
+      for (let i = 0; i < vals.length; i++) {
+        const s = String(vals[i]);
+        counts.set(s, (counts.get(s) ?? 0) + 1);
+      }
+      return Array.from(counts.entries())
+        .map(([label, count]) => ({ label, color: globalCatMap.get(label) ?? "#888888", count }))
+        .sort((a, b) => (b.count !== a.count ? b.count - a.count : a.label.localeCompare(b.label)));
+    };
+    const getBgBounds = (m: DatasetMeta | undefined, key: string | null) => {
+      if (!m?.image_info || !key) return null;
+      const keys = m.image_keys ?? [];
+      const refKey = keys.includes("hires") ? "hires" : keys[0];
+      if (!refKey) return null;
+      const info = m.image_info[refKey];
+      if (!info || info.scale_factor <= 0) return null;
+      return { xMin: 0, yMin: 0, xMax: info.width / info.scale_factor, yMax: info.height / info.scale_factor };
+    };
+
+    const plotTasks: PlotTask[] = [];
+    const plotIds: string[] = [];
+
+    if (showSinglePlot && spatial) {
+      const singleTitle =
+        primaryId && meta
+          ? `${primaryId}${embeddingMode === "umap" ? " (UMAP)" : " (Spatial)"}`
+          : primaryId ?? undefined;
+
+      if (plotColorMode === "multigene" && selectedMultigeneGenes.length > 0) {
+        const n = spatial.x.length;
+        const byGene = multigeneExpressionByDataset[primaryId ?? ""];
+        const layers =
+          byGene && selectedMultigeneGenes.length > 0
+            ? selectedMultigeneGenes
+                .map((entry) => {
+                  const values = byGene[entry.gene];
+                  if (!values || values.length < n) return null;
+                  const slice = values.slice(0, n);
+                  if (!slice.some((value) => Number.isFinite(value))) return null;
+                  return { name: entry.gene, values: slice, paletteId: entry.paletteId };
+                })
+                .filter((layer): layer is { name: string; values: number[]; paletteId: string } => layer !== null)
+            : [];
+        const layerCount = layers.length;
+        if (layerCount > 0) {
+          const vminByLayer: number[] = [];
+          const vmaxByLayer: number[] = [];
+          const minParsed = parseMultigeneRange(multigeneRangeMinInput);
+          const maxParsed = parseMultigeneRange(multigeneRangeMaxInput);
+          for (let g = 0; g < layerCount; g++) {
+            const vals = layers[g].values;
+            let vmin: number, vmax: number;
+            if (minParsed?.type === "percentile" && maxParsed?.type === "percentile") {
+              vmin = percentile(vals, minParsed.p);
+              vmax = percentile(vals, maxParsed.p);
+            } else if (minParsed?.type === "raw" && maxParsed?.type === "raw") {
+              vmin = minParsed.value;
+              vmax = maxParsed.value;
+            } else {
+              const { min: dataMin, max: dataMax } = finiteMinMax(vals);
+              vmin = dataMin;
+              vmax = dataMax <= vmin ? vmin + 1 : dataMax;
+            }
+            if (!Number.isFinite(vmin)) vmin = 0;
+            if (!Number.isFinite(vmax) || vmax <= vmin) vmax = vmin + 1;
+            vminByLayer.push(vmin);
+            vmaxByLayer.push(vmax);
+          }
+
+          const spots: Array<{ x: number; y: number; segments: MultigeneSegment[] }> = [];
+          for (let i = 0; i < n; i++) {
+            let sum = 0;
+            const expr: number[] = [];
+            for (let g = 0; g < layerCount; g++) {
+              const raw = layers[g].values[i];
+              const v = Number.isFinite(raw) ? Math.max(0, raw) : 0;
+              const e = multigeneLogScale ? Math.log1p(v) : v;
+              expr.push(e);
+              sum += e;
+            }
+            if (!Number.isFinite(sum) || sum <= 0) continue;
+            const segments: MultigeneSegment[] = [];
+            for (let g = 0; g < layerCount; g++) {
+              segments.push({
+                proportion: expr[g] / sum,
+                color: multigeneValueToHex(
+                  layers[g].values[i] ?? 0,
+                  vminByLayer[g],
+                  vmaxByLayer[g],
+                  layers[g].paletteId,
+                  multigeneLogScale
+                ),
+              });
+            }
+            segments.sort((a, b) => b.proportion - a.proportion);
+            spots.push({ x: spatial.x[i], y: spatial.y[i], segments });
+          }
+
+          plotTasks.push({
+            type: "multigene",
+            options: {
+              spots,
+              bounds,
+              spotSizeScale,
+              layout: multigeneLayout,
+              title: singleTitle,
+              legendLayers: layers.map((layer, g) => ({
+                name: layer.name,
+                paletteId: layer.paletteId,
+                vmin: vminByLayer[g] ?? 0,
+                vmax: vmaxByLayer[g] ?? 1,
+              })),
+              backgroundImageDataUrl: undefined,
+              backgroundImageBounds: backgroundImageBounds ?? null,
+              backgroundOpacity,
+              spotOpacity,
+            },
+          });
+          plotIds.push(primaryId ?? "");
+        }
+      } else {
+        const colorByHex = colorByToHex(colorByValues, plotColorMode, {
+          catMap: globalCatMap ?? undefined,
+          colorMin: continuousColorRange?.colorMin,
+          colorMax: continuousColorRange?.colorMax,
+          logScale,
+          palette: continuousPalette,
+          reverse: continuousPaletteReverse,
+        });
+        const legend =
+          plotColorMode === "categorical" && categoricalLegendForPlot
+            ? categoricalLegendForPlot.map((entry) => ({
+                label: entry.label,
+                color: entry.color,
+                count: entry.count,
+              }))
+            : [];
+        const colorBarStatsSingle =
+          plotColorMode === "continuous" && continuousColorRange
+            ? {
+                lo: continuousColorRange.colorMin,
+                mid: continuousColorBarMid,
+                hi: continuousColorRange.colorMax,
+              }
+            : undefined;
+        plotTasks.push({
+          type: "scatter",
+          options: {
+            x: spatial.x,
+            y: spatial.y,
+            colorByHex,
+            bounds,
+            spotSizeScale,
+            title: singleTitle,
+            legend,
+            colorBarStats: colorBarStatsSingle,
+            colorBarTitle:
+              plotColorMode === "continuous"
+                ? colorMode === "gene"
+                  ? selectedGene ?? undefined
+                  : selectedObsCol ?? undefined
+                : undefined,
+            continuousPalette,
+            continuousPaletteReverse,
+            backgroundImageDataUrl: undefined,
+            backgroundImageBounds: backgroundImageBounds ?? null,
+            backgroundOpacity,
+            spotOpacity,
+          },
+        });
+        plotIds.push(primaryId ?? "");
+      }
+    } else if (multiPlot) {
+      for (const id of selectedDatasetIds) {
+        const d = datasetCache[id];
+        if (!d?.spatial) continue;
+        const mode = getSlotMode(id);
+        if (mode === "multigene") {
+          const n = d.spatial.x.length;
+          const byGene = multigeneExpressionByDataset[id];
+          const layers = selectedMultigeneGenes
+            .map((entry) => {
+              const values = byGene?.[entry.gene];
+              if (!values || values.length < n) return null;
+              const slice = values.slice(0, n);
+              if (!slice.some((value) => Number.isFinite(value))) return null;
+              return { name: entry.gene, values: slice, paletteId: entry.paletteId };
+            })
+            .filter((layer): layer is { name: string; values: number[]; paletteId: string } => layer !== null);
+          const layerCount = layers.length;
+          const vminByLayer: number[] = [];
+          const vmaxByLayer: number[] = [];
+          const minParsed = parseMultigeneRange(multigeneRangeMinInput);
+          const maxParsed = parseMultigeneRange(multigeneRangeMaxInput);
+          for (let g = 0; g < layerCount; g++) {
+            const vals = layers[g].values;
+            let vmin: number, vmax: number;
+            if (minParsed?.type === "percentile" && maxParsed?.type === "percentile") {
+              vmin = percentile(vals, minParsed.p);
+              vmax = percentile(vals, maxParsed.p);
+            } else if (minParsed?.type === "raw" && maxParsed?.type === "raw") {
+              vmin = minParsed.value;
+              vmax = maxParsed.value;
+            } else {
+              const { min: dataMin, max: dataMax } = finiteMinMax(vals);
+              vmin = dataMin;
+              vmax = dataMax <= vmin ? vmin + 1 : dataMax;
+            }
+            if (!Number.isFinite(vmin)) vmin = 0;
+            if (!Number.isFinite(vmax) || vmax <= vmin) vmax = vmin + 1;
+            vminByLayer.push(vmin);
+            vmaxByLayer.push(vmax);
+          }
+          const spots: Array<{ x: number; y: number; segments: MultigeneSegment[] }> = [];
+          for (let i = 0; i < n; i++) {
+            let sum = 0;
+            const expr: number[] = [];
+            for (let g = 0; g < layerCount; g++) {
+              const raw = layers[g].values[i];
+              const v = Number.isFinite(raw) ? Math.max(0, raw) : 0;
+              const e = multigeneLogScale ? Math.log1p(v) : v;
+              expr.push(e);
+              sum += e;
+            }
+            if (!Number.isFinite(sum) || sum <= 0) continue;
+            const segments: MultigeneSegment[] = [];
+            for (let g = 0; g < layerCount; g++) {
+              segments.push({
+                proportion: expr[g] / sum,
+                color: multigeneValueToHex(
+                  layers[g].values[i] ?? 0,
+                  vminByLayer[g],
+                  vmaxByLayer[g],
+                  layers[g].paletteId,
+                  multigeneLogScale
+                ),
+              });
+            }
+            segments.sort((a, b) => b.proportion - a.proportion);
+            spots.push({ x: d.spatial.x[i], y: d.spatial.y[i], segments });
+          }
+          plotTasks.push({
+            type: "multigene",
+            options: {
+              spots,
+              bounds: getSlotBounds(d.spatial),
+              spotSizeScale,
+              layout: multigeneLayout,
+              title: `${id}${embeddingMode === "umap" ? " (UMAP)" : " (Spatial)"}`,
+              legendLayers: layers.map((layer, g) => ({
+                name: layer.name,
+                paletteId: layer.paletteId,
+                vmin: vminByLayer[g] ?? 0,
+                vmax: vmaxByLayer[g] ?? 1,
+              })),
+              backgroundImageDataUrl: undefined,
+              backgroundImageBounds: getBgBounds(d.meta, backgroundImageKey),
+              backgroundOpacity,
+              spotOpacity,
+            },
+          });
+          plotIds.push(id);
+        } else {
+          const slotRange = mode === "continuous" && slotContinuousRange ? slotContinuousRange[id] : null;
+          const colorByHex = colorByToHex(getSlotColorBy(id), mode, {
+            catMap: globalCatMap ?? undefined,
+            colorMin: slotRange?.colorMin ?? continuousColorRange?.colorMin,
+            colorMax: slotRange?.colorMax ?? continuousColorRange?.colorMax,
+            logScale,
+            palette: continuousPalette,
+            reverse: continuousPaletteReverse,
+          });
+          const slotColorBar =
+            mode === "continuous" && slotRange?.colorBarStats ? slotRange.colorBarStats : undefined;
+          plotTasks.push({
+            type: "scatter",
+            options: {
+              x: d.spatial.x,
+              y: d.spatial.y,
+              colorByHex,
+              bounds: getSlotBounds(d.spatial),
+              spotSizeScale,
+              title: `${id}${embeddingMode === "umap" ? " (UMAP)" : " (Spatial)"}`,
+              legend: getSlotLegend(id),
+              colorBarStats: slotColorBar,
+              colorBarTitle:
+                mode === "continuous"
+                  ? colorMode === "gene"
+                    ? selectedGene ?? undefined
+                    : selectedObsCol ?? undefined
+                  : undefined,
+              continuousPalette,
+              continuousPaletteReverse,
+              backgroundImageDataUrl: undefined,
+              backgroundImageBounds: getBgBounds(d.meta, backgroundImageKey),
+              backgroundOpacity,
+              spotOpacity,
+            },
+          });
+          plotIds.push(id);
+        }
+      }
+    }
+
+    return { plotTasks, plotIds };
+  };
+
+  const handleExportPdf = async (request: PdfExportRequest) => {
+    setExportMenuOpen(false);
+    const pdfSaveTarget = await choosePdfSaveTarget(buildPdfExportFilename());
+    if (pdfSaveTarget == null) {
+      console.log("[Export PDF] Save canceled");
+      return;
+    }
+
+    setExportingPdf(true);
+    setExportProgress(0);
+    console.log("[Export PDF] Start", request);
+    try {
+      console.log("[Export PDF] Loading jspdf and export modules...");
+      const [{ jsPDF, GState: GStateClass }] = await Promise.all([import("jspdf")]);
+      let drawScatterPlotToPdf: (
+        pdf: jsPDF,
+        options: VectorExportOptions,
+        pageRect: { x: number; y: number; w: number; h: number },
+        gStateClass?: typeof GStateClass,
+        pageHeightMm?: number
+      ) => void;
+      let drawMultigenePlotToPdf: (
+        pdf: jsPDF,
+        options: MultigeneVectorExportOptions,
+        pageRect: { x: number; y: number; w: number; h: number },
+        gStateClass?: typeof GStateClass,
+        pageHeightMm?: number
+      ) => void;
+      if (request.mode === "raw") {
+        const { drawPlotToPdfVector, drawMultigenePlotToPdfVector } = await import("./exportPlotVector");
+        drawScatterPlotToPdf = drawPlotToPdfVector;
+        drawMultigenePlotToPdf = drawMultigenePlotToPdfVector;
+      } else {
+        const { drawPlotToPdfRasterized, drawMultigenePlotToPdfRasterized } = await import("./exportPlotRaster");
+        drawScatterPlotToPdf = (pdf, options, pageRect, gStateClass, pageHeightMm) =>
+          drawPlotToPdfRasterized(pdf, options, pageRect, gStateClass, request.dpi, pageHeightMm);
+        drawMultigenePlotToPdf = (pdf, options, pageRect, gStateClass, pageHeightMm) =>
+          drawMultigenePlotToPdfRasterized(pdf, options, pageRect, gStateClass, request.dpi, pageHeightMm);
+      }
+      setExportProgress(5);
+      console.log("[Export PDF] Modules loaded, building plot tasks...");
+
+      const { plotTasks, plotIds } = buildPdfPlotTasks();
+
+      console.log("[Export PDF] Plot tasks count:", plotTasks.length);
+      if (plotTasks.length === 0) {
+        console.warn("[Export PDF] No plots to export, aborting");
+        debugLog("exportPdf: no plots to export");
+        setExportingPdf(false);
+        setExportProgress(0);
+        return;
+      }
+
+      const plotCount = plotTasks.length;
+      const PAGE_W_MM = 180;
+      const PAGE_H_MM = 210;
+      const marginX = 10;
+      const marginY = 10;
+      const titleHeightMm = 5;
+      const cols = plotCount <= 2 ? 2 : plotCount <= 4 ? 2 : 3;
+      const rows = Math.ceil(plotCount / cols);
+      const usableW = Math.max(10, PAGE_W_MM - 2 * marginX);
+      const usableH = Math.max(10, PAGE_H_MM - 2 * marginY);
+      const cellW = usableW / cols;
+      const cellH = usableH / rows;
+      const cellSize = Math.min(cellW, cellH);
+      const contentW = cellSize;
+      const contentH = Math.max(5, cellSize - titleHeightMm);
+
+      const median = (arr: number[]) => {
+        const a = arr.filter((v) => Number.isFinite(v) && v > 0).sort((x, y) => x - y);
+        if (a.length === 0) return NaN;
+        const mid = Math.floor(a.length / 2);
+        return a.length % 2 ? a[mid] : (a[mid - 1] + a[mid]) / 2;
+      };
+      const estimateNearestNeighborSpacing = (
+        xs: number[],
+        ys: number[],
+        b: { xMin: number; xMax: number; yMin: number; yMax: number }
+      ): number => {
+        const n0 = Math.min(xs.length, ys.length);
+        const dataW0 = b.xMax - b.xMin || 1;
+        const dataH0 = b.yMax - b.yMin || 1;
+        const area = dataW0 * dataH0;
+        const guess = n0 > 0 ? Math.sqrt(area / Math.max(1, n0)) : Math.sqrt(Math.max(1, area));
+        if (n0 < 2) return guess;
+
+        const maxSample = 5000;
+        const step = n0 > maxSample ? Math.ceil(n0 / maxSample) : 1;
+        const idx: number[] = [];
+        for (let i = 0; i < n0; i += step) idx.push(i);
+
+        const cellSizeData = Math.max(1e-6, guess * 1.5);
+        const keyOf = (cx: number, cy: number) => `${cx},${cy}`;
+        const grid = new Map<string, number[]>();
+        for (const i of idx) {
+          const x = xs[i], y = ys[i];
+          if (!Number.isFinite(x) || !Number.isFinite(y)) continue;
+          const cx = Math.floor((x - b.xMin) / cellSizeData);
+          const cy = Math.floor((y - b.yMin) / cellSizeData);
+          const key = keyOf(cx, cy);
+          const list = grid.get(key);
+          if (list) list.push(i);
+          else grid.set(key, [i]);
+        }
+
+        const dists: number[] = [];
+        for (const i of idx) {
+          const x0 = xs[i], y0 = ys[i];
+          if (!Number.isFinite(x0) || !Number.isFinite(y0)) continue;
+          const cx0 = Math.floor((x0 - b.xMin) / cellSizeData);
+          const cy0 = Math.floor((y0 - b.yMin) / cellSizeData);
+          let best = Infinity;
+          for (let dx = -1; dx <= 1; dx++) {
+            for (let dy = -1; dy <= 1; dy++) {
+              const key = keyOf(cx0 + dx, cy0 + dy);
+              const cand = grid.get(key);
+              if (!cand) continue;
+              for (const j of cand) {
+                if (j === i) continue;
+                const x1 = xs[j], y1 = ys[j];
+                const ddx = x1 - x0;
+                const ddy = y1 - y0;
+                const d2 = ddx * ddx + ddy * ddy;
+                if (d2 > 0 && d2 < best) best = d2;
+              }
+            }
+          }
+          if (best < Infinity) dists.push(Math.sqrt(best));
+        }
+        const m = median(dists);
+        return Number.isFinite(m) && m > 0 ? m : guess;
+      };
+
+      const spacingDataPerTask = plotTasks.map((task) => {
+        const taskBounds = task.options.bounds;
+        if (task.type === "scatter") return estimateNearestNeighborSpacing(task.options.x, task.options.y, taskBounds);
+        const xs = task.options.spots.map((spot) => spot.x);
+        const ys = task.options.spots.map((spot) => spot.y);
+        return estimateNearestNeighborSpacing(xs, ys, taskBounds);
+      });
+
+      const getEffectiveExtent = (task: PlotTask) => {
+        const taskBounds = task.options.bounds;
+        const imageBounds = task.options.backgroundImageBounds;
+        const eMinX = Math.min(taskBounds.xMin, imageBounds?.xMin ?? taskBounds.xMin);
+        const eMaxX = Math.max(taskBounds.xMax, imageBounds?.xMax ?? taskBounds.xMax);
+        const eMinY = Math.min(taskBounds.yMin, imageBounds?.yMin ?? taskBounds.yMin);
+        const eMaxY = Math.max(taskBounds.yMax, imageBounds?.yMax ?? taskBounds.yMax);
+        return {
+          dataW: eMaxX - eMinX || 1,
+          dataH: eMaxY - eMinY || 1,
+        };
+      };
+
+      const maxTargetMm = Math.min(
+        ...plotTasks.map((task, i) => {
+          const { dataW, dataH } = getEffectiveExtent(task);
+          const spacing = Number.isFinite(spacingDataPerTask[i]) && spacingDataPerTask[i] > 0 ? spacingDataPerTask[i] : 1;
+          return Math.min((contentW * spacing) / dataW, (contentH * spacing) / dataH);
+        })
+      );
+      const targetNeighborMm = Math.max(0.2, 0.82 * maxTargetMm);
+
+      console.log("[Export PDF] Creating PDF page:", PAGE_W_MM, "x", PAGE_H_MM, "mm (targetNeighborMm:", targetNeighborMm, "mm)");
+      const pdf = new jsPDF({ unit: "mm", format: [PAGE_W_MM, PAGE_H_MM] });
+      pdf.setFillColor(26, 26, 46);
+      pdf.rect(0, 0, PAGE_W_MM, PAGE_H_MM, "F");
+
+      for (let i = 0; i < plotCount; i++) {
+        console.log("[Export PDF] Drawing plot", i + 1, "/", plotCount);
+        setExportProgress(5 + Math.round((95 * i) / plotCount));
+        const col = i % cols;
+        const row = Math.floor(i / cols);
+        const { dataW: effectiveDataW, dataH: effectiveDataH } = getEffectiveExtent(plotTasks[i]);
+        const spacingData = Number.isFinite(spacingDataPerTask[i]) && spacingDataPerTask[i] > 0 ? spacingDataPerTask[i] : 1;
+        const scaleMmPerData = targetNeighborMm / spacingData;
+        const plotW = effectiveDataW * scaleMmPerData;
+        const plotH = effectiveDataH * scaleMmPerData;
+        const cellLeft = marginX + col * cellSize;
+        const cellTop = marginY + row * cellSize;
+        const contentRect = {
+          x: cellLeft + (contentW - plotW) / 2,
+          y: cellTop + titleHeightMm + (contentH - plotH) / 2,
+          w: plotW,
+          h: plotH,
+        };
+        const panelRectForLegend = {
+          x: cellLeft,
+          y: cellTop + titleHeightMm,
+          w: contentW,
+          h: contentH,
+        };
+        const idForLog = plotIds[i] ?? `plot_${i + 1}`;
+        const bgBounds = plotTasks[i].options.backgroundImageBounds;
+        const bgW = bgBounds ? bgBounds.xMax - bgBounds.xMin : null;
+        const bgH = bgBounds ? bgBounds.yMax - bgBounds.yMin : null;
+        const taskBounds = plotTasks[i].options.bounds;
+        const spotsW = taskBounds.xMax - taskBounds.xMin || 1;
+        const spotsH = taskBounds.yMax - taskBounds.yMin || 1;
+        console.log("[Export PDF] Plot metrics", {
+          id: idForLog,
+          embeddingMode,
+          effectiveDataW,
+          effectiveDataH,
+          spacingData,
+          scaleMmPerData,
+          plotW_mm: plotW,
+          plotH_mm: plotH,
+          bgW,
+          bgH,
+          dataOverBgW: bgW && bgW !== 0 ? spotsW / bgW : null,
+          dataOverBgH: bgH && bgH !== 0 ? spotsH / bgH : null,
+        });
+
+        const task = plotTasks[i];
+        const idForBg = plotIds[i];
+        if (idForBg && backgroundImageKey) {
+          const bgDataUrl = await loadImageAsDataUrl(datasetImageUrl(idForBg, backgroundImageKey));
+          if (bgDataUrl != null) task.options.backgroundImageDataUrl = bgDataUrl;
+        }
+        task.options.spotSpacingData = spacingData;
+        task.options.panelRect = panelRectForLegend;
+        task.options.legendFormKey = `LegendForm_${i}`;
+        if (request.mode === "raw") {
+          task.options.plotFormKey = `PlotForm_${i}`;
+        }
+
+        const plotTitle = task.options.title;
+        if (plotTitle) {
+          pdf.setFontSize(7);
+          pdf.setTextColor(238, 238, 238);
+          pdf.text(plotTitle, cellLeft + cellSize / 2, cellTop + 3.5, { align: "center" });
+        }
+
+        setExportProgress(5 + Math.round((95 * (i + 0.5)) / plotCount));
+        if (task.type === "scatter") {
+          drawScatterPlotToPdf(pdf, task.options, contentRect, GStateClass, PAGE_H_MM);
+        } else {
+          drawMultigenePlotToPdf(pdf, task.options, contentRect, GStateClass, PAGE_H_MM);
+        }
+        setExportProgress(5 + Math.round((95 * (i + 1)) / plotCount));
+      }
+
+      setExportProgress(100);
+      console.log("[Export PDF] Saving file:", pdfSaveTarget.filename, "via", pdfSaveTarget.type);
+      await savePdfToTarget(pdf, pdfSaveTarget);
+      console.log("[Export PDF] Done");
+    } catch (e) {
+      console.error("[Export PDF] Error:", e);
+      console.error("[Export PDF] Error message:", e instanceof Error ? e.message : String(e));
+      console.error("[Export PDF] Error stack:", e instanceof Error ? e.stack : "no stack");
+      debugLog("exportPdf error", e);
+    } finally {
+      setExportingPdf(false);
+      setExportProgress(0);
+    }
+  };
+
   return (
     <div style={{ display: "flex", flexDirection: "column", flex: 1, minHeight: 0, minWidth: 0, overflow: "hidden" }}>
       {exportingPdf && (
@@ -1160,676 +1844,99 @@ export default function App() {
               borderBottom: "1px solid var(--sidebar-border)",
             }}
           >
-            <button
-              type="button"
-              onClick={async () => {
-                const hasLoaded = selectedDatasetIds.length > 0 && selectedDatasetIds.some((id) => datasetCache[id]?.spatial);
-                const multiPlot =
-                  selectedDatasetIds.length > 1 &&
-                  (colorMode === "gene" || colorMode === "annotation" || colorMode === "coexpression" || colorMode === "multigene");
-                const showSinglePlot = hasLoaded && selectedDatasetIds.length === 1 && spatial != null;
-                const pdfSaveTarget = await choosePdfSaveTarget(buildPdfExportFilename());
-                if (pdfSaveTarget == null) {
-                  console.log("[Export PDF] Save canceled");
-                  return;
-                }
-
-                setExportingPdf(true);
-                setExportProgress(0);
-                console.log("[Export PDF] Start");
-                try {
-                  console.log("[Export PDF] Loading jspdf and exportPlotVector...");
-                  const [
-                    { jsPDF, GState: GStateClass },
-                    { drawPlotToPdfVector, drawMultigenePlotToPdfVector },
-                  ] = await Promise.all([import("jspdf"), import("./exportPlotVector")]);
-                  setExportProgress(5);
-                  console.log("[Export PDF] Modules loaded, building plot tasks...");
-
-                  const getSlotBounds = (s: { x: number[]; y: number[] }) => {
-                    let xMin = s.x[0], xMax = s.x[0], yMin = s.y[0], yMax = s.y[0];
-                    for (let i = 1; i < s.x.length; i++) {
-                      if (s.x[i] < xMin) xMin = s.x[i];
-                      if (s.x[i] > xMax) xMax = s.x[i];
-                      if (s.y[i] < yMin) yMin = s.y[i];
-                      if (s.y[i] > yMax) yMax = s.y[i];
-                    }
-                    return { xMin, xMax, yMin, yMax };
-                  };
-                  const getSlotMode = (id: string): ColorMode => {
-                    const d = datasetCache[id];
-                    if (!d?.spatial) return "none";
-                    if (colorMode === "annotation" && selectedObsCol && d.obs?.data[selectedObsCol])
-                      return obsValueType === "numeric" ? "continuous" : "categorical";
-                    if (colorMode === "gene" && expressionByDataset[id]?.length === d.spatial.x.length) return "continuous";
-                    if (colorMode === "coexpression") {
-                      const e1 = expression1ByDataset[id];
-                      const e2 = expression2ByDataset[id];
-                      const n = d.spatial.x.length;
-                      if (e1 && e2 && e1.length >= n && e2.length >= n) return "coexpression";
-                    }
-                    if (colorMode === "multigene" && selectedMultigeneGenes.length > 0) {
-                      const byGene = multigeneExpressionByDataset[id];
-                      if (byGene && selectedMultigeneGenes.some((e) => (byGene[e.gene]?.length ?? 0) >= d.spatial.x.length))
-                        return "multigene";
-                    }
-                    return "none";
-                  };
-                  const getSlotColorBy = (id: string): (string | number)[] => {
-                    const d = datasetCache[id];
-                    if (!d?.spatial) return [];
-                    const n = d.spatial.x.length;
-                    if (colorMode === "annotation" && selectedObsCol) {
-                      const raw = d.obs?.data[selectedObsCol];
-                      if (!raw) return new Array(n).fill("nan") as (string | number)[];
-                      return raw.slice(0, n);
-                    }
-                    if (colorMode === "gene") {
-                      const expr = expressionByDataset[id];
-                      return expr ? expr.slice(0, n) : (new Array(n).fill(NaN) as (string | number)[]);
-                    }
-                    if (colorMode === "coexpression") {
-                      const e1 = expression1ByDataset[id];
-                      const e2 = expression2ByDataset[id];
-                      if (!e1 || !e2 || e1.length < n || e2.length < n) return new Array(n).fill(0);
-                      const mapRaw = (arr: number[]) =>
-                        coexpressionLogScale ? arr.map((x) => Math.log1p(Math.max(0, x))) : arr;
-                      const log1 = mapRaw(e1.slice(0, n));
-                      const log2 = mapRaw(e2.slice(0, n));
-                      const { min: min1, max: max1 } = finiteMinMax(log1);
-                      const { min: min2, max: max2 } = finiteMinMax(log2);
-                      const range1 = max1 - min1 || 1;
-                      const range2 = max2 - min2 || 1;
-                      const out: string[] = [];
-                      for (let i = 0; i < n; i++) {
-                        const v1 = (log1[i] - min1) / range1;
-                        const v2 = (log2[i] - min2) / range2;
-                        out.push(coexpressionToHex(v1, v2, coexpressionPalette));
-                      }
-                      return out;
-                    }
-                    return new Array(n).fill(0);
-                  };
-                  const getSlotLegend = (id: string): VectorExportLegendEntry[] => {
-                    if (
-                      colorMode !== "annotation" ||
-                      !selectedObsCol ||
-                      obsValueType !== "categorical" ||
-                      !globalCatMap
-                    )
-                      return [];
-                    const vals = datasetCache[id]?.obs?.data[selectedObsCol];
-                    if (!vals) return [];
-                    const uniq = new Set(vals.map((v) => String(v))).size;
-                    if (uniq > ANNOTATION_MAX_CATEGORIES)
-                      return [{ label: LABEL_NAN_TOO_MANY, color: globalCatMap.get(LABEL_NAN_TOO_MANY) ?? "#888888", count: vals.length }];
-                    if (uniq < ANNOTATION_MIN_CATEGORIES)
-                      return [{ label: LABEL_NAN_TOO_FEW, color: globalCatMap.get(LABEL_NAN_TOO_FEW) ?? "#888888", count: vals.length }];
-                    const counts = new Map<string, number>();
-                    for (let i = 0; i < vals.length; i++) {
-                      const s = String(vals[i]);
-                      counts.set(s, (counts.get(s) ?? 0) + 1);
-                    }
-                    return Array.from(counts.entries())
-                      .map(([label, count]) => ({ label, color: globalCatMap.get(label) ?? "#888888", count }))
-                      .sort((a, b) => (b.count !== a.count ? b.count - a.count : (a.label < b.label ? -1 : a.label > b.label ? 1 : 0)));
-                  };
-                  const getBgBounds = (m: DatasetMeta | undefined, key: string | null) => {
-                    if (!m?.image_info || !key) return null;
-                    const keys = m.image_keys ?? [];
-                    const refKey = keys.includes("hires") ? "hires" : keys[0];
-                    if (!refKey) return null;
-                    const info = m.image_info[refKey];
-                    if (!info || info.scale_factor <= 0) return null;
-                    return { xMin: 0, yMin: 0, xMax: info.width / info.scale_factor, yMax: info.height / info.scale_factor };
-                  };
-
-                  type PlotTask =
-                    | { type: "scatter"; options: Parameters<typeof drawPlotToPdfVector>[1] }
-                    | { type: "multigene"; options: Parameters<typeof drawMultigenePlotToPdfVector>[1] };
-                  const plotTasks: PlotTask[] = [];
-                  const plotIds: string[] = [];
-
-                  if (showSinglePlot && spatial) {
-                    const singleTitle =
-                      primaryId && meta
-                        ? `${primaryId}${embeddingMode === "umap" ? " (UMAP)" : " (Spatial)"}`
-                        : primaryId ?? undefined;
-
-                    if (plotColorMode === "multigene" && selectedMultigeneGenes.length > 0) {
-                      // Single-sample multigene export: build multigene spots and per-gene vmin/vmax, same as multiPlot.
-                      const n = spatial.x.length;
-                      const byGene = multigeneExpressionByDataset[primaryId ?? ""];
-                      const layers =
-                        byGene && selectedMultigeneGenes.length > 0
-                          ? selectedMultigeneGenes
-                              .map((entry) => {
-                                const values = byGene[entry.gene];
-                                if (!values || values.length < n) return null;
-                                const slice = values.slice(0, n);
-                                const hasFinite = slice.some((v) => Number.isFinite(v));
-                                if (!hasFinite) return null;
-                                return { name: entry.gene, values: slice, paletteId: entry.paletteId };
-                              })
-                              .filter(
-                                (l): l is { name: string; values: number[]; paletteId: string } => l !== null
-                              )
-                          : [];
-                      const K = layers.length;
-                      if (K > 0) {
-                        const vminByLayer: number[] = [];
-                        const vmaxByLayer: number[] = [];
-                        const minParsed = parseMultigeneRange(multigeneRangeMinInput);
-                        const maxParsed = parseMultigeneRange(multigeneRangeMaxInput);
-                        for (let g = 0; g < K; g++) {
-                          const vals = layers[g].values;
-                          let vmin: number, vmax: number;
-                          if (minParsed?.type === "percentile" && maxParsed?.type === "percentile") {
-                            vmin = percentile(vals, minParsed.p);
-                            vmax = percentile(vals, maxParsed.p);
-                          } else if (minParsed?.type === "raw" && maxParsed?.type === "raw") {
-                            vmin = minParsed.value;
-                            vmax = maxParsed.value;
-                          } else {
-                            const { min: dataMin, max: dataMax } = finiteMinMax(vals);
-                            vmin = dataMin;
-                            vmax = dataMax <= vmin ? vmin + 1 : dataMax;
-                          }
-                          if (!Number.isFinite(vmin)) vmin = 0;
-                          if (!Number.isFinite(vmax) || vmax <= vmin) vmax = vmin + 1;
-                          vminByLayer.push(vmin);
-                          vmaxByLayer.push(vmax);
-                        }
-
-                        const spots: Array<{ x: number; y: number; segments: MultigeneSegment[] }> = [];
-                        for (let i = 0; i < n; i++) {
-                          let sum = 0;
-                          const expr: number[] = [];
-                          for (let g = 0; g < K; g++) {
-                            const raw = layers[g].values[i];
-                            const v = Number.isFinite(raw) ? Math.max(0, raw) : 0;
-                            const e = multigeneLogScale ? Math.log1p(v) : v;
-                            expr.push(e);
-                            sum += e;
-                          }
-                          if (!Number.isFinite(sum) || sum <= 0) continue;
-                          const segments: MultigeneSegment[] = [];
-                          for (let g = 0; g < K; g++) {
-                            const proportion = expr[g] / sum;
-                            segments.push({
-                              proportion,
-                              color: multigeneValueToHex(
-                                layers[g].values[i] ?? 0,
-                                vminByLayer[g],
-                                vmaxByLayer[g],
-                                layers[g].paletteId,
-                                multigeneLogScale
-                              ),
-                            });
-                          }
-                          segments.sort((a, b) => b.proportion - a.proportion);
-                          spots.push({ x: spatial.x[i], y: spatial.y[i], segments });
-                        }
-
-                        plotTasks.push({
-                          type: "multigene",
-                          options: {
-                            spots,
-                            bounds,
-                            spotSizeScale,
-                            layout: multigeneLayout,
-                            title: singleTitle,
-                            legendLayers: layers.map((l, g) => ({
-                              name: l.name,
-                              paletteId: l.paletteId,
-                              vmin: vminByLayer[g] ?? 0,
-                              vmax: vmaxByLayer[g] ?? 1,
-                            })),
-                            backgroundImageDataUrl: undefined,
-                            backgroundImageBounds: backgroundImageBounds ?? null,
-                            backgroundOpacity,
-                            spotOpacity,
-                          },
-                        });
-                        plotIds.push(primaryId ?? "");
-                      }
-                    } else {
-                      const colorByHex = colorByToHex(colorByValues, plotColorMode, {
-                        catMap: globalCatMap ?? undefined,
-                        colorMin: continuousColorRange?.colorMin,
-                        colorMax: continuousColorRange?.colorMax,
-                        logScale,
-                        palette: continuousPalette,
-                        reverse: continuousPaletteReverse,
-                      });
-                      const legend: VectorExportLegendEntry[] =
-                        plotColorMode === "categorical" && categoricalLegendForPlot
-                          ? categoricalLegendForPlot.map((e) => ({
-                              label: e.label,
-                              color: e.color,
-                              count: e.count,
-                            }))
-                          : [];
-                      const colorBarStatsSingle =
-                        plotColorMode === "continuous" && continuousColorRange
-                          ? {
-                              lo: continuousColorRange.colorMin,
-                              mid: continuousColorBarMid,
-                              hi: continuousColorRange.colorMax,
-                            }
-                          : undefined;
-                      plotTasks.push({
-                        type: "scatter",
-                        options: {
-                          x: spatial.x,
-                          y: spatial.y,
-                          colorByHex,
-                          bounds,
-                          spotSizeScale,
-                          title: singleTitle,
-                          legend,
-                          colorBarStats: colorBarStatsSingle,
-                          colorBarTitle:
-                            plotColorMode === "continuous"
-                              ? colorMode === "gene"
-                                ? selectedGene ?? undefined
-                                : selectedObsCol ?? undefined
-                              : undefined,
-                          continuousPalette,
-                          continuousPaletteReverse,
-                          backgroundImageDataUrl: undefined,
-                          backgroundImageBounds: backgroundImageBounds ?? null,
-                          backgroundOpacity,
-                          spotOpacity,
-                        },
-                      });
-                      plotIds.push(primaryId ?? "");
-                    }
-                  } else if (multiPlot) {
-                    for (const id of selectedDatasetIds) {
-                      const d = datasetCache[id];
-                      if (!d?.spatial) continue;
-                      const mode = getSlotMode(id);
-                      if (mode === "multigene") {
-                        const n = d.spatial.x.length;
-                        const byGene = multigeneExpressionByDataset[id];
-                        const layers = selectedMultigeneGenes
-                          .map((entry) => {
-                            const values = byGene?.[entry.gene];
-                            if (!values || values.length < n) return null;
-                            const slice = values.slice(0, n);
-                            const hasFinite = slice.some((v) => Number.isFinite(v));
-                            if (!hasFinite) return null;
-                            return { name: entry.gene, values: slice, paletteId: entry.paletteId };
-                          })
-                          .filter(
-                            (l): l is { name: string; values: number[]; paletteId: string } => l !== null
-                          );
-                        const K = layers.length;
-                        const vminByLayer: number[] = [];
-                        const vmaxByLayer: number[] = [];
-                        const minParsed = parseMultigeneRange(multigeneRangeMinInput);
-                        const maxParsed = parseMultigeneRange(multigeneRangeMaxInput);
-                        for (let g = 0; g < K; g++) {
-                          const vals = layers[g].values;
-                          let vmin: number, vmax: number;
-                          if (minParsed?.type === "percentile" && maxParsed?.type === "percentile") {
-                            vmin = percentile(vals, minParsed.p);
-                            vmax = percentile(vals, maxParsed.p);
-                          } else if (minParsed?.type === "raw" && maxParsed?.type === "raw") {
-                            vmin = minParsed.value;
-                            vmax = maxParsed.value;
-                          } else {
-                            const { min: dataMin, max: dataMax } = finiteMinMax(vals);
-                            vmin = dataMin;
-                            vmax = dataMax <= vmin ? vmin + 1 : dataMax;
-                          }
-                          if (!Number.isFinite(vmin)) vmin = 0;
-                          if (!Number.isFinite(vmax) || vmax <= vmin) vmax = vmin + 1;
-                          vminByLayer.push(vmin);
-                          vmaxByLayer.push(vmax);
-                        }
-                        const spots: Array<{ x: number; y: number; segments: MultigeneSegment[] }> = [];
-                        for (let i = 0; i < n; i++) {
-                          let sum = 0;
-                          const expr: number[] = [];
-                          for (let g = 0; g < K; g++) {
-                            const raw = layers[g].values[i];
-                            const v = Number.isFinite(raw) ? Math.max(0, raw) : 0;
-                            const e = multigeneLogScale ? Math.log1p(v) : v;
-                            expr.push(e);
-                            sum += e;
-                          }
-                          if (!Number.isFinite(sum) || sum <= 0) continue;
-                          const segments: MultigeneSegment[] = [];
-                          for (let g = 0; g < K; g++) {
-                            const proportion = expr[g] / sum;
-                            segments.push({
-                              proportion,
-                              color: multigeneValueToHex(
-                                layers[g].values[i] ?? 0,
-                                vminByLayer[g],
-                                vmaxByLayer[g],
-                                layers[g].paletteId,
-                                multigeneLogScale
-                              ),
-                            });
-                          }
-                          segments.sort((a, b) => b.proportion - a.proportion);
-                          spots.push({ x: d.spatial.x[i], y: d.spatial.y[i], segments });
-                        }
-                        plotTasks.push({
-                          type: "multigene",
-                          options: {
-                            spots,
-                            bounds: getSlotBounds(d.spatial),
-                            spotSizeScale,
-                            layout: multigeneLayout,
-                            title: `${id}${embeddingMode === "umap" ? " (UMAP)" : " (Spatial)"}`,
-                            legendLayers: layers.map((l, g) => ({
-                              name: l.name,
-                              paletteId: l.paletteId,
-                              vmin: vminByLayer[g] ?? 0,
-                              vmax: vmaxByLayer[g] ?? 1,
-                            })),
-                            backgroundImageDataUrl: undefined,
-                            backgroundImageBounds: getBgBounds(d.meta, backgroundImageKey),
-                            backgroundOpacity,
-                            spotOpacity,
-                          },
-                        });
-                        plotIds.push(id);
-                      } else {
-                        const slotRange =
-                          mode === "continuous" && slotContinuousRange ? slotContinuousRange[id] : null;
-                        const colorByHex = colorByToHex(getSlotColorBy(id), mode, {
-                          catMap: globalCatMap ?? undefined,
-                          colorMin: slotRange?.colorMin ?? continuousColorRange?.colorMin,
-                          colorMax: slotRange?.colorMax ?? continuousColorRange?.colorMax,
-                          logScale,
-                          palette: continuousPalette,
-                          reverse: continuousPaletteReverse,
-                        });
-                        const slotColorBar =
-                          mode === "continuous" && slotRange?.colorBarStats ? slotRange.colorBarStats : undefined;
-                        const slotLegend = getSlotLegend(id);
-                        plotTasks.push({
-                          type: "scatter",
-                          options: {
-                            x: d.spatial.x,
-                            y: d.spatial.y,
-                            colorByHex,
-                            bounds: getSlotBounds(d.spatial),
-                            spotSizeScale,
-                            title: `${id}${embeddingMode === "umap" ? " (UMAP)" : " (Spatial)"}`,
-                            legend: slotLegend,
-                            colorBarStats: slotColorBar,
-                            colorBarTitle:
-                              mode === "continuous"
-                                ? colorMode === "gene"
-                                  ? selectedGene ?? undefined
-                                  : selectedObsCol ?? undefined
-                                : undefined,
-                            continuousPalette,
-                            continuousPaletteReverse,
-                            backgroundImageDataUrl: undefined,
-                            backgroundImageBounds: getBgBounds(d.meta, backgroundImageKey),
-                            backgroundOpacity,
-                            spotOpacity,
-                          },
-                        });
-                        plotIds.push(id);
-                      }
-                    }
-                  }
-
-                  console.log("[Export PDF] Plot tasks count:", plotTasks.length);
-                  if (plotTasks.length === 0) {
-                    console.warn("[Export PDF] No plots to export, aborting");
-                    debugLog("exportPdf: no plots to export");
-                    setExportingPdf(false);
-                    setExportProgress(0);
-                    return;
-                  }
-
-                  const N = plotTasks.length;
-                  // Fixed PDF page size: 180 x 210 mm (portrait).
-                  const PAGE_W_MM = 180;
-                  const PAGE_H_MM = 210;
-                  const marginX = 10;
-                  const marginY = 10;
-                  const titleHeightMm = 5;
-
-                  // Choose columns/rows first (layout pattern similar to before),
-                  // then derive cell size from the fixed page size.
-                  const cols = N <= 2 ? 2 : N <= 4 ? 2 : 3;
-                  const rows = Math.ceil(N / cols);
-
-                  const usableW = Math.max(10, PAGE_W_MM - 2 * marginX);
-                  const usableH = Math.max(10, PAGE_H_MM - 2 * marginY);
-                  const cellW = usableW / cols;
-                  const cellH = usableH / rows;
-                  const cellSize = Math.min(cellW, cellH);
-                  const contentW = cellSize;
-                  const contentH = Math.max(5, cellSize - titleHeightMm);
-
-                  // Scale normalization by typical nearest-neighbor spot distance.
-                  // Goal: after scaling, adjacent spot centers have the same distance in mm across samples.
-                  // This implies a consistent physical scale, independent of raw coordinate magnitudes.
-                  const median = (arr: number[]) => {
-                    const a = arr.filter((v) => Number.isFinite(v) && v > 0).sort((x, y) => x - y);
-                    if (a.length === 0) return NaN;
-                    const mid = Math.floor(a.length / 2);
-                    return a.length % 2 ? a[mid] : (a[mid - 1] + a[mid]) / 2;
-                  };
-                  const estimateNearestNeighborSpacing = (
-                    xs: number[],
-                    ys: number[],
-                    b: { xMin: number; xMax: number; yMin: number; yMax: number }
-                  ): number => {
-                    const n0 = Math.min(xs.length, ys.length);
-                    const dataW0 = b.xMax - b.xMin || 1;
-                    const dataH0 = b.yMax - b.yMin || 1;
-                    const area = dataW0 * dataH0;
-                    const guess = n0 > 0 ? Math.sqrt(area / Math.max(1, n0)) : Math.sqrt(Math.max(1, area));
-                    if (n0 < 2) return guess;
-
-                    // Subsample for performance (deterministic stride).
-                    const maxSample = 5000;
-                    const step = n0 > maxSample ? Math.ceil(n0 / maxSample) : 1;
-                    const idx: number[] = [];
-                    for (let i = 0; i < n0; i += step) idx.push(i);
-
-                    const cellSizeData = Math.max(1e-6, guess * 1.5);
-                    const keyOf = (cx: number, cy: number) => `${cx},${cy}`;
-                    const grid = new Map<string, number[]>();
-                    for (const i of idx) {
-                      const x = xs[i], y = ys[i];
-                      if (!Number.isFinite(x) || !Number.isFinite(y)) continue;
-                      const cx = Math.floor((x - b.xMin) / cellSizeData);
-                      const cy = Math.floor((y - b.yMin) / cellSizeData);
-                      const key = keyOf(cx, cy);
-                      const list = grid.get(key);
-                      if (list) list.push(i);
-                      else grid.set(key, [i]);
-                    }
-
-                    const dists: number[] = [];
-                    for (const i of idx) {
-                      const x0 = xs[i], y0 = ys[i];
-                      if (!Number.isFinite(x0) || !Number.isFinite(y0)) continue;
-                      const cx0 = Math.floor((x0 - b.xMin) / cellSizeData);
-                      const cy0 = Math.floor((y0 - b.yMin) / cellSizeData);
-                      let best = Infinity;
-                      for (let dx = -1; dx <= 1; dx++) {
-                        for (let dy = -1; dy <= 1; dy++) {
-                          const key = keyOf(cx0 + dx, cy0 + dy);
-                          const cand = grid.get(key);
-                          if (!cand) continue;
-                          for (const j of cand) {
-                            if (j === i) continue;
-                            const x1 = xs[j], y1 = ys[j];
-                            const ddx = x1 - x0;
-                            const ddy = y1 - y0;
-                            const d2 = ddx * ddx + ddy * ddy;
-                            if (d2 > 0 && d2 < best) best = d2;
-                          }
-                        }
-                      }
-                      if (best < Infinity) dists.push(Math.sqrt(best));
-                    }
-                    const m = median(dists);
-                    return Number.isFinite(m) && m > 0 ? m : guess;
-                  };
-
-                  const spacingDataPerTask = plotTasks.map((t) => {
-                    const b = t.options.bounds;
-                    if (t.type === "scatter") return estimateNearestNeighborSpacing(t.options.x, t.options.y, b);
-                    const xs = t.options.spots.map((s) => s.x);
-                    const ys = t.options.spots.map((s) => s.y);
-                    return estimateNearestNeighborSpacing(xs, ys, b);
-                  });
-
-                  // Panel extent = union of spots bounds and background image bounds (so image is not clipped and alignment is consistent).
-                  const getEffectiveExtent = (t: (typeof plotTasks)[0]) => {
-                    const b = t.options.bounds;
-                    const ib = t.options.backgroundImageBounds;
-                    const eMinX = Math.min(b.xMin, ib?.xMin ?? b.xMin);
-                    const eMaxX = Math.max(b.xMax, ib?.xMax ?? b.xMax);
-                    const eMinY = Math.min(b.yMin, ib?.yMin ?? b.yMin);
-                    const eMaxY = Math.max(b.yMax, ib?.yMax ?? b.yMax);
-                    return {
-                      dataW: eMaxX - eMinX || 1,
-                      dataH: eMaxY - eMinY || 1,
-                    };
-                  };
-
-                  // Choose global target so that the largest effective panel fits in the content box.
-                  const maxTargetMm = Math.min(
-                    ...plotTasks.map((t, i) => {
-                      const { dataW, dataH } = getEffectiveExtent(t);
-                      const spacing = Number.isFinite(spacingDataPerTask[i]) && spacingDataPerTask[i] > 0 ? spacingDataPerTask[i] : 1;
-                      return Math.min((contentW * spacing) / dataW, (contentH * spacing) / dataH);
-                    })
-                  );
-                  // Shrink so panels do not overlap (leave clear margin between cells)
-                  const targetNeighborMm = Math.max(0.2, 0.82 * maxTargetMm);
-
-                  const pageW = PAGE_W_MM;
-                  const pageH = PAGE_H_MM;
-
-                  console.log("[Export PDF] Creating PDF page:", pageW, "x", pageH, "mm (targetNeighborMm:", targetNeighborMm, "mm)");
-                  const pdf = new jsPDF({ unit: "mm", format: [pageW, pageH] });
-                  pdf.setFillColor(26, 26, 46);
-                  pdf.rect(0, 0, pageW, pageH, "F");
-
-                  for (let i = 0; i < N; i++) {
-                    console.log("[Export PDF] Drawing plot", i + 1, "/", N);
-                    setExportProgress(5 + Math.round((95 * i) / N));
-                    const col = i % cols;
-                    const row = Math.floor(i / cols);
-                    const { dataW: effectiveDataW, dataH: effectiveDataH } = getEffectiveExtent(plotTasks[i]);
-                    const spacingData = Number.isFinite(spacingDataPerTask[i]) && spacingDataPerTask[i] > 0 ? spacingDataPerTask[i] : 1;
-                    const scaleMmPerData = targetNeighborMm / spacingData;
-                    const plotW = effectiveDataW * scaleMmPerData;
-                    const plotH = effectiveDataH * scaleMmPerData;
-                    const cellLeft = marginX + col * cellSize;
-                    const cellTop = marginY + row * cellSize;
-                    const contentRect = {
-                      x: cellLeft + (contentW - plotW) / 2,
-                      y: cellTop + titleHeightMm + (contentH - plotH) / 2,
-                      w: plotW,
-                      h: plotH,
-                    };
-                    const panelRectForLegend = {
-                      x: cellLeft,
-                      y: cellTop + titleHeightMm,
-                      w: contentW,
-                      h: contentH,
-                    };
-                    const idForLog = plotIds[i] ?? `plot_${i + 1}`;
-                    const bgB = plotTasks[i].options.backgroundImageBounds;
-                    const bgW = bgB ? bgB.xMax - bgB.xMin : null;
-                    const bgH = bgB ? bgB.yMax - bgB.yMin : null;
-                    const b = plotTasks[i].options.bounds;
-                    const spotsW = b.xMax - b.xMin || 1;
-                    const spotsH = b.yMax - b.yMin || 1;
-                    const ratioX = bgW && bgW !== 0 ? spotsW / bgW : null;
-                    const ratioY = bgH && bgH !== 0 ? spotsH / bgH : null;
-                    console.log("[Export PDF] Plot metrics", {
-                      id: idForLog,
-                      embeddingMode,
-                      effectiveDataW,
-                      effectiveDataH,
-                      spacingData,
-                      scaleMmPerData,
-                      plotW_mm: plotW,
-                      plotH_mm: plotH,
-                      bgW,
-                      bgH,
-                      dataOverBgW: ratioX,
-                      dataOverBgH: ratioY,
-                    });
-
-                    const task = plotTasks[i];
-                    let bgDataUrl: string | null = null;
-                    const idForBg = plotIds[i];
-                    if (idForBg && backgroundImageKey)
-                      bgDataUrl = await loadImageAsDataUrl(datasetImageUrl(idForBg, backgroundImageKey));
-                    if (bgDataUrl != null) {
-                      if (task.type === "scatter") task.options.backgroundImageDataUrl = bgDataUrl;
-                      else task.options.backgroundImageDataUrl = bgDataUrl;
-                    }
-                    task.options.spotSpacingData = spacingData;
-                    task.options.panelRect = panelRectForLegend;
-                    // Group plot content (background + tissue image + spots) as one Form XObject so it appears as a single group in Illustrator; placement unchanged.
-                    task.options.plotFormKey = `PlotForm_${i}`;
-                    // Group color bar / legend and its background box as one Form XObject for easier editing in Illustrator.
-                    task.options.legendFormKey = `LegendForm_${i}`;
-
-                    const plotTitle = task.options.title;
-                    if (plotTitle) {
-                      pdf.setFontSize(7);
-                      pdf.setTextColor(238, 238, 238);
-                      pdf.text(plotTitle, cellLeft + cellSize / 2, cellTop + 3.5, { align: "center" });
-                    }
-
-                    setExportProgress(5 + Math.round(95 * (i + 0.5) / N));
-                    if (task.type === "scatter") {
-                      drawPlotToPdfVector(pdf, task.options, contentRect, GStateClass, PAGE_H_MM);
-                    } else {
-                      drawMultigenePlotToPdfVector(pdf, task.options, contentRect, GStateClass, PAGE_H_MM);
-                    }
-                    setExportProgress(5 + Math.round(95 * (i + 1) / N));
-                  }
-
-                  setExportProgress(100);
-                  console.log("[Export PDF] Saving file:", pdfSaveTarget.filename, "via", pdfSaveTarget.type);
-                  await savePdfToTarget(pdf, pdfSaveTarget);
-                  console.log("[Export PDF] Done");
-                } catch (e) {
-                  console.error("[Export PDF] Error:", e);
-                  console.error("[Export PDF] Error message:", e instanceof Error ? e.message : String(e));
-                  console.error("[Export PDF] Error stack:", e instanceof Error ? e.stack : "no stack");
-                  debugLog("exportPdf error", e);
-                } finally {
-                  setExportingPdf(false);
-                  setExportProgress(0);
-                }
-              }}
-              disabled={exportingPdf}
-              style={{
-                padding: "6px 12px",
-                borderRadius: 6,
-                border: "1px solid var(--sidebar-border)",
-                background: exportingPdf ? "var(--sidebar-border)" : "var(--bg-main)",
-                color: "#eee",
-                fontSize: 13,
-                cursor: exportingPdf ? "wait" : "pointer",
-              }}
-            >
-              {exportingPdf ? "Exporting…" : "Export PDF"}
-            </button>
+            <div ref={exportMenuRef} style={{ position: "relative" }}>
+              <button
+                type="button"
+                onClick={() => setExportMenuOpen((open) => !open)}
+                disabled={exportingPdf}
+                aria-haspopup="menu"
+                aria-expanded={exportMenuOpen}
+                style={{
+                  padding: "6px 12px",
+                  borderRadius: 6,
+                  border: "1px solid var(--sidebar-border)",
+                  background: exportingPdf ? "var(--sidebar-border)" : "var(--bg-main)",
+                  color: "#eee",
+                  fontSize: 13,
+                  cursor: exportingPdf ? "wait" : "pointer",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 8,
+                }}
+              >
+                <span>{exportingPdf ? "Exporting…" : "Export PDF"}</span>
+                <span style={{ fontSize: 10, opacity: 0.8 }}>▼</span>
+              </button>
+              {exportMenuOpen && !exportingPdf && (
+                <div
+                  role="menu"
+                  style={{
+                    position: "absolute",
+                    top: "calc(100% + 6px)",
+                    left: 0,
+                    minWidth: 180,
+                    borderRadius: 8,
+                    border: "1px solid var(--sidebar-border)",
+                    background: "var(--sidebar-bg)",
+                    boxShadow: "0 8px 18px rgba(0,0,0,0.35)",
+                    overflow: "hidden",
+                    zIndex: 20,
+                  }}
+                >
+                  {[
+                    {
+                      request: { mode: "raw" } as const,
+                      key: "raw",
+                      label: "Raw PDF",
+                      description: "Vector spots and legends",
+                    },
+                    {
+                      request: { mode: "rasterized", dpi: 300 } as const,
+                      key: "rasterized-300",
+                      label: "Rasterized PDF (300dpi)",
+                      description: "Raster plot marks, separate background",
+                    },
+                    {
+                      request: { mode: "rasterized", dpi: 600 } as const,
+                      key: "rasterized-600",
+                      label: "Rasterized PDF (600dpi)",
+                      description: "Higher-resolution raster plot marks",
+                    },
+                    {
+                      request: { mode: "rasterized", dpi: 1200 } as const,
+                      key: "rasterized-1200",
+                      label: "Rasterized PDF (1200dpi)",
+                      description: "Ultra-high-resolution raster plot marks",
+                    },
+                  ].map((entry, index, arr) => (
+                    <button
+                      key={entry.key}
+                      type="button"
+                      role="menuitem"
+                      onClick={() => {
+                        void handleExportPdf(entry.request);
+                      }}
+                      style={{
+                        width: "100%",
+                        padding: "10px 12px",
+                        border: "none",
+                        borderBottom: index < arr.length - 1 ? "1px solid var(--sidebar-border)" : "none",
+                        background: "transparent",
+                        color: "#eee",
+                        textAlign: "left",
+                        cursor: "pointer",
+                        display: "flex",
+                        flexDirection: "column",
+                        gap: 2,
+                      }}
+                    >
+                      <span style={{ fontSize: 13, fontWeight: 600 }}>{entry.label}</span>
+                      <span style={{ fontSize: 11, color: "var(--text-secondary)" }}>{entry.description}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
         )}
         {error && (

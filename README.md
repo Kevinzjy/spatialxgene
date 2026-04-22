@@ -65,10 +65,12 @@ pixi global install --path .
    *   **Multi-gene (多基因)**：单点展示多个基因。支持 **Pie (饼图)** 或 **Grid (网格)** 布局。每个样本右下角带有独立的颜色指示条。
 
    ### 结果导出 (Export PDF)
-   *   **矢量导出**：点击顶部工具栏的 **Export PDF**，生成单页矢量 PDF (180x210mm)。
+   *   **导出菜单**：点击顶部工具栏的 **Export PDF** 可选择 `Raw PDF`、`Rasterized PDF (300dpi)`、`Rasterized PDF (600dpi)` 或 `Rasterized PDF (1200dpi)`。
+   *   **Raw PDF**：生成单页 PDF (180x210mm)，spots/图例/文字保持矢量，适合后期编辑。
+   *   **Rasterized PDF**：将表达 plot marks 按所选 DPI 栅格化以减小文件体积；背景组织图层与表达图层保持分离，图例与文字仍为矢量。
    *   **文件保存**：支持的浏览器会弹出保存对话框，可自行指定 PDF 文件名和保存位置；其他浏览器会降级为带时间戳文件名的普通下载。
    *   **图例对齐**：所有图例与色带均自动对齐到样本面板的右下角。
-   *   **后期友好**：导出的 PDF 中，图表区与图例区已分别**自动编组**。在 Adobe Illustrator 中可以直接选中并整体移动，极大方便科研作图。
+   *   **后期友好**：Raw PDF 中，图表区与图例区已分别**自动编组**。Rasterized PDF 中，背景组织图层与表达图层保持独立，便于后期调整。
 
 2. **将 Visium 转换为 h5ad** (Space Ranger 输出 → 单个 h5ad)
 

@@ -101,16 +101,17 @@ This will automatically:
   - Single-sample view wraps `SpatialPlot` in a flex column with `minWidth: 0` / `minHeight: 0`; the canvas size is driven by a `ResizeObserver` so zoomable plots always match the visible region.  
   - Multi-sample view uses a CSS grid with 2–3 columns depending on sample count; each sample card is a grid cell with a minimum pixel width/height. When the viewport is too small, the grid scroll container shows bars instead of shrinking individual samples to unreadable sizes.
 
-- **Vector PDF export**:  
-  - The toolbar’s “Export PDF” button calls a vector export path (`exportPlotVector.ts`) rather than screenshotting the DOM.  
+- **PDF export**:  
+  - The toolbar’s “Export PDF” button opens a menu with `Raw PDF`, `Rasterized PDF (300dpi)`, `Rasterized PDF (600dpi)`, and `Rasterized PDF (1200dpi)`; all use export-specific renderers rather than screenshotting the DOM.  
   - The PDF page size is fixed to 180×210 mm (portrait). A global scale is computed from the union of spot bounds and background image bounds for all samples; a robust nearest-neighbour spacing estimate is used so adjacent spot centres have the same distance in mm across samples.  
-  - Tissue images are raster layers; spots, titles, legends, and multigene Pie/Grid marks are true vector shapes.  
+  - `Raw PDF`: tissue images are raster layers; spots, titles, legends, and multigene Pie/Grid marks are vector shapes.  
+  - `Rasterized PDF`: only the expression plot marks are rasterized into a separate image layer at the selected DPI; the tissue/background layer remains independent, and titles/legends stay vector.  
   - **Legend/color bar placement**: Each sample is given a `panelRect` (the full cell area in mm). All legends and color bars use this rectangle to anchor the bottom-right corner, so they align to the **panel** rather than to the spots or image bounds. This avoids misalignment when only spots are drawn (no background).  
   - **Categorical legend**: Background box with padding; rows of swatch + label (light) + count (grey), with a fixed one-character gap between label and count; content offset (`contentY = boxTop + PAD + 1.5`) so the block sits vertically centered in the box.  
   - **Gene color bar**: Background box contains a title line (gene or numeric field name, left-aligned with the bar), then a vertical gradient bar (high at top, low at bottom) and hi/mid/lo labels; bar uses `continuousToRgb` and the same palette/reverse as the UI.  
   - **Multi-gene legend**: Rows of narrow gradient bar + "gene vmin–vmax" text; each row uses a shared `centerY` so the bar and text are vertically centered. Same palettes and ranges as the on-screen multigene legend.
   - **Sample title**: Drawn **only once per cell** in the layout **title band** (App.tsx, before calling the draw functions). The draw functions receive `contentRect` (plot area only), so they must **not** draw the title—otherwise the title would appear twice (once in the band, once inside the plot). Single-sample export: when `plotColorMode === "multigene"`, App builds a **multigene** task (spots + legendLayers) instead of scatter, so the PDF shows the same pie/grid colors as the UI.
-  - **Grouping for Illustrator**: Each sample’s plot (background rect + tissue image + spots) and its legend (color bar or categorical legend + background box) are drawn as separate **Form XObjects** (`plotFormKey`, `legendFormKey`), so in Illustrator they appear as two groups per panel that can be moved or edited independently. Form BBox and placement matrix use the same units (points via `pdf.internal.scaleFactor`) so position and size match the layout.
+  - **Grouping for Illustrator**: In `Raw PDF`, each sample’s plot (background rect + tissue image + spots) and its legend (color bar or categorical legend + background box) are drawn as separate **Form XObjects** (`plotFormKey`, `legendFormKey`), so in Illustrator they appear as two groups per panel that can be moved or edited independently. `Rasterized PDF` keeps the tissue/background and rasterized marks as separate PDF objects rather than flattening them into a single image.
 
 ## Pixi tasks / Makefile targets
 
