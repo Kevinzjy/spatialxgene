@@ -27,6 +27,23 @@ backend = { name = "pixi-build-python", version = "*", channels = ["https://pref
 setuptools = "==80.9.0"
 wheel = "*"
 
+[package.run-dependencies]
+python = ">=3.9,<3.12"
+anndata = ">=0.12.10,<0.13"
+numpy = ">=2.3.5,<3"
+setuptools = ">=82.0.0,<83"
+scanpy = ">=1.11.5,<2"
+leidenalg = ">=0.10.2,<0.11"
+pandas = ">=2.3.3,<3"
+h5py = ">=3.15.1,<4"
+fastapi = ">=0.133.1,<0.134"
+uvicorn = ">=0.41.0,<0.42"
+pillow = ">=11.3.0,<13"
+louvain = ">=0.8.2,<0.9"
+r-base = ">=4.4.2,<4.6"
+r-seurat = ">=5.1.0,<6"
+python-dateutil = ">=2.9.0.post0,<3"
+
 [package.build.config]
 extra-input-globs = ["spatialxgene/frontend/dist/**"]
 ignore-pypi-mapping = false

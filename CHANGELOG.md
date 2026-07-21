@@ -16,6 +16,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Changed
 
+- **Embedding spot size normalization**: PCA/UMAP/tSNE views now use coordinate-aware adaptive spot sizing based on the larger embedding axis span and spot count, with a conservative default where the previous trial default visual size is reached at about 200%. Spatial views keep nearest-neighbor sizing. PDF export uses the same spacing as the screen view.
+- **visium2h5ad standalone 10x HDF5 input**: `spatialxgene visium2h5ad sample_filtered_feature_bc_matrix.h5` now uses `scanpy.read_10x_h5()` and writes an h5ad with inferred regular Visium V1/V2 6.5 mm spot coordinates in `obsm["spatial"]` and no image metadata. Directory input keeps the existing Space Ranger behavior via `scanpy.read_visium()`.
 - **Build Task (`whl`)**: Switched from `python -m build` to `pip wheel . --no-deps -w dist/` to avoid conflicts with the local `build/` folder and simplify dependencies.
 - **Export PDF saving**: The Export PDF button now opens the browser save dialog via the File System Access API when supported, allowing users to choose the PDF name and location. Browsers without that API fall back to a timestamped download name instead of a fixed filename.
 - **Environment Management**: Unified the Pixi environment for development while providing clear container-based paths for old glibc deployments. Node.js remains in the default environment for build convenience.
@@ -61,6 +63,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Fixed
 
+- **seurat2h5ad global install runtime**: `pixi global install --path .` now installs the runtime dependencies needed by `seurat2h5ad`, including `r-base` and `r-seurat`, through `[package.run-dependencies]`. Non-RDS inputs such as `filtered_feature_bc_matrix.h5` are rejected before calling R with a clear message directing users to `visium2h5ad` or `saveRDS()`; missing `Rscript` in non-pixi installs still reports actionable setup options instead of a raw `[Errno 2]`.
 - **E2E task cleanup**: `pixi run test-e2e` now runs under explicit Bash cleanup logic so backend/frontend background processes are stopped without the task failing after Playwright has passed.
 - **SpatialPlot JSX**: The canvas container `div` (ref={containerRef}) was missing a closing tag after the multigene color bar block, causing "JSX element 'div' has no corresponding closing tag" and build failure. Added the missing `</div>`.
 - **Export PDF single-sample and title**: Single-sample PDF now shows the sample name in the **title band** above the plot (same format as multi-sample). Single-sample **Multi-gene** export now builds a multigene task (spots + legendLayers) so the PDF shows the same pie/grid colors as the UI instead of gray points. Sample title is drawn **only once** per cell, in the layout title band (App.tsx); the vector draw functions receive only the content rect and do not draw the title, so the title no longer appears twice (once in the band, once inside the plot).

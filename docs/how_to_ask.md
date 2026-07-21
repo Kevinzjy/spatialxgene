@@ -64,7 +64,17 @@
 
 ---
 
-## 7. 小结
+## 7. seurat2h5ad / R 环境问题
+
+- **必给**：输入文件名和后缀（必须是 Seurat `.rds` 或 `.rds.gz`）、完整命令、完整报错、安装方式（源码 pixi / pixi global / wheel / 容器）。
+- **环境检查**：贴 `which spatialxgene`；如果用 pixi global，说明是否刚执行过 `pixi global install --path . --force-reinstall`；如果用源码 pixi，说明是否在项目源码目录运行，以及命令是否带 `pixi run`。
+- **文件类型提醒**：`filtered_feature_bc_matrix.h5` 是 10x count matrix HDF5，不是 Seurat RDS；没有 `spatial/` 时可直接用 `spatialxgene visium2h5ad <file.h5>` 输出带推断规则 spot 坐标的 h5ad；有 `spatial/` 时用 `spatialxgene visium2h5ad <sample_dir> --count-file <file.h5>`；或先在 R 中创建 Seurat 对象并 `saveRDS()`。
+
+**简短模板**：「seurat2h5ad 报错：命令是 [完整命令]，输入是 [sample.rds.gz / filtered_feature_bc_matrix.h5]。安装方式是 [pixi global / 源码 pixi / wheel]。`which spatialxgene` 输出 [...]；若是 pixi global，已/未执行 `pixi global install --path . --force-reinstall`。期望转换成 h5ad。」
+
+---
+
+## 8. 小结
 
 | 类型           | 必给信息 |
 |----------------|----------|
@@ -74,5 +84,6 @@
 | 导出问题       | 单/多样本、颜色模式、现象（+ 截图更佳） |
 | Pixi 依赖      | 报错全文 + 是否用 pixi run、是否做过 reinstall |
 | API 500/后端   | 完整 traceback + 请求路径 + 数据集 id/特点 + 期望 |
+| seurat2h5ad    | 输入后缀 + 安装方式 + 是否已 force-reinstall + 是否用 pixi run |
 
 一次把上述信息写全，助手就能更快定位并给出正确修改，减少多轮补充。

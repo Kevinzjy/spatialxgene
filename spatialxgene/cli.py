@@ -312,7 +312,7 @@ def _cmd_preprocess(args: argparse.Namespace) -> None:
 
 
 def _cmd_visium2h5ad(args: argparse.Namespace) -> None:
-    """Convert Visium Space Ranger output directory to a single h5ad file."""
+    """Convert Visium Space Ranger output or a standalone 10x HDF5 matrix to h5ad."""
     from spatialxgene.visium2h5ad import visium_to_h5ad
 
     input_path = args.input.resolve()
@@ -322,8 +322,8 @@ def _cmd_visium2h5ad(args: argparse.Namespace) -> None:
         # Default: a/b/c -> a/b/c.h5ad
         output_path = input_path.with_suffix(".h5ad")
 
-    if not input_path.is_dir():
-        print(f"Input must be a Visium directory: {input_path}", file=sys.stderr)
+    if not input_path.exists():
+        print(f"Input not found: {input_path}", file=sys.stderr)
         sys.exit(1)
     if output_path.is_dir():
         print("Output must be a file path (e.g. output.h5ad), not a directory.", file=sys.stderr)
@@ -374,6 +374,9 @@ def _cmd_seurat2h5ad(args: argparse.Namespace) -> None:
             rscript=getattr(args, "rscript", None) or None,
         )
     except FileNotFoundError as e:
+        print(str(e), file=sys.stderr)
+        sys.exit(1)
+    except ValueError as e:
         print(str(e), file=sys.stderr)
         sys.exit(1)
     except RuntimeError as e:
@@ -480,12 +483,12 @@ def main() -> None:
     # ---- visium2h5ad ----
     visium2h5ad_p = subparsers.add_parser(
         "visium2h5ad",
-        help="Convert Visium Space Ranger output directory to a single h5ad file.",
+        help="Convert Visium Space Ranger output directory or standalone 10x HDF5 matrix to h5ad.",
     )
     visium2h5ad_p.add_argument(
         "input",
         type=Path,
-        help="Path to the Visium sample directory (contains spatial/ and filtered_feature_bc_matrix)",
+        help="Path to a Visium sample directory, or a standalone 10x .h5/.hdf5 count matrix",
     )
     visium2h5ad_p.add_argument(
         "-o",
@@ -498,7 +501,7 @@ def main() -> None:
         "--count-file",
         type=str,
         default=None,
-        help="Count matrix file or dir under input (default: auto-detect filtered_feature_bc_matrix.h5 or filtered_feature_bc_matrix)",
+        help="Count matrix file or dir under a directory input (default: auto-detect filtered_feature_bc_matrix.h5 or filtered_feature_bc_matrix)",
     )
     visium2h5ad_p.add_argument(
         "--no-images",

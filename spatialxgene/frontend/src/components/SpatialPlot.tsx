@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { getCategoricalColors, continuousToRgb, multigeneValueToHex, getPaletteGradientCss, getMultigenePaletteGradientCss } from "../colorScale";
 import { percentile } from "../utils/percentile";
+import { estimateSpotSpacingData, type EmbeddingMode, type PlotBounds } from "../utils/spotSizing";
 
 export type ColorMode = "categorical" | "continuous" | "coexpression" | "multigene" | "none";
 
@@ -35,84 +36,6 @@ function formatExpr(v: number): string {
     return `${sign}${(n / 1_000).toFixed(2)}K`;
   }
   return Number(v.toFixed(4)).toString();
-}
-
-/**
- * Fallback spacing from bounding box (used when we can't compute nearest-neighbor).
- */
-function gridSpacingFallback(
-  bounds: { xMin: number; xMax: number; yMin: number; yMax: number },
-  n: number
-): number {
-  const dataW = bounds.xMax - bounds.xMin || 1;
-  const dataH = bounds.yMax - bounds.yMin || 1;
-  const area = dataW * dataH;
-  if (n <= 0) return Math.sqrt(area);
-  return Math.sqrt(area / n);
-}
-
-/**
- * Estimate nearest-neighbor spacing from actual coordinates so that 100% spot size
- * (diameter = this spacing) is tangent across different samples/layouts.
- * Uses a grid to keep lookups O(1) per sample; returns a low percentile of min-distances.
- */
-function estimateNearestNeighborSpacing(
-  x: number[],
-  y: number[],
-  bounds: { xMin: number; xMax: number; yMin: number; yMax: number },
-  n: number
-): number {
-  const nPts = Math.min(x.length, y.length, n);
-  if (nPts < 2) return gridSpacingFallback(bounds, nPts);
-  const dataW = bounds.xMax - bounds.xMin || 1;
-  const dataH = bounds.yMax - bounds.yMin || 1;
-  const area = dataW * dataH;
-  const fallback = Math.sqrt(area / nPts);
-  const cellSize = Math.max(fallback * 0.5, 1e-6);
-  const nx = Math.max(1, Math.ceil(dataW / cellSize));
-  const ny = Math.max(1, Math.ceil(dataH / cellSize));
-  type Cell = number[];
-  const grid: Cell[] = [];
-  for (let g = 0; g < nx * ny; g++) grid.push([]);
-  const getCell = (xi: number, yi: number) => {
-    const cx = Math.min(nx - 1, Math.max(0, Math.floor((xi - bounds.xMin) / cellSize)));
-    const cy = Math.min(ny - 1, Math.max(0, Math.floor((yi - bounds.yMin) / cellSize)));
-    return cy * nx + cx;
-  };
-  for (let i = 0; i < nPts; i++) {
-    const c = getCell(x[i], y[i]);
-    grid[c].push(i);
-  }
-  const sampleStep = Math.max(1, Math.floor(nPts / 80));
-  const minDistances: number[] = [];
-  for (let i = 0; i < nPts; i += sampleStep) {
-    const xi = x[i];
-    const yi = y[i];
-    const cx = Math.min(nx - 1, Math.max(0, Math.floor((xi - bounds.xMin) / cellSize)));
-    const cy = Math.min(ny - 1, Math.max(0, Math.floor((yi - bounds.yMin) / cellSize)));
-    let minD2 = Infinity;
-    for (let dy = -1; dy <= 1; dy++) {
-      for (let dx = -1; dx <= 1; dx++) {
-        const gx = cx + dx;
-        const gy = cy + dy;
-        if (gx < 0 || gx >= nx || gy < 0 || gy >= ny) continue;
-        const cell = grid[gy * nx + gx];
-        for (let k = 0; k < cell.length; k++) {
-          const j = cell[k];
-          if (i === j) continue;
-          const ddx = x[j] - xi;
-          const ddy = y[j] - yi;
-          const d2 = ddx * ddx + ddy * ddy;
-          if (d2 < minD2) minD2 = d2;
-        }
-      }
-    }
-    if (Number.isFinite(minD2) && minD2 > 0) minDistances.push(Math.sqrt(minD2));
-  }
-  if (minDistances.length === 0) return fallback;
-  minDistances.sort((a, b) => a - b);
-  const p10 = Math.min(minDistances.length - 1, Math.floor(minDistances.length * 0.1));
-  return minDistances[p10] ?? fallback;
 }
 
 /** Per-spot segment for pie or grid: proportion (0..1) and fill color. */
@@ -153,8 +76,10 @@ export type SpatialPlotProps = {
   y: number[];
   colorBy: (string | number)[]; // string for categorical/coexpression (hex), number for expression (or placeholder when ColorMode = "none")
   colorMode: ColorMode;
-  bounds: { xMin: number; xMax: number; yMin: number; yMax: number };
-  /** Scale for point radius relative to grid-based default (0.42 * spacing). Default 0.8 = 80%. */
+  bounds: PlotBounds;
+  /** Current coordinate space; spatial uses neighbor spacing, embeddings use axis-span normalization. */
+  embeddingMode?: EmbeddingMode;
+  /** Scale for point radius relative to the coordinate-space default. Default 0.7 = 70%. */
   spotSizeScale?: number;
   /** Spot opacity 0–1 (default 1). */
   spotOpacity?: number;
@@ -220,6 +145,7 @@ export function SpatialPlot({
   colorBy,
   colorMode,
   bounds,
+  embeddingMode = "spatial",
   spotSizeScale = SPOT_SIZE_DEFAULT_SCALE,
   spotOpacity = 1,
   categoricalPalette,
@@ -379,8 +305,8 @@ export function SpatialPlot({
   if (y.length !== n) return null;
 
   const spacing = React.useMemo(
-    () => estimateNearestNeighborSpacing(x, y, bounds, n),
-    [x, y, bounds, n]
+    () => estimateSpotSpacingData(x, y, bounds, embeddingMode, n),
+    [x, y, bounds, embeddingMode, n]
   );
 
   const draw = useCallback(() => {
@@ -428,7 +354,7 @@ export function SpatialPlot({
       ctx.globalAlpha = prevAlpha;
     }
 
-    // 100% = tangent: diameter = spacing (radius = spacing/2); scale in [20%, 300%].
+    // 100% = diameter derived from the active coordinate space; scale in [20%, 300%].
     const sizeScale = Math.max(0.2, Math.min(3, spotSizeScale));
     const radiusData = (spacing / 2) * sizeScale;
 

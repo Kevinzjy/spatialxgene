@@ -221,6 +221,7 @@ function colorByToHex(
 }
 
 import { SpatialPlot, SPOT_SIZE_DEFAULT_SCALE, type ColorMode } from "./components/SpatialPlot";
+import { estimateSpotSpacingData } from "./utils/spotSizing";
 
 type RasterizedPdfDpi = 300 | 600 | 1200;
 type PdfExportRequest =
@@ -1489,77 +1490,14 @@ export default function App() {
       const contentW = cellSize;
       const contentH = Math.max(5, cellSize - titleHeightMm);
 
-      const median = (arr: number[]) => {
-        const a = arr.filter((v) => Number.isFinite(v) && v > 0).sort((x, y) => x - y);
-        if (a.length === 0) return NaN;
-        const mid = Math.floor(a.length / 2);
-        return a.length % 2 ? a[mid] : (a[mid - 1] + a[mid]) / 2;
-      };
-      const estimateNearestNeighborSpacing = (
-        xs: number[],
-        ys: number[],
-        b: { xMin: number; xMax: number; yMin: number; yMax: number }
-      ): number => {
-        const n0 = Math.min(xs.length, ys.length);
-        const dataW0 = b.xMax - b.xMin || 1;
-        const dataH0 = b.yMax - b.yMin || 1;
-        const area = dataW0 * dataH0;
-        const guess = n0 > 0 ? Math.sqrt(area / Math.max(1, n0)) : Math.sqrt(Math.max(1, area));
-        if (n0 < 2) return guess;
-
-        const maxSample = 5000;
-        const step = n0 > maxSample ? Math.ceil(n0 / maxSample) : 1;
-        const idx: number[] = [];
-        for (let i = 0; i < n0; i += step) idx.push(i);
-
-        const cellSizeData = Math.max(1e-6, guess * 1.5);
-        const keyOf = (cx: number, cy: number) => `${cx},${cy}`;
-        const grid = new Map<string, number[]>();
-        for (const i of idx) {
-          const x = xs[i], y = ys[i];
-          if (!Number.isFinite(x) || !Number.isFinite(y)) continue;
-          const cx = Math.floor((x - b.xMin) / cellSizeData);
-          const cy = Math.floor((y - b.yMin) / cellSizeData);
-          const key = keyOf(cx, cy);
-          const list = grid.get(key);
-          if (list) list.push(i);
-          else grid.set(key, [i]);
-        }
-
-        const dists: number[] = [];
-        for (const i of idx) {
-          const x0 = xs[i], y0 = ys[i];
-          if (!Number.isFinite(x0) || !Number.isFinite(y0)) continue;
-          const cx0 = Math.floor((x0 - b.xMin) / cellSizeData);
-          const cy0 = Math.floor((y0 - b.yMin) / cellSizeData);
-          let best = Infinity;
-          for (let dx = -1; dx <= 1; dx++) {
-            for (let dy = -1; dy <= 1; dy++) {
-              const key = keyOf(cx0 + dx, cy0 + dy);
-              const cand = grid.get(key);
-              if (!cand) continue;
-              for (const j of cand) {
-                if (j === i) continue;
-                const x1 = xs[j], y1 = ys[j];
-                const ddx = x1 - x0;
-                const ddy = y1 - y0;
-                const d2 = ddx * ddx + ddy * ddy;
-                if (d2 > 0 && d2 < best) best = d2;
-              }
-            }
-          }
-          if (best < Infinity) dists.push(Math.sqrt(best));
-        }
-        const m = median(dists);
-        return Number.isFinite(m) && m > 0 ? m : guess;
-      };
-
       const spacingDataPerTask = plotTasks.map((task) => {
         const taskBounds = task.options.bounds;
-        if (task.type === "scatter") return estimateNearestNeighborSpacing(task.options.x, task.options.y, taskBounds);
+        if (task.type === "scatter") {
+          return estimateSpotSpacingData(task.options.x, task.options.y, taskBounds, embeddingMode);
+        }
         const xs = task.options.spots.map((spot) => spot.x);
         const ys = task.options.spots.map((spot) => spot.y);
-        return estimateNearestNeighborSpacing(xs, ys, taskBounds);
+        return estimateSpotSpacingData(xs, ys, taskBounds, embeddingMode);
       });
 
       const getEffectiveExtent = (task: PlotTask) => {
@@ -2002,6 +1940,7 @@ export default function App() {
             colorBy={colorByValues}
             colorMode={plotColorMode}
             bounds={bounds}
+            embeddingMode={embeddingMode}
             spotSizeScale={spotSizeScale}
             spotOpacity={spotOpacity}
             categoricalPalette={categoricalPalette}
@@ -2290,6 +2229,7 @@ export default function App() {
                         colorBy={slotColorBy(id)}
                         colorMode={mode}
                         bounds={slotBounds(d.spatial)}
+                        embeddingMode={embeddingMode}
                         spotSizeScale={spotSizeScale}
                         spotOpacity={spotOpacity}
                         categoricalPalette={categoricalPalette}

@@ -23,7 +23,7 @@ pixi run install
 pixi global install --path .
 ```
 
-安装后 `spatialxgene` 将被添加到你的 `$PATH` 中（请确保 `~/.pixi/bin` 在 PATH 中）。
+安装后 `spatialxgene` 将被添加到你的 `$PATH` 中（请确保 `~/.pixi/bin` 在 PATH 中）。通过 `pixi global install --path .` 安装时，`Rscript`、Seurat 和 Matrix 会随全局环境一起安装，`seurat2h5ad` 可直接运行。若你之前已安装过旧版本，请重新执行 `pixi global install --path . --force-reinstall`。
 
 ## 容器化部署 (Docker & Singularity)
 
@@ -39,7 +39,7 @@ pixi global install --path .
 | 命令 | 描述 |
 |---------|-------------|
 | `spatialxgene launch` | 启动浏览器查看器；提供指定目录下的预处理 h5ad 文件。 |
-| `spatialxgene visium2h5ad <dir>` | 将 Visium Space Ranger 输出目录转换为单个 h5ad 文件（默认输出：目录名.h5ad）。 |
+| `spatialxgene visium2h5ad <dir or .h5>` | 将 Visium Space Ranger 输出目录转换为带空间信息的 h5ad；或将单个 10x `.h5` count matrix 转换为带推断规则 Visium spot 坐标、但无组织图片的 h5ad。 |
 | `spatialxgene seurat2h5ad <file>` | 将 Seurat 空间 RDS (.rds 或 .rds.gz) 转换为单个 h5ad 文件。需要安装了 Seurat 的 R 环境（pixi 环境已包含 r-seurat）。 |
 | `spatialxgene preprocess <file or dir>` | 表达量处理流程：QC、标准化、HVG、PCA、UMAP、Leiden 聚类；可选 CellTypist 自动细胞类型注释 (`obs['auto_cell_type']`)。输入：单个 .h5ad 或目录。不改变空间坐标。使用 `--no-celltypist` 跳过注释。 |
 
@@ -56,7 +56,7 @@ pixi global install --path .
    ### 基础操作
    *   **数据加载**：默认扫描 `./tests/h5ad` 及其子目录下的所有 `.h5ad` 文件。支持**增量加载**（切换数据集时仅加载新增项）和后端 **LRU 缓存**（默认缓存 16 个数据集）。
    *   **多样本对比**：在侧边栏选中多个数据集后，主界面将自动切换为**对比网格**。你可以通过**拖拽排序**侧边栏的已选列表来调整显示顺序。
-   *   **显示调节**：支持调节 **Spot Size**（最高 300%），适用于 UMAP 或低密度切片。
+   *   **显示调节**：支持调节 **Spot Size**（20%–300%）。Spatial 坐标使用邻近 spot 间距估算默认大小；UMAP/PCA/tSNE 等 embedding 坐标按 `max(xRange, yRange) / sqrt(n_spots)` 自适应归一化，默认值较保守，便于在多样本和导出 PDF 中保持一致。
 
    ### 可视化模式
    *   **Annotation (注释)**：按细胞类型或聚类着色。图例显示单样本内的类别计数。
@@ -72,14 +72,15 @@ pixi global install --path .
    *   **图例对齐**：所有图例与色带均自动对齐到样本面板的右下角。
    *   **后期友好**：Raw PDF 中，图表区与图例区已分别**自动编组**。Rasterized PDF 中，背景组织图层与表达图层保持独立，便于后期调整。
 
-2. **将 Visium 转换为 h5ad** (Space Ranger 输出 → 单个 h5ad)
+2. **将 Visium / 10x count matrix 转换为 h5ad**
 
    ```bash
    spatialxgene visium2h5ad /path/to/visium_sample
    spatialxgene visium2h5ad /path/to/visium_sample -o output.h5ad
+   spatialxgene visium2h5ad GSM8479159_O3FA_filtered_feature_bc_matrix.h5
    ```
 
-   输入为 Visium 样本目录；输出默认为该路径加 `.h5ad`。产物可直接用于 `launch` 或下一步的 **preprocess**。
+   输入可为 Visium 样本目录，或单个 10x `.h5/.hdf5` count matrix。目录输入会读取 `spatial/`、坐标和组织图片；单文件输入会根据 Visium V1/V2 6.5mm 固定 barcode layout 推断规则 spot 坐标，写入 `obsm["spatial"]`，但不包含组织图片，也不与 `.tif` 配准。输出默认为该路径加 `.h5ad`。
 
 3. **将 Seurat RDS 转换为 h5ad** (空间 RDS → 单个 h5ad)
 
@@ -88,7 +89,7 @@ pixi global install --path .
    spatialxgene seurat2h5ad sample.rds -o sample.h5ad
    ```
 
-   输入为保存为 `.rds` 或 `.rds.gz` 的 Seurat 空间对象。输出默认为输入文件名加 `.h5ad`。需要安装了 Seurat 的 R 环境（建议使用 `pixi run install` 以确保 pixi 环境中有 `r-seurat`）。产物可直接用于 `launch` 或下一步的 **preprocess**。
+   输入为保存为 `.rds` 或 `.rds.gz` 的 Seurat 空间对象。输出默认为输入文件名加 `.h5ad`。通过 `pixi global install --path .` 或源码目录 `pixi run spatialxgene ...` 运行时，pixi 环境会提供 `Rscript`、Seurat 和 Matrix。`filtered_feature_bc_matrix.h5` 这类 10x count matrix HDF5 不是 Seurat RDS；应改用 `spatialxgene visium2h5ad <file.h5>` 生成带推断规则 spot 坐标的 h5ad，或在有 `spatial/` 目录时用 `spatialxgene visium2h5ad <sample_dir> --count-file <file.h5>`，或先在 R 中创建 Seurat 对象并 `saveRDS()`。产物可直接用于 `launch` 或下一步的 **preprocess**。
 
 4. **预处理表达量** (QC、标准化、降维聚类、可选 CellTypist 注释)
 

@@ -6,7 +6,7 @@
 
 ## 0. 当前状态（简要）
 
-- **已完成**：子路径部署、数据集/表达加载进度、无空间或 UMAP 时的快速提示、Annotation 类别过多/过少时的稳健展示、多级 data-dir 扫描、下拉框显示 .h5ad、preprocess 输出 leiden/louvain 与 counts layer、含多个点的 h5ad 路径解析、in_tissue 跳过 spot 过滤、adata.raw→layers['counts'] 后清空 raw、**pixi 迁移**、**seurat2h5ad**、**Preprocess + CellTypist**。**Multi-gene**：Pie/Grid 布局；Color range 与 Log scale 与 Gene 一致；无表达 spot 不画；Grid proportion≥5%；**部分基因在样本中缺失时仍正常展示**（至少一个基因有数据即显示 multigene，全 NaN 的基因层不传入，SpatialPlot 中 NaN 按 0 处理并保护 vmin/vmax）；**每样本右下角紧凑 color bar**（基因名 + 表达范围）。**多样本**：Gene/Annotation/Co-expression/Multi-gene 均支持多样本网格；**侧栏拖拽排序**已选数据集顺序；**Spot size** 最大 300%（UMAP 等适用）；**侧栏**整体上下滚动、隐蔽滚动条（`.sidebar-scroll`）、各区块 minHeight 保证可读。**Annotation 多样本图例**：每个样本图内的 categorical 图例只显示该样本的 color/label 与数量，不显示全样本合计。**顶部工具栏与 Export PDF**：主内容区顶部工具栏提供「Export PDF」按钮，通过 `exportPlotVector.ts` + jsPDF 矢量导出**单页 180×210 mm PDF**：spots、文字与图例为矢量，背景组织为栅格；所有 categorical/gene/multigene 图例与 color bar 对齐到每个样本 **panel** 的右下角，支持 Annotation（色块 + 标签 + 数量）、Gene（带标题的竖向 color bar，高在上）、Multi-gene（逐基因窄条 + 范围文字，行内垂直居中）。**Export PDF 编组**：每样本 plot（背景+组织图+spots）与 legend（color bar/图例+背景框）分别输出为 Form XObject（plotFormKey、legendFormKey），Illustrator 中可整体拖动；Form BBox 与 doFormObject 矩阵统一为 points（scaleFactor），位置与尺寸正确。**超分辨相关已移除**：BayesSpace / TESLA / H&E super_resolution 已删除。**本批**：**前端增量加载**（新增 dataset 只加载新 id，复用 cache，增量时不清 expression 等状态）；**Server adata LRU 缓存**（默认 16 条，`SPATIALXGENE_CACHE_MAX_DATASETS`）；**Preprocess 日志**（CLI 用 logging，Leiden 回退 warning）与**输入校验**（X 非空、n_obs/n_vars、X.size）；**Launch 目录提示**（data-dir 不存在或非目录时 stderr 提示 + 当前 DATA_DIR）；**后端单测**（pytest：list_datasets、get_dataset_meta、_get_plot_coordinates、run_preprocess）；**空数据集提示**（侧栏「No h5ad files found under {path}」，path 来自 /api/config 的 data_dir）；**主题色抽离**（:root CSS 变量 + theme.ts）；**基因列表说明**（Gene/Gene1/Gene2/Multi-gene 标题旁 ? 图标，悬停英文提示前 200 条 + 搜索）。**Pixi 依赖**：pytz、python-dateutil 在 pixi.toml 中显式声明（pandas 时区等）；lockfile 与磁盘环境不同步时用 `pixi reinstall` 同步。**get_dataset_meta 空坐标**：当 x/y 坐标数组为空（如 n_obs=0）时不再对空数组调用 np.nanmin/nanmax，改为返回默认 bounds (0,1)，避免 500。
+- **已完成**：子路径部署、数据集/表达加载进度、无空间或 UMAP 时的快速提示、Annotation 类别过多/过少时的稳健展示、多级 data-dir 扫描、下拉框显示 .h5ad、preprocess 输出 leiden/louvain 与 counts layer、含多个点的 h5ad 路径解析、in_tissue 跳过 spot 过滤、adata.raw→layers['counts'] 后清空 raw、**pixi 迁移**、**seurat2h5ad**、**Preprocess + CellTypist**。**Multi-gene**：Pie/Grid 布局；Color range 与 Log scale 与 Gene 一致；无表达 spot 不画；Grid proportion≥5%；**部分基因在样本中缺失时仍正常展示**（至少一个基因有数据即显示 multigene，全 NaN 的基因层不传入，SpatialPlot 中 NaN 按 0 处理并保护 vmin/vmax）；**每样本右下角紧凑 color bar**（基因名 + 表达范围）。**多样本**：Gene/Annotation/Co-expression/Multi-gene 均支持多样本网格；**侧栏拖拽排序**已选数据集顺序；**Spot size** 最大 300%（Spatial 用最近邻间距，PCA/UMAP/tSNE 用 max range / sqrt(n) 自适应，当前默认较保守，旧试验默认大小约等于 200%）；**侧栏**整体上下滚动、隐蔽滚动条（`.sidebar-scroll`）、各区块 minHeight 保证可读。**Annotation 多样本图例**：每个样本图内的 categorical 图例只显示该样本的 color/label 与数量，不显示全样本合计。**顶部工具栏与 Export PDF**：主内容区顶部工具栏提供「Export PDF」按钮，通过 `exportPlotVector.ts` + jsPDF 矢量导出**单页 180×210 mm PDF**：spots、文字与图例为矢量，背景组织为栅格；所有 categorical/gene/multigene 图例与 color bar 对齐到每个样本 **panel** 的右下角，支持 Annotation（色块 + 标签 + 数量）、Gene（带标题的竖向 color bar，高在上）、Multi-gene（逐基因窄条 + 范围文字，行内垂直居中）。**Export PDF 编组**：每样本 plot（背景+组织图+spots）与 legend（color bar/图例+背景框）分别输出为 Form XObject（plotFormKey、legendFormKey），Illustrator 中可整体拖动；Form BBox 与 doFormObject 矩阵统一为 points（scaleFactor），位置与尺寸正确。**超分辨相关已移除**：BayesSpace / TESLA / H&E super_resolution 已删除。**本批**：**前端增量加载**（新增 dataset 只加载新 id，复用 cache，增量时不清 expression 等状态）；**Server adata LRU 缓存**（默认 16 条，`SPATIALXGENE_CACHE_MAX_DATASETS`）；**Preprocess 日志**（CLI 用 logging，Leiden 回退 warning）与**输入校验**（X 非空、n_obs/n_vars、X.size）；**Launch 目录提示**（data-dir 不存在或非目录时 stderr 提示 + 当前 DATA_DIR）；**后端单测**（pytest：list_datasets、get_dataset_meta、_get_plot_coordinates、run_preprocess）；**空数据集提示**（侧栏「No h5ad files found under {path}」，path 来自 /api/config 的 data_dir）；**主题色抽离**（:root CSS 变量 + theme.ts）；**基因列表说明**（Gene/Gene1/Gene2/Multi-gene 标题旁 ? 图标，悬停英文提示前 200 条 + 搜索）。**Pixi 依赖**：pytz、python-dateutil 在 pixi.toml 中显式声明（pandas 时区等）；lockfile 与磁盘环境不同步时用 `pixi reinstall` 同步。**get_dataset_meta 空坐标**：当 x/y 坐标数组为空（如 n_obs=0）时不再对空数组调用 np.nanmin/nanmax，改为返回默认 bounds (0,1)，避免 500。
 - **待做**：见 [docs/tasks.md](docs/tasks.md)（如连续配色、前端单测、CI 等）。
 
 ---
@@ -124,6 +124,22 @@
 - **实现**：新增 `spatialxgene/celltypist_annotate.py`：物种推断（基因名 human 全大写 / mouse 首字母大写+小写）→ 一档快速注释推断组织 → 模型路由（免疫/组织表）→ 最终注释 majority_voting + over_clustering=leiden；小鼠使用 Immune_All_* 时对模型做 `Model.convert()` 人→鼠。结果写 `obs['auto_cell_type']`，可选 `obs['auto_cell_type_coarse']`，摘要写 `uns['celltypist_inferred']`。
 - **根因/教训**：① CellTypist 在 majority_voting 下返回的 `predicted_labels` 可能是 DataFrame 或 2D 数组，直接 `pd.Series(labels)` 会触发 ValueError；需先判断类型，取第一列或 ravel 再建 Series。② 类型注解：项目用 Python 3.9，`str | None` 需改为 `Optional[str]`。③ 依赖 celltypist 通过 pixi pypi-dependencies 引入，版本用 `>=1.7,<2`（2.x 尚未发布）。
 - **下次提问要点**：若扩展更多组织/物种，在 `HUMAN_LABEL_KEYWORD_TO_MODEL` / `MOUSE_LABEL_KEYWORD_TO_MODEL` 中增加 keyword→model 映射；新增物种需考虑是否有 CellTypist convert 或独立模型。
+
+---
+
+#### seurat2h5ad：Rscript 缺失与输入文件类型（2026-07）
+
+- **问题**：全局安装后在数据目录运行 `spatialxgene seurat2h5ad GSM7440144_M1FA_filtered_feature_bc_matrix.h5`，报 `[Errno 2] No such file or directory: 'Rscript'`。
+- **根因/教训**：① `seurat2h5ad` 是 Python CLI + bundled R script 的混合流程；`pixi global install --path .` 安装的是 package 环境，其运行依赖必须写入 `pixi.toml` 的 `[package.run-dependencies]`，只写在 workspace `[dependencies]` 会让源码 `pixi run ...` 可用，但全局安装环境缺 `Rscript`/Seurat。② `filtered_feature_bc_matrix.h5` 是 10x count matrix HDF5，不是 Seurat `.rds/.rds.gz`；即使补齐 Rscript，直接交给 `readRDS()` 也会失败。③ `visium2h5ad` 应同时支持两类输入：Space Ranger 目录输入保留 `read_visium()` 读取空间信息；单个 10x `.h5/.hdf5` 输入走 `read_10x_h5()`，并用内置 Visium V1/V2 6.5mm barcode 坐标表推断规则 spot 坐标写入 `obsm["spatial"]`，但不写图片或像素配准。④ CLI 应在调用 R 前先校验输入后缀与 Rscript 可用性，pixi global 包必须自带 `r-base`/`r-seurat`；非 pixi/wheel 场景再给出 `--rscript /path/to/Rscript`、`RSCRIPT=...` 等建议。
+- **下次提问要点**：报告 seurat2h5ad/visium2h5ad 问题时，同时贴输入文件名/后缀、安装方式（源码 pixi / pixi global / wheel / 容器）、`which spatialxgene`、是否刚执行过 `pixi global install --path . --force-reinstall`；若输入是 10x `.h5`，说明是否有 `spatial/` 目录：有则用 `visium2h5ad <sample_dir> --count-file <file.h5>`，没有则可直接用 `visium2h5ad <file.h5>` 输出带推断规则 spot 坐标的 h5ad。
+
+---
+
+#### Embedding spot size 自适应（2026-07）
+
+- **问题**：Spatial 空间图点大小合理，但 PCA/UMAP 等 embedding 坐标点过小，即使 Spot size 调到 300% 仍偏小；随后调大后默认值又略大。
+- **实现/教训**：① Spatial 坐标应保留最近邻 spot spacing，避免影响组织空间真实尺度。② UMAP/PCA/tSNE 不是规则网格，最近邻低分位会让点过小；改为按 `max(xRange, yRange) / sqrt(n_spots)` 估算 100% 的数据空间直径，并设置上下限避免极小/极大样本失控。③ 屏幕绘图和 PDF 导出必须共用同一 sizing 函数，否则导出与界面不一致。④ 当前 embedding 系数按用户反馈调为保守默认：旧试验默认视觉大小约等于现在 200%。
+- **下次提问要点**：反馈点大小问题时说明坐标模式（Spatial/UMAP/PCA/tSNE）、样本数量、点数规模、当前 Spot size 百分比，以及“希望默认值变大/变小还是只扩大可调范围”。
 
 ---
 
@@ -315,6 +331,7 @@
 | **版本号** | 发版时同步改 `spatialxgene/__init__.py`、`pyproject.toml`、`frontend/package.json`（及 package-lock 顶层 version）。 |
 | **前端大数组** | 禁止 `Math.min(...arr)` / `Math.max(...arr)`，用 for 循环或 `utils/percentile`；避免对超大数组 spread/递归。 |
 | **前端交互** | 拖拽/悬停用 rAF 节流；useMemo/useCallback 依赖要完整，否则闭包陈旧。 |
+| **Spot size** | Spatial 用最近邻间距；PCA/UMAP/tSNE 用 `max(xRange, yRange) / sqrt(n_spots)` 的自适应 spacing；屏幕与 PDF 导出共用 `utils/spotSizing.ts`，调参时保持一致。 |
 | **后端路径** | 由 dataset_id 拼 h5ad 路径用 `id + ".h5ad"`，不用 `Path.with_suffix(".h5ad")`（中间带点的文件名会错）。 |
 | **后端 viewable** | 用 h5py 只读结构判断是否有空间/UMAP，避免全量读 adata；返回 200 + `viewable: false`。 |
 | **Preprocess** | 调用方必须用 `run_preprocess` 返回值写盘；counts 在 normalize 之前写入 layers；有 in_tissue 时跳过 min_genes 过滤；写盘前有 raw 则拷到 layers['counts'] 后清空 raw。 |
@@ -324,6 +341,5 @@
 | **侧栏滚动** | 主内容区用 `.sidebar-scroll`（index.html 定义）+ overflow auto；列表区块设 minHeight/maxHeight 与 flexShrink:0，避免压扁。 |
 | **JSX 结构** | 增删条件块或嵌套 div 后跑 build 校验；每个开标签必须有对应闭标签，注意层级。 |
 | **Export PDF** | 通过 `exportPlotVector.ts` + jsPDF 直接画向量，生成单页 **180×210 mm** PDF；spots/文字/图例为矢量、组织背景为栅格；样本标题仅在 App 布局的 title band 画一次，draw 函数只收 contentRect、不画 title（避免重复）；单样本 Multi-gene 须建 multigene 任务，否则灰点；图例对齐 panel 右下角。**编组**：plot 与 legend 分别用 Form XObject（plotFormKey/legendFormKey），Illustrator 可整体拖动；BBox 与放置矩阵用 scaleFactor 统一为 points。 |
-| **Pixi 环境** | 依赖在 pixi.toml 显式声明（如 pytz、python-dateutil）；若 `pixi list` 有包但运行时 import 失败，说明磁盘环境与 lockfile 不同步，用 **`pixi reinstall`** 重装。 |
+| **Pixi 环境** | 依赖在 pixi.toml 显式声明（如 pytz、python-dateutil）；全局安装会用 `[package.run-dependencies]`，暴露命令需要的运行时（如 `seurat2h5ad` 的 `r-base`/`r-seurat`）必须同步写入；若 `pixi list` 有包但运行时 import 失败，说明磁盘环境与 lockfile 不同步，用 **`pixi reinstall`** 重装。 |
 | **后端空数组** | 对坐标等做 `np.nanmin`/`np.nanmax` 前检查 `array.size`，空则用默认 bounds（如 0,1），避免 zero-size array reduction 报错（如 get_dataset_meta）。 |
-

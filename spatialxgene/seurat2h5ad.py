@@ -9,6 +9,8 @@ Expects the RDS to contain a Seurat object with at least a default assay
 from meta.data (x/y, imagecol/imagerow, x_centroid/y_centroid).
 """
 
+import os
+import shutil
 import subprocess
 import tempfile
 import warnings
@@ -35,9 +37,57 @@ def _find_r_script() -> Path:
 
 def _find_rscript() -> str:
     """Return Rscript executable (prefer RSCRIPT env, else Rscript on PATH)."""
-    import os
     exe = os.environ.get("RSCRIPT", "Rscript")
     return exe
+
+
+def _is_rds_path(path: Path) -> bool:
+    """Return True if path looks like a Seurat RDS input."""
+    name = path.name.lower()
+    return name.endswith(".rds") or name.endswith(".rds.gz")
+
+
+def _non_rds_input_hint(path: Path) -> str:
+    """Return a concrete conversion hint for common non-RDS mistakes."""
+    name = path.name
+    lower_name = name.lower()
+    if lower_name.endswith(".h5") and "filtered_feature_bc_matrix" in lower_name:
+        sample_dir = "." if path.parent == Path.cwd() else str(path.parent)
+        return (
+            "A 10x filtered_feature_bc_matrix.h5 file is not a Seurat object. "
+            f"For a count-only h5ad without spatial images, run: `spatialxgene visium2h5ad {name}`. "
+            f"If this directory also contains spatial/, run: "
+            f"`spatialxgene visium2h5ad {sample_dir} --count-file {name}`."
+        )
+    return (
+        "Use a Seurat .rds/.rds.gz file, or convert a Visium/10x sample directory with "
+        "`spatialxgene visium2h5ad <sample_dir>`."
+    )
+
+
+def _resolve_rscript(rscript: Optional[str] = None) -> str:
+    """Resolve Rscript and raise an actionable error if it is unavailable."""
+    exe = rscript or _find_rscript()
+    exe_path = Path(exe).expanduser()
+    has_path_component = exe_path.name != exe
+
+    if has_path_component:
+        if exe_path.is_file() and os.access(exe_path, os.X_OK):
+            return str(exe_path)
+    else:
+        found = shutil.which(exe)
+        if found:
+            return found
+
+    source = "--rscript" if rscript else ("RSCRIPT" if os.environ.get("RSCRIPT") else "PATH")
+    raise FileNotFoundError(
+        f"Rscript executable not found from {source}: {exe}. "
+        "seurat2h5ad requires an R runtime with Seurat and Matrix. "
+        "Run inside the project pixi environment, for example: "
+        "`pixi run spatialxgene seurat2h5ad sample.rds.gz`, "
+        "or install R/Seurat and pass `--rscript /path/to/Rscript` "
+        "or set `RSCRIPT=/path/to/Rscript`."
+    )
 
 
 def _run_r_export(input_rds: Path, output_dir: Path, rscript: str, r_script_path: Path) -> None:
@@ -87,6 +137,11 @@ def seurat_to_h5ad(
 
     if not input_path.is_file():
         raise FileNotFoundError(f"Input file not found: {input_path}")
+    if not _is_rds_path(input_path):
+        raise ValueError(
+            f"seurat2h5ad expects a Seurat RDS file (.rds or .rds.gz), got: {input_path.name}. "
+            f"{_non_rds_input_hint(input_path)}"
+        )
 
     r_script_path = _find_r_script()
     if not r_script_path.is_file():
@@ -95,7 +150,7 @@ def seurat_to_h5ad(
             "Install the spatialxgene package so scripts/seurat2h5ad.R is available."
         )
 
-    rscript_exe = rscript or _find_rscript()
+    rscript_exe = _resolve_rscript(rscript)
 
     with tempfile.TemporaryDirectory(prefix="seurat2h5ad_") as tmp:
         tmp_path = Path(tmp)
