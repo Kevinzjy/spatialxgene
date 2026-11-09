@@ -77,11 +77,15 @@ type SidebarProps = {
   onDualFeaturePaletteChange: (palette: DualFeaturePalette) => void;
   dualFeatureLogScale: boolean;
   onDualFeatureLogScaleChange: (v: boolean) => void;
-  /** Multi-feature mode: feature ids use "obs:" for metadata columns; otherwise they are genes. Max 6 entries. */
+  /** Multi-feature mode: encoded feature ids distinguish gene and obs sources. Max 6 entries. */
   selectedMultiFeatures: MultiFeatureEntry[];
   onMultiFeaturesChange: (entries: MultiFeatureEntry[]) => void;
-  multiFeatureLogScale: boolean;
-  onMultiFeatureLogScaleChange: (v: boolean) => void;
+  /** Use log1p values when calculating within-spot segment proportions. */
+  multiFeatureLayoutLogScale: boolean;
+  onMultiFeatureLayoutLogScaleChange: (v: boolean) => void;
+  /** Use log1p mapping for segment colors. */
+  multiFeatureColorLogScale: boolean;
+  onMultiFeatureColorLogScaleChange: (v: boolean) => void;
   /** Multi-gene layout: pie (round spot) or grid (square spot). */
   multiFeatureLayout: "pie" | "grid";
   onMultiFeatureLayoutChange: (layout: "pie" | "grid") => void;
@@ -162,8 +166,10 @@ export function Sidebar({
   onDualFeatureLogScaleChange,
   selectedMultiFeatures,
   onMultiFeaturesChange,
-  multiFeatureLogScale,
-  onMultiFeatureLogScaleChange,
+  multiFeatureLayoutLogScale,
+  onMultiFeatureLayoutLogScaleChange,
+  multiFeatureColorLogScale,
+  onMultiFeatureColorLogScaleChange,
   multiFeatureLayout,
   onMultiFeatureLayoutChange,
   multiFeatureRangeMinInput,
@@ -1139,7 +1145,7 @@ export function Sidebar({
                     Features (segments per spot)
                   </label>
                   <span
-                    title="Only the first 200 entries are shown; use search to narrow the range."
+                    title="Only the first 200 entries are shown; use search to narrow the range. Layout log scale controls the proportions used to draw segments."
                     style={{
                       display: "inline-flex",
                       alignItems: "center",
@@ -1356,7 +1362,16 @@ export function Sidebar({
                 {selectedMultiFeatures.length > 0 && (
                   <>
                     <label style={{ fontSize: 12, fontWeight: 600, color: "var(--text-secondary)" }}>Color range</label>
-                    <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "nowrap" }}>
+                    <div
+                      style={{
+                        display: "grid",
+                        gridTemplateColumns: "minmax(0, 1fr) minmax(0, 1fr) auto",
+                        alignItems: "center",
+                        gap: 6,
+                        width: "100%",
+                        minWidth: 0,
+                      }}
+                    >
                       {(() => {
                         const isPercentile = (s: string) => /^p\d+(\.\d+)?$/i.test(String(s).trim());
                         const showEffectiveNumbers =
@@ -1370,7 +1385,9 @@ export function Sidebar({
                                 value={multiFeatureRangeMinInput}
                                 onChange={(e) => onMultiFeatureRangeMinInputChange(e.target.value)}
                                 style={{
-                                  width: 64,
+                                  width: "100%",
+                                  minWidth: 0,
+                                  boxSizing: "border-box",
                                   padding: "4px 6px",
                                   borderRadius: 4,
                                   border: "1px solid var(--sidebar-border)",
@@ -1394,7 +1411,9 @@ export function Sidebar({
                                 value={multiFeatureRangeMaxInput}
                                 onChange={(e) => onMultiFeatureRangeMaxInputChange(e.target.value)}
                                 style={{
-                                  width: 64,
+                                  width: "100%",
+                                  minWidth: 0,
+                                  boxSizing: "border-box",
                                   padding: "4px 6px",
                                   borderRadius: 4,
                                   border: "1px solid var(--sidebar-border)",
@@ -1418,7 +1437,7 @@ export function Sidebar({
                         style={{
                           display: "flex",
                           alignItems: "center",
-                          gap: 6,
+                          gap: 4,
                           fontSize: 12,
                           color: "#ccc",
                           cursor: "pointer",
@@ -1427,8 +1446,8 @@ export function Sidebar({
                       >
                         <input
                           type="checkbox"
-                          checked={multiFeatureLogScale}
-                          onChange={(e) => onMultiFeatureLogScaleChange(e.target.checked)}
+                          checked={multiFeatureColorLogScale}
+                          onChange={(e) => onMultiFeatureColorLogScaleChange(e.target.checked)}
                           style={{ cursor: "pointer" }}
                         />
                         Log scale
@@ -1722,8 +1741,17 @@ export function Sidebar({
             {colorMode === "multiFeature" && (
               <>
                 <label style={{ fontSize: 12, fontWeight: 600, color: "var(--text-secondary)" }}>Layout</label>
-                <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                  <label style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 12, color: "var(--text-secondary)", cursor: "pointer" }}>
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 6,
+                    width: "100%",
+                    minWidth: 0,
+                    flexWrap: "nowrap",
+                  }}
+                >
+                  <label style={{ display: "flex", alignItems: "center", gap: 3, fontSize: 12, color: "var(--text-secondary)", cursor: "pointer", flexShrink: 0 }}>
                     <input
                       type="radio"
                       name="multiFeatureLayout"
@@ -1731,9 +1759,9 @@ export function Sidebar({
                       onChange={() => onMultiFeatureLayoutChange("pie")}
                       style={{ accentColor: "var(--accent)" }}
                     />
-                    <span>Pie (round)</span>
+                    <span>Pie</span>
                   </label>
-                  <label style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 12, color: "var(--text-secondary)", cursor: "pointer" }}>
+                  <label style={{ display: "flex", alignItems: "center", gap: 3, fontSize: 12, color: "var(--text-secondary)", cursor: "pointer", flexShrink: 0 }}>
                     <input
                       type="radio"
                       name="multiFeatureLayout"
@@ -1741,8 +1769,46 @@ export function Sidebar({
                       onChange={() => onMultiFeatureLayoutChange("grid")}
                       style={{ accentColor: "var(--accent)" }}
                     />
-                    <span>Grid (square)</span>
+                    <span>Grid</span>
                   </label>
+                  <label
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 3,
+                      fontSize: 12,
+                      color: "#ccc",
+                      cursor: "pointer",
+                      flexShrink: 0,
+                    }}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={multiFeatureLayoutLogScale}
+                      onChange={(e) => onMultiFeatureLayoutLogScaleChange(e.target.checked)}
+                      style={{ cursor: "pointer" }}
+                    />
+                    Log scale
+                  </label>
+                  <span
+                    title="Use log1p values when calculating segment proportions within each spot. It does not change color mapping, but it also enables Log scale under Color range."
+                    style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      width: 14,
+                      height: 14,
+                      borderRadius: "50%",
+                      background: "var(--text-muted)",
+                      color: "var(--sidebar-bg)",
+                      fontSize: 10,
+                      fontWeight: 700,
+                      cursor: "help",
+                    }}
+                    aria-label="Layout log scale info"
+                  >
+                    ?
+                  </span>
                 </div>
               </>
             )}

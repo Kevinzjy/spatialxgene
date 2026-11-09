@@ -63,7 +63,7 @@ pixi global install --path .
    *   **Annotation (注释)**：按细胞类型或聚类着色。图例显示单样本内的类别计数。
    *   **Gene (基因)**：支持从 `X` 或 `layers` 读取数据，支持颜色范围调节 (pmin/pmax) 与 Log 缩放。
    *   **Dual Feature (双特征)**：选择两个数值特征（基因或 `obs` 元数据列），使用 2D 调色板展示它们的空间关系。基因可从 `X` 或 `layers` 读取；元数据直接来自 `obs`。
-   *   **Multi-Feature (多特征)**：单点展示多个数值特征（基因或 `obs` 元数据列）。支持 **Pie (饼图)** 或 **Grid (网格)** 布局。每个样本右下角带有独立的颜色指示条。
+   *   **Multi-Feature (多特征)**：单点展示多个数值特征（基因或 `obs` 元数据列）。支持 **Pie** 或 **Grid** 布局。Layout 行中的 `Log scale` 控制 spot 内 segment 比例是否用 `log1p` 计算；Color range 中的 `Log scale` 独立控制颜色映射。勾选 Layout 行的 Log scale 时会自动开启 Color range 的 Log scale。每个样本右下角带有独立的颜色指示条。
 
    ### 结果导出 (Export PDF)
    *   **导出菜单**：点击顶部工具栏的 **Export PDF** 可选择 `Raw PDF`、`Rasterized PDF (300dpi)`、`Rasterized PDF (600dpi)` 或 `Rasterized PDF (1200dpi)`。

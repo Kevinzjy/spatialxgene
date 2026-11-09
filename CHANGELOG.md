@@ -18,6 +18,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Changed
 
+- **Independent multi-feature log scales**: Split the former shared Multi-Feature log option into **Log scale** controls in the Layout and Color range sections. Layout Log scale controls whether raw or `log1p` values define within-spot segment proportions; Color range Log scale independently controls `log1p` color mapping for the selected range. Enabling Layout Log scale automatically enables Color range Log scale. Compact these controls into their section rows and move coupling guidance into tooltips.
 - **Common morphology coordinate fallback**: The backend now recognizes `obs["Cx"]` / `obs["Cy"]` (and `center_x` / `center_y`) as spatial coordinates when `obsm["spatial"]` and `obs["x"]` / `obs["y"]` are absent. This also makes the lightweight h5ad viewability check consistent with the full coordinate resolver and prevents merged morphology tables from being incorrectly reported as non-viewable.
 
 - **Generic numeric feature overlays**: Renamed user-facing **Co-expression** and **Multi-gene** modes to **Dual Feature** and **Multi-Feature**. Both modes now accept genes and numeric `obs` metadata columns. Only columns that are numeric across all selected samples are offered; metadata values are read from the already loaded `/obs` response, remain sample-aware in multi-sample grids, and use `column (obs)` in hover labels, legends, and PDF exports.

@@ -119,8 +119,10 @@ export type SpatialPlotProps = {
   hoverFeature2Values?: number[] | null;
   /** Multi-gene mode: per-feature layers (name, values, paletteId). Each spot drawn as pie or grid. */
   multiFeatureLayers?: MultiFeatureLayer[];
-  /** Log scale for multi-feature expression (default false). */
-  multiFeatureLogScale?: boolean;
+  /** Use log1p values when computing within-spot proportions (default false). */
+  multiFeatureLayoutLogScale?: boolean;
+  /** Use log1p mapping for segment colors and the selected color range (default false). */
+  multiFeatureColorLogScale?: boolean;
   /** Multi-gene layout: pie (round spot) or grid (square spot). */
   multiFeatureLayout?: MultiFeatureLayout;
   /** Multi-gene color range: min input (e.g. "p0", "p1", or raw number). */
@@ -172,7 +174,8 @@ export function SpatialPlot({
   hoverFeature2Name,
   hoverFeature2Values,
   multiFeatureLayers,
-  multiFeatureLogScale = false,
+  multiFeatureLayoutLogScale = false,
+  multiFeatureColorLogScale = false,
   multiFeatureLayout = "pie",
   multiFeatureRangeMinInput = "p0",
   multiFeatureRangeMaxInput = "p100",
@@ -248,7 +251,7 @@ export function SpatialPlot({
       for (let g = 0; g < K; g++) {
         const raw = multiFeatureLayers[g].values[i];
         const v = Number.isFinite(raw) ? Math.max(0, raw as number) : 0;
-        const e = multiFeatureLogScale ? Math.log1p(v) : v;
+        const e = multiFeatureLayoutLogScale ? Math.log1p(v) : v;
         expr.push(e);
         sum += e;
       }
@@ -261,7 +264,7 @@ export function SpatialPlot({
           vminByLayer[g],
           vmaxByLayer[g],
           multiFeatureLayers[g].paletteId,
-          multiFeatureLogScale
+          multiFeatureColorLogScale
         );
         segments.push({ proportion, color });
       }
@@ -269,7 +272,16 @@ export function SpatialPlot({
       spots.push({ x: x[i], y: y[i], sum, segments });
     }
     return { spots, vminByLayer: vminByLayer, vmaxByLayer: vmaxByLayer };
-  }, [colorMode, multiFeatureLayers, x, y, multiFeatureLogScale, multiFeatureRangeMinInput, multiFeatureRangeMaxInput]);
+  }, [
+    colorMode,
+    multiFeatureLayers,
+    x,
+    y,
+    multiFeatureLayoutLogScale,
+    multiFeatureColorLogScale,
+    multiFeatureRangeMinInput,
+    multiFeatureRangeMaxInput,
+  ]);
 
   useEffect(() => {
     if (!backgroundImageUrl) {
@@ -604,7 +616,7 @@ export function SpatialPlot({
     backgroundOpacity,
     logScale,
     multiFeatureLayers,
-    multiFeatureLogScale,
+    multiFeatureColorLogScale,
     multiFeatureSpotData,
     multiFeatureLayout,
   ]);

@@ -470,7 +470,8 @@ export default function App() {
   const [dualFeaturePalette, setDualFeaturePalette] = useState<DualFeaturePalette>(DEFAULT_DUAL_FEATURE_PALETTE);
   const [dualFeatureLogScale, setDualFeatureLogScale] = useState(false);
   const [selectedMultiFeatures, setSelectedMultiFeatures] = useState<MultiFeatureEntry[]>([]);
-  const [multiFeatureLogScale, setMultiFeatureLogScale] = useState(false);
+  const [multiFeatureLayoutLogScale, setMultiFeatureLayoutLogScale] = useState(false);
+  const [multiFeatureColorLogScale, setMultiFeatureColorLogScale] = useState(false);
   const [multiFeatureLayout, setMultiFeatureLayout] = useState<"pie" | "grid">("pie");
   const [multiFeatureRangeMinInput, setMultiFeatureRangeMinInput] = useState("p0");
   const [multiFeatureRangeMaxInput, setMultiFeatureRangeMaxInput] = useState("p100");
@@ -1525,7 +1526,7 @@ export default function App() {
             for (let g = 0; g < layerCount; g++) {
               const raw = layers[g].values[i];
               const v = Number.isFinite(raw) ? Math.max(0, raw) : 0;
-              const e = multiFeatureLogScale ? Math.log1p(v) : v;
+              const e = multiFeatureLayoutLogScale ? Math.log1p(v) : v;
               expr.push(e);
               sum += e;
             }
@@ -1539,7 +1540,7 @@ export default function App() {
                   vminByLayer[g],
                   vmaxByLayer[g],
                   layers[g].paletteId,
-                  multiFeatureLogScale
+                  multiFeatureColorLogScale
                 ),
               });
             }
@@ -1669,7 +1670,7 @@ export default function App() {
             for (let g = 0; g < layerCount; g++) {
               const raw = layers[g].values[i];
               const v = Number.isFinite(raw) ? Math.max(0, raw) : 0;
-              const e = multiFeatureLogScale ? Math.log1p(v) : v;
+              const e = multiFeatureLayoutLogScale ? Math.log1p(v) : v;
               expr.push(e);
               sum += e;
             }
@@ -1683,7 +1684,7 @@ export default function App() {
                   vminByLayer[g],
                   vmaxByLayer[g],
                   layers[g].paletteId,
-                  multiFeatureLogScale
+                  multiFeatureColorLogScale
                 ),
               });
             }
@@ -2190,8 +2191,13 @@ export default function App() {
         onDualFeatureLogScaleChange={setDualFeatureLogScale}
         selectedMultiFeatures={selectedMultiFeatures}
         onMultiFeaturesChange={setSelectedMultiFeatures}
-        multiFeatureLogScale={multiFeatureLogScale}
-        onMultiFeatureLogScaleChange={setMultiFeatureLogScale}
+        multiFeatureLayoutLogScale={multiFeatureLayoutLogScale}
+        onMultiFeatureLayoutLogScaleChange={(checked) => {
+          setMultiFeatureLayoutLogScale(checked);
+          if (checked) setMultiFeatureColorLogScale(true);
+        }}
+        multiFeatureColorLogScale={multiFeatureColorLogScale}
+        onMultiFeatureColorLogScaleChange={setMultiFeatureColorLogScale}
         multiFeatureLayout={multiFeatureLayout}
         onMultiFeatureLayoutChange={setMultiFeatureLayout}
         multiFeatureRangeMinInput={multiFeatureRangeMinInput}
@@ -2457,7 +2463,8 @@ export default function App() {
             hoverFeature2Name={plotColorMode === "dualFeature" && selectedFeature2 ? featureLabel(selectedFeature2) : null}
             hoverFeature2Values={plotColorMode === "dualFeature" ? expression2 : null}
             multiFeatureLayers={multiFeatureLayers}
-            multiFeatureLogScale={multiFeatureLogScale}
+            multiFeatureLayoutLogScale={multiFeatureLayoutLogScale}
+            multiFeatureColorLogScale={multiFeatureColorLogScale}
             multiFeatureLayout={multiFeatureLayout}
             multiFeatureRangeMinInput={multiFeatureRangeMinInput}
             multiFeatureRangeMaxInput={multiFeatureRangeMaxInput}
@@ -2734,7 +2741,8 @@ export default function App() {
                         hoverFeature2Name={mode === "dualFeature" && selectedFeature2 ? featureLabel(selectedFeature2) : null}
                         hoverFeature2Values={mode === "dualFeature" ? (expression2ByDataset[id] ?? null) : null}
                         multiFeatureLayers={mode === "multiFeature" ? slotMultiFeature : undefined}
-                        multiFeatureLogScale={multiFeatureLogScale}
+                        multiFeatureLayoutLogScale={multiFeatureLayoutLogScale}
+                        multiFeatureColorLogScale={multiFeatureColorLogScale}
                         multiFeatureLayout={multiFeatureLayout}
                         multiFeatureRangeMinInput={multiFeatureRangeMinInput}
                         multiFeatureRangeMaxInput={multiFeatureRangeMaxInput}
