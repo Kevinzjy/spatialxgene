@@ -8,6 +8,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Added
 
+- **Panel-level split/merge**: Every loaded sample panel now has a **Split** button to the left of its zoom controls. Choosing an `obs` key creates local virtual child panels named `<parent> / <value>`; each child exposes **Merge** to restore the original merged panel. Splitting uses the already loaded coordinates/obs table, does not write new h5ad files, preserves the existing multi-sample grid, and keeps background image and gene expression requests pointed at the parent dataset (child values are sliced by the split indices).
+
 - **Release Pipeline (`make release`)**: A fully automated pipeline that builds the frontend, Python Wheel (`dist/*.whl`), versioned Docker image tarball (`docker/spatialxgene-V.tar`), and versioned Singularity Image Format (`docker/spatialxgene-V.sif`) in one command.
 - **Singularity (Apptainer) Support**: Dedicated tasks and documentation for running Spatialxgene on HPC clusters or old systems (e.g., CentOS 7 with glibc 2.17). SIF images bypass host library constraints.
 - **Versioned Distribution Artifacts**: Docker tarballs and Singularity SIF files are now automatically named with the project version (e.g., `spatialxgene-0.2.6.sif`).
@@ -15,6 +17,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - **Containerized Deployment Manual**: `docker/README.md` reorganized to distinguish between Docker Compose (web service) and Singularity (HPC/quick view) use cases, with direct container commands (no pixi/make required in production).
 
 ### Changed
+
+- **Common morphology coordinate fallback**: The backend now recognizes `obs["Cx"]` / `obs["Cy"]` (and `center_x` / `center_y`) as spatial coordinates when `obsm["spatial"]` and `obs["x"]` / `obs["y"]` are absent. This also makes the lightweight h5ad viewability check consistent with the full coordinate resolver and prevents merged morphology tables from being incorrectly reported as non-viewable.
+
+- **Generic numeric feature overlays**: Renamed user-facing **Co-expression** and **Multi-gene** modes to **Dual Feature** and **Multi-Feature**. Both modes now accept genes and numeric `obs` metadata columns. Only columns that are numeric across all selected samples are offered; metadata values are read from the already loaded `/obs` response, remain sample-aware in multi-sample grids, and use `column (obs)` in hover labels, legends, and PDF exports.
+- **Internal feature naming/data model**: Renamed the former internal `coexpression`/`multigene` identifiers and state to `dualFeature`/`multiFeature`, use structured `gene:`/`obs:` feature IDs with encoded keys, and share the feature parsing helper between the sidebar and app.
 
 - **Embedding spot size normalization**: PCA/UMAP/tSNE views now use coordinate-aware adaptive spot sizing based on the larger embedding axis span and spot count, with a conservative default where the previous trial default visual size is reached at about 200%. Spatial views keep nearest-neighbor sizing. PDF export uses the same spacing as the screen view.
 - **visium2h5ad standalone 10x HDF5 input**: `spatialxgene visium2h5ad sample_filtered_feature_bc_matrix.h5` now uses `scanpy.read_10x_h5()` and writes an h5ad with inferred regular Visium V1/V2 6.5 mm spot coordinates in `obsm["spatial"]` and no image metadata. Directory input keeps the existing Space Ranger behavior via `scanpy.read_visium()`.

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { API_BASE, type DatasetItem, type DatasetMeta, type ObsResponse } from "../api";
+import { featureLabel, makeGeneFeatureId, makeObsFeatureId, parseFeatureId } from "../features";
 import {
   CONTINUOUS_PALETTE_IDS,
   CONTINUOUS_PALETTE_LABELS,
@@ -8,17 +9,19 @@ import {
   getCategoricalColors,
   getPaletteGradientCss,
   getCategoricalPaletteGradientCss,
-  type CoexpressionPalette,
-  MULTIGENE_PALETTE_IDS,
-  MULTIGENE_PALETTE_LABELS,
-  MULTIGENE_PALETTE_ACCENT,
+  type DualFeaturePalette,
+  MULTI_FEATURE_PALETTE_IDS,
+  MULTI_FEATURE_PALETTE_LABELS,
+  MULTI_FEATURE_PALETTE_ACCENT,
   ANNOTATION_MAX_CATEGORIES,
   ANNOTATION_MIN_CATEGORIES,
   LABEL_NAN_TOO_MANY,
   LABEL_NAN_TOO_FEW,
 } from "../colorScale";
 
-export type MultigeneGeneEntry = { gene: string; paletteId: string };
+export type MultiFeatureEntry = { featureId: string; paletteId: string };
+/** Selectable entries can be a gene (plain id) or numeric obs metadata (prefixed with "obs:"). */
+type SelectableFeature = { id: string; label: string; source: "gene" | "obs" };
 
 function formatExpr(v: number): string {
   if (!Number.isFinite(v)) return "—";
@@ -56,38 +59,40 @@ type SidebarProps = {
   obs: ObsResponse | null;
   /** Union of obs columns from all selected datasets (when multi-dataset). When set, used for annotation dropdown instead of obs.columns. */
   obsColumns?: string[] | null;
+  /** Numeric obs columns available in dual-feature and multi-feature modes. */
+  numericObsColumns?: string[];
   /** When set, annotation legend uses these entries (e.g. global counts across samples). */
   annotationLegendEntries?: { label: string; count: number; color: string }[] | null;
-  colorMode: "gene" | "annotation" | "coexpression" | "multigene";
+  colorMode: "gene" | "annotation" | "dualFeature" | "multiFeature";
   selectedGene: string | null;
-  selectedGene1: string | null;
-  selectedGene2: string | null;
+  selectedFeature1: string | null;
+  selectedFeature2: string | null;
   selectedObsCol: string | null;
   obsValueType: "categorical" | "numeric";
   onColorByGene: (gene: string | null) => void;
   onColorByAnnotation: (col: string | null) => void;
-  onColorByCoexpression: (gene1: string | null, gene2: string | null) => void;
-  onColorModeChange: (mode: "gene" | "annotation" | "coexpression" | "multigene") => void;
-  coexpressionPalette: CoexpressionPalette;
-  onCoexpressionPaletteChange: (palette: CoexpressionPalette) => void;
-  coexpressionLogScale: boolean;
-  onCoexpressionLogScaleChange: (v: boolean) => void;
-  /** Multi-gene mode: list of { gene, paletteId }. Max 6 genes. */
-  selectedMultigeneGenes: MultigeneGeneEntry[];
-  onMultigeneGenesChange: (entries: MultigeneGeneEntry[]) => void;
-  multigeneLogScale: boolean;
-  onMultigeneLogScaleChange: (v: boolean) => void;
+  onColorByDualFeature: (feature1: string | null, feature2: string | null) => void;
+  onColorModeChange: (mode: "gene" | "annotation" | "dualFeature" | "multiFeature") => void;
+  dualFeaturePalette: DualFeaturePalette;
+  onDualFeaturePaletteChange: (palette: DualFeaturePalette) => void;
+  dualFeatureLogScale: boolean;
+  onDualFeatureLogScaleChange: (v: boolean) => void;
+  /** Multi-feature mode: feature ids use "obs:" for metadata columns; otherwise they are genes. Max 6 entries. */
+  selectedMultiFeatures: MultiFeatureEntry[];
+  onMultiFeaturesChange: (entries: MultiFeatureEntry[]) => void;
+  multiFeatureLogScale: boolean;
+  onMultiFeatureLogScaleChange: (v: boolean) => void;
   /** Multi-gene layout: pie (round spot) or grid (square spot). */
-  multigeneLayout: "pie" | "grid";
-  onMultigeneLayoutChange: (layout: "pie" | "grid") => void;
+  multiFeatureLayout: "pie" | "grid";
+  onMultiFeatureLayoutChange: (layout: "pie" | "grid") => void;
   /** Multi-gene color range inputs (e.g. p0, p100) and effective values for display. */
-  multigeneRangeMinInput: string;
-  multigeneRangeMaxInput: string;
-  onMultigeneRangeMinInputChange: (s: string) => void;
-  onMultigeneRangeMaxInputChange: (s: string) => void;
-  effectiveMultigeneColorMin: number | null;
-  effectiveMultigeneColorMax: number | null;
-  /** Expression layer: "X" for adata.X, or a key from adata.layers (gene / co-expression / multi-gene mode). */
+  multiFeatureRangeMinInput: string;
+  multiFeatureRangeMaxInput: string;
+  onMultiFeatureRangeMinInputChange: (s: string) => void;
+  onMultiFeatureRangeMaxInputChange: (s: string) => void;
+  effectiveMultiFeatureColorMin: number | null;
+  effectiveMultiFeatureColorMax: number | null;
+  /** Expression layer: "X" for adata.X, or a key from adata.layers (genes only; obs metadata ignores it). */
   selectedLayer: string;
   onLayerChange: (layer: string) => void;
   /** Spot size scale 0.2–3 (default 0.8 = 80% of defined size; max 300% for UMAP) */
@@ -139,33 +144,34 @@ export function Sidebar({
   genes,
   obs,
   obsColumns: obsColumnsProp,
+  numericObsColumns = [],
   annotationLegendEntries: annotationLegendEntriesProp,
   colorMode,
   selectedGene,
-  selectedGene1,
-  selectedGene2,
+  selectedFeature1,
+  selectedFeature2,
   selectedObsCol,
   obsValueType,
   onColorByGene,
   onColorByAnnotation,
-  onColorByCoexpression,
+  onColorByDualFeature,
   onColorModeChange,
-  coexpressionPalette,
-  onCoexpressionPaletteChange,
-  coexpressionLogScale,
-  onCoexpressionLogScaleChange,
-  selectedMultigeneGenes,
-  onMultigeneGenesChange,
-  multigeneLogScale,
-  onMultigeneLogScaleChange,
-  multigeneLayout,
-  onMultigeneLayoutChange,
-  multigeneRangeMinInput,
-  multigeneRangeMaxInput,
-  onMultigeneRangeMinInputChange,
-  onMultigeneRangeMaxInputChange,
-  effectiveMultigeneColorMin,
-  effectiveMultigeneColorMax,
+  dualFeaturePalette,
+  onDualFeaturePaletteChange,
+  dualFeatureLogScale,
+  onDualFeatureLogScaleChange,
+  selectedMultiFeatures,
+  onMultiFeaturesChange,
+  multiFeatureLogScale,
+  onMultiFeatureLogScaleChange,
+  multiFeatureLayout,
+  onMultiFeatureLayoutChange,
+  multiFeatureRangeMinInput,
+  multiFeatureRangeMaxInput,
+  onMultiFeatureRangeMinInputChange,
+  onMultiFeatureRangeMaxInputChange,
+  effectiveMultiFeatureColorMin,
+  effectiveMultiFeatureColorMax,
   selectedLayer,
   onLayerChange,
   spotSizeScale,
@@ -196,32 +202,45 @@ export function Sidebar({
   onObsValueTypeChange,
 }: SidebarProps) {
   const [geneSearch, setGeneSearch] = useState("");
-  const [geneSearch1, setGeneSearch1] = useState("");
-  const [geneSearch2, setGeneSearch2] = useState("");
-  const [geneSearchMultigene, setGeneSearchMultigene] = useState("");
+  const [featureSearch1, setGeneSearch1] = useState("");
+  const [featureSearch2, setGeneSearch2] = useState("");
+  const [featureSearchMultiFeature, setGeneSearchMultiFeature] = useState("");
+  /** Numeric metadata first for discoverability, then genes; metadata ids are prefixed so they remain unambiguous. */
+  const selectableFeatures = useMemo<SelectableFeature[]>(() => [
+    ...numericObsColumns.map((column) => ({
+      id: makeObsFeatureId(column),
+      label: featureLabel(makeObsFeatureId(column)),
+      source: "obs" as const,
+    })),
+    ...genes.map((gene) => ({
+      id: makeGeneFeatureId(gene),
+      label: featureLabel(makeGeneFeatureId(gene)),
+      source: "gene" as const,
+    })),
+  ], [genes, numericObsColumns]);
   const filteredGenes = useMemo(() => {
     if (!geneSearch.trim()) return genes.slice(0, 200);
     const q = geneSearch.toLowerCase();
     return genes.filter((g) => g.toLowerCase().includes(q)).slice(0, 200);
   }, [genes, geneSearch]);
-  const filteredGenes1 = useMemo(() => {
-    if (!geneSearch1.trim()) return genes.slice(0, 200);
-    const q = geneSearch1.toLowerCase();
-    return genes.filter((g) => g.toLowerCase().includes(q)).slice(0, 200);
-  }, [genes, geneSearch1]);
-  const filteredGenes2 = useMemo(() => {
-    if (!geneSearch2.trim()) return genes.slice(0, 200);
-    const q = geneSearch2.toLowerCase();
-    return genes.filter((g) => g.toLowerCase().includes(q)).slice(0, 200);
-  }, [genes, geneSearch2]);
-  const filteredGenesMultigene = useMemo(() => {
-    if (!geneSearchMultigene.trim()) return genes.slice(0, 150);
-    const q = geneSearchMultigene.toLowerCase();
-    return genes.filter((g) => g.toLowerCase().includes(q)).slice(0, 150);
-  }, [genes, geneSearchMultigene]);
-  const MULTIGENE_MAX_GENES = 6;
+  const filteredFeatures1 = useMemo(() => {
+    if (!featureSearch1.trim()) return selectableFeatures.slice(0, 200);
+    const q = featureSearch1.toLowerCase();
+    return selectableFeatures.filter((f) => f.label.toLowerCase().includes(q)).slice(0, 200);
+  }, [selectableFeatures, featureSearch1]);
+  const filteredFeatures2 = useMemo(() => {
+    if (!featureSearch2.trim()) return selectableFeatures.slice(0, 200);
+    const q = featureSearch2.toLowerCase();
+    return selectableFeatures.filter((f) => f.label.toLowerCase().includes(q)).slice(0, 200);
+  }, [selectableFeatures, featureSearch2]);
+  const filteredFeaturesMultiFeature = useMemo(() => {
+    if (!featureSearchMultiFeature.trim()) return selectableFeatures.slice(0, 150);
+    const q = featureSearchMultiFeature.toLowerCase();
+    return selectableFeatures.filter((f) => f.label.toLowerCase().includes(q)).slice(0, 150);
+  }, [selectableFeatures, featureSearchMultiFeature]);
+  const MULTI_FEATURE_MAX_FEATURES = 6;
   const defaultPaletteForIndex = (idx: number) =>
-    MULTIGENE_PALETTE_IDS[idx % MULTIGENE_PALETTE_IDS.length];
+    MULTI_FEATURE_PALETTE_IDS[idx % MULTI_FEATURE_PALETTE_IDS.length];
 
   // Prefer known cluster columns (leiden, louvain) at the top; use union from App when multi-dataset
   const obsColumns = useMemo(() => {
@@ -328,9 +347,9 @@ export function Sidebar({
 
   const [collapsed, setCollapsed] = useState(false);
   const [paletteDropdownOpen, setPaletteDropdownOpen] = useState(false);
-  const [multigenePaletteOpenIdx, setMultigenePaletteOpenIdx] = useState<number | null>(null);
+  const [multiFeaturePaletteOpenIdx, setMultiFeaturePaletteOpenIdx] = useState<number | null>(null);
   const paletteDropdownRef = useRef<HTMLDivElement>(null);
-  const multigenePaletteDropdownRef = useRef<HTMLDivElement | null>(null);
+  const multiFeaturePaletteDropdownRef = useRef<HTMLDivElement | null>(null);
   const closePaletteDropdown = useCallback(() => setPaletteDropdownOpen(false), []);
   useEffect(() => {
     if (!paletteDropdownOpen) return;
@@ -342,14 +361,14 @@ export function Sidebar({
     return () => document.removeEventListener("mousedown", handle);
   }, [paletteDropdownOpen, closePaletteDropdown]);
   useEffect(() => {
-    if (multigenePaletteOpenIdx === null) return;
+    if (multiFeaturePaletteOpenIdx === null) return;
     const handle = (e: MouseEvent) => {
-      if (multigenePaletteDropdownRef.current?.contains(e.target as Node)) return;
-      setMultigenePaletteOpenIdx(null);
+      if (multiFeaturePaletteDropdownRef.current?.contains(e.target as Node)) return;
+      setMultiFeaturePaletteOpenIdx(null);
     };
     document.addEventListener("mousedown", handle);
     return () => document.removeEventListener("mousedown", handle);
-  }, [multigenePaletteOpenIdx]);
+  }, [multiFeaturePaletteOpenIdx]);
 
   const SIDEBAR_WIDTH = 280;
   const SIDEBAR_COLLAPSED_WIDTH = 48;
@@ -701,37 +720,45 @@ export function Sidebar({
               </button>
               <button
                 type="button"
-                onClick={() => onColorModeChange("coexpression")}
+                onClick={() => onColorModeChange("dualFeature")}
                 style={{
                   padding: "6px 10px",
                   borderRadius: 6,
                   border: "1px solid var(--sidebar-border)",
-                  background: colorMode === "coexpression" ? "var(--accent)" : "var(--bg-main)",
+                  background: colorMode === "dualFeature" ? "var(--accent)" : "var(--bg-main)",
                   color: "var(--text-primary)",
                   fontSize: 12,
                   cursor: "pointer",
                 }}
               >
-                Co-expression
+                Dual feature
               </button>
               <button
                 type="button"
-                onClick={() => onColorModeChange("multigene")}
+                onClick={() => onColorModeChange("multiFeature")}
                 style={{
                   padding: "6px 10px",
                   borderRadius: 6,
                   border: "1px solid var(--sidebar-border)",
-                  background: colorMode === "multigene" ? "var(--accent)" : "var(--bg-main)",
+                  background: colorMode === "multiFeature" ? "var(--accent)" : "var(--bg-main)",
                   color: "var(--text-primary)",
                   fontSize: 12,
                   cursor: "pointer",
                 }}
               >
-                Multi-gene
+                Multi-feature
               </button>
             </div>
 
-            {(colorMode === "gene" || colorMode === "coexpression" || colorMode === "multigene") && (
+            {(() => {
+              const dualUsesGene = colorMode === "dualFeature" && (
+                (!!selectedFeature1 && parseFeatureId(selectedFeature1).source === "gene") ||
+                (!!selectedFeature2 && parseFeatureId(selectedFeature2).source === "gene")
+              );
+              const multiUsesGene = colorMode === "multiFeature" &&
+                selectedMultiFeatures.some((entry) => parseFeatureId(entry.featureId).source === "gene");
+              return colorMode === "gene" || dualUsesGene || multiUsesGene;
+            })() && (
               <>
                 <label style={{ fontSize: 12, fontWeight: 600, color: "var(--text-secondary)" }}>Layer</label>
                 <select
@@ -893,10 +920,10 @@ export function Sidebar({
               </>
             )}
 
-            {colorMode === "coexpression" && (
+            {colorMode === "dualFeature" && (
               <>
                 <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                  <label style={{ fontSize: 12, fontWeight: 600, color: "var(--text-secondary)" }}>Gene1</label>
+                  <label style={{ fontSize: 12, fontWeight: 600, color: "var(--text-secondary)" }}>Feature 1</label>
                   <span
                     title="Only the first 200 entries are shown; use search to narrow the range."
                     style={{
@@ -912,15 +939,15 @@ export function Sidebar({
                       fontWeight: 700,
                       cursor: "help",
                     }}
-                    aria-label="Gene list info"
+                    aria-label="Feature list info"
                   >
                     ?
                   </span>
                 </div>
                 <input
                   type="text"
-                  placeholder="Search gene…"
-                  value={geneSearch1}
+                  placeholder="Search gene or metadata…"
+                  value={featureSearch1}
                   onChange={(e) => setGeneSearch1(e.target.value)}
                   style={{
                     padding: "8px 10px",
@@ -944,23 +971,23 @@ export function Sidebar({
                     background: "var(--bg-main)",
                   }}
                 >
-                  {filteredGenes1.map((g) => (
+                  {filteredFeatures1.map((feature) => (
                     <div
-                      key={g}
-                      onClick={() => onColorByCoexpression(g, selectedGene2)}
+                      key={feature.id}
+                      onClick={() => onColorByDualFeature(feature.id, selectedFeature2)}
                       style={{
                         padding: "6px 10px",
                         fontSize: 12,
                         cursor: "pointer",
-                        background: selectedGene1 === g ? "var(--accent)" : "transparent",
+                        background: selectedFeature1 === feature.id ? "var(--accent)" : "transparent",
                       }}
                     >
-                      {g}
+                      {feature.label}
                     </div>
                   ))}
                 </div>
                 <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                  <label style={{ fontSize: 12, fontWeight: 600, color: "var(--text-secondary)" }}>Gene2</label>
+                  <label style={{ fontSize: 12, fontWeight: 600, color: "var(--text-secondary)" }}>Feature 2</label>
                   <span
                     title="Only the first 200 entries are shown; use search to narrow the range."
                     style={{
@@ -976,15 +1003,15 @@ export function Sidebar({
                       fontWeight: 700,
                       cursor: "help",
                     }}
-                    aria-label="Gene list info"
+                    aria-label="Feature list info"
                   >
                     ?
                   </span>
                 </div>
                 <input
                   type="text"
-                  placeholder="Search gene…"
-                  value={geneSearch2}
+                  placeholder="Search gene or metadata…"
+                  value={featureSearch2}
                   onChange={(e) => setGeneSearch2(e.target.value)}
                   style={{
                     padding: "8px 10px",
@@ -1008,18 +1035,18 @@ export function Sidebar({
                     background: "var(--bg-main)",
                   }}
                 >
-                  {filteredGenes2.map((g) => (
+                  {filteredFeatures2.map((feature) => (
                     <div
-                      key={g}
-                      onClick={() => onColorByCoexpression(selectedGene1, g)}
+                      key={feature.id}
+                      onClick={() => onColorByDualFeature(selectedFeature1, feature.id)}
                       style={{
                         padding: "6px 10px",
                         fontSize: 12,
                         cursor: "pointer",
-                        background: selectedGene2 === g ? "var(--accent)" : "transparent",
+                        background: selectedFeature2 === feature.id ? "var(--accent)" : "transparent",
                       }}
                     >
-                      {g}
+                      {feature.label}
                     </div>
                   ))}
                 </div>
@@ -1032,14 +1059,14 @@ export function Sidebar({
                     width: "100%",
                     maxWidth: 160,
                   }}
-                  title="Four corners: 0 (both low), Gene1, Gene2, Co-expression"
+                  title="Four corners: 0 (both low), Feature 1, Feature 2, both high"
                 >
                   <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 2 }}>
                     <input
                       type="color"
-                      value={coexpressionPalette.c00}
+                      value={dualFeaturePalette.c00}
                       onChange={(e) =>
-                        onCoexpressionPaletteChange({ ...coexpressionPalette, c00: e.target.value })
+                        onDualFeaturePaletteChange({ ...dualFeaturePalette, c00: e.target.value })
                       }
                       style={{ width: 36, height: 28, padding: 0, border: "1px solid var(--sidebar-border)", borderRadius: 4, cursor: "pointer" }}
                       title="Both low (0)"
@@ -1049,36 +1076,36 @@ export function Sidebar({
                   <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 2 }}>
                     <input
                       type="color"
-                      value={coexpressionPalette.c10}
+                      value={dualFeaturePalette.c10}
                       onChange={(e) =>
-                        onCoexpressionPaletteChange({ ...coexpressionPalette, c10: e.target.value })
+                        onDualFeaturePaletteChange({ ...dualFeaturePalette, c10: e.target.value })
                       }
                       style={{ width: 36, height: 28, padding: 0, border: "1px solid var(--sidebar-border)", borderRadius: 4, cursor: "pointer" }}
-                      title="Gene1 high"
+                      title="Feature 1 high"
                     />
-                    <span style={{ fontSize: 9, color: "var(--text-muted)" }}>Gene1</span>
+                    <span style={{ fontSize: 9, color: "var(--text-muted)" }}>F1</span>
                   </div>
                   <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 2 }}>
                     <input
                       type="color"
-                      value={coexpressionPalette.c01}
+                      value={dualFeaturePalette.c01}
                       onChange={(e) =>
-                        onCoexpressionPaletteChange({ ...coexpressionPalette, c01: e.target.value })
+                        onDualFeaturePaletteChange({ ...dualFeaturePalette, c01: e.target.value })
                       }
                       style={{ width: 36, height: 28, padding: 0, border: "1px solid var(--sidebar-border)", borderRadius: 4, cursor: "pointer" }}
-                      title="Gene2 high"
+                      title="Feature 2 high"
                     />
-                    <span style={{ fontSize: 9, color: "var(--text-muted)" }}>Gene2</span>
+                    <span style={{ fontSize: 9, color: "var(--text-muted)" }}>F2</span>
                   </div>
                   <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 2 }}>
                     <input
                       type="color"
-                      value={coexpressionPalette.c11}
+                      value={dualFeaturePalette.c11}
                       onChange={(e) =>
-                        onCoexpressionPaletteChange({ ...coexpressionPalette, c11: e.target.value })
+                        onDualFeaturePaletteChange({ ...dualFeaturePalette, c11: e.target.value })
                       }
                       style={{ width: 36, height: 28, padding: 0, border: "1px solid var(--sidebar-border)", borderRadius: 4, cursor: "pointer" }}
-                      title="Co-expression"
+                      title="Both features high"
                     />
                     <span style={{ fontSize: 9, color: "var(--text-muted)" }}>Both</span>
                   </div>
@@ -1096,8 +1123,8 @@ export function Sidebar({
                 >
                   <input
                     type="checkbox"
-                    checked={coexpressionLogScale}
-                    onChange={(e) => onCoexpressionLogScaleChange(e.target.checked)}
+                    checked={dualFeatureLogScale}
+                    onChange={(e) => onDualFeatureLogScaleChange(e.target.checked)}
                     style={{ cursor: "pointer" }}
                   />
                   Log scale
@@ -1105,11 +1132,11 @@ export function Sidebar({
               </>
             )}
 
-            {colorMode === "multigene" && (
+            {colorMode === "multiFeature" && (
               <>
                 <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                   <label style={{ fontSize: 12, fontWeight: 600, color: "var(--text-secondary)" }}>
-                    Genes (dots per spot by expression)
+                    Features (segments per spot)
                   </label>
                   <span
                     title="Only the first 200 entries are shown; use search to narrow the range."
@@ -1126,14 +1153,14 @@ export function Sidebar({
                       fontWeight: 700,
                       cursor: "help",
                     }}
-                    aria-label="Gene list info"
+                    aria-label="Feature list info"
                   >
                     ?
                   </span>
                 </div>
-                {selectedMultigeneGenes.map((entry, idx) => (
+                {selectedMultiFeatures.map((entry, idx) => (
                   <div
-                    key={`${entry.gene}-${idx}`}
+                    key={`${entry.featureId}-${idx}`}
                     style={{
                       display: "grid",
                       gridTemplateColumns: "1fr 130px 24px",
@@ -1146,16 +1173,16 @@ export function Sidebar({
                     }}
                   >
                     <span style={{ minWidth: 0, fontSize: 12, color: "var(--text-primary)", overflow: "hidden", textOverflow: "ellipsis" }}>
-                      {entry.gene}
+                      {featureLabel(entry.featureId)}
                     </span>
                     <div
-                      ref={multigenePaletteOpenIdx === idx ? multigenePaletteDropdownRef : undefined}
+                      ref={multiFeaturePaletteOpenIdx === idx ? multiFeaturePaletteDropdownRef : undefined}
                       style={{ position: "relative", minWidth: 0 }}
                     >
                       <button
                         type="button"
                         onClick={() =>
-                          setMultigenePaletteOpenIdx((prev) => (prev === idx ? null : idx))
+                          setMultiFeaturePaletteOpenIdx((prev) => (prev === idx ? null : idx))
                         }
                         style={{
                           display: "flex",
@@ -1177,16 +1204,16 @@ export function Sidebar({
                             width: 16,
                             height: 16,
                             borderRadius: 3,
-                            background: MULTIGENE_PALETTE_ACCENT[entry.paletteId] ?? "var(--text-muted)",
+                            background: MULTI_FEATURE_PALETTE_ACCENT[entry.paletteId] ?? "var(--text-muted)",
                             border: "1px solid #555",
                             flexShrink: 0,
                           }}
                         />
                         <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>
-                          {MULTIGENE_PALETTE_LABELS[entry.paletteId] ?? entry.paletteId}
+                          {MULTI_FEATURE_PALETTE_LABELS[entry.paletteId] ?? entry.paletteId}
                         </span>
                       </button>
-                      {multigenePaletteOpenIdx === idx && (
+                      {multiFeaturePaletteOpenIdx === idx && (
                         <div
                           className="sidebar-scroll"
                           style={{
@@ -1204,15 +1231,15 @@ export function Sidebar({
                             boxShadow: "0 4px 12px rgba(0,0,0,0.3)",
                           }}
                         >
-                          {MULTIGENE_PALETTE_IDS.map((id) => (
+                          {MULTI_FEATURE_PALETTE_IDS.map((id) => (
                             <button
                               key={id}
                               type="button"
                               onClick={() => {
-                                const next = [...selectedMultigeneGenes];
+                                const next = [...selectedMultiFeatures];
                                 next[idx] = { ...next[idx], paletteId: id };
-                                onMultigeneGenesChange(next);
-                                setMultigenePaletteOpenIdx(null);
+                                onMultiFeaturesChange(next);
+                                setMultiFeaturePaletteOpenIdx(null);
                               }}
                               style={{
                                 display: "flex",
@@ -1233,12 +1260,12 @@ export function Sidebar({
                                   width: 16,
                                   height: 16,
                                   borderRadius: 3,
-                                  background: MULTIGENE_PALETTE_ACCENT[id] ?? "var(--text-muted)",
+                                  background: MULTI_FEATURE_PALETTE_ACCENT[id] ?? "var(--text-muted)",
                                   border: "1px solid #555",
                                   flexShrink: 0,
                                 }}
                               />
-                              {MULTIGENE_PALETTE_LABELS[id] ?? id}
+                              {MULTI_FEATURE_PALETTE_LABELS[id] ?? id}
                             </button>
                           ))}
                         </div>
@@ -1247,7 +1274,7 @@ export function Sidebar({
                     <button
                       type="button"
                       onClick={() => {
-                        onMultigeneGenesChange(selectedMultigeneGenes.filter((_, i) => i !== idx));
+                        onMultiFeaturesChange(selectedMultiFeatures.filter((_, i) => i !== idx));
                       }}
                       title="Remove"
                       style={{
@@ -1271,13 +1298,13 @@ export function Sidebar({
                     </button>
                   </div>
                 ))}
-                {selectedMultigeneGenes.length < MULTIGENE_MAX_GENES && (
+                {selectedMultiFeatures.length < MULTI_FEATURE_MAX_FEATURES && (
                   <>
                     <input
                       type="text"
-                      placeholder="Search gene to add…"
-                      value={geneSearchMultigene}
-                      onChange={(e) => setGeneSearchMultigene(e.target.value)}
+                      placeholder="Search gene or metadata to add…"
+                      value={featureSearchMultiFeature}
+                      onChange={(e) => setGeneSearchMultiFeature(e.target.value)}
                       style={{
                         padding: "6px 8px",
                         borderRadius: 6,
@@ -1300,48 +1327,48 @@ export function Sidebar({
                         background: "var(--bg-main)",
                       }}
                     >
-                      {filteredGenesMultigene.map((g) => (
+                      {filteredFeaturesMultiFeature.map((feature) => (
                         <div
-                          key={g}
+                          key={feature.id}
                           onClick={() => {
-                            const already = selectedMultigeneGenes.some((e) => e.gene === g);
+                            const already = selectedMultiFeatures.some((e) => e.featureId === feature.id);
                             if (already) return;
-                            onMultigeneGenesChange([
-                              ...selectedMultigeneGenes,
-                              { gene: g, paletteId: defaultPaletteForIndex(selectedMultigeneGenes.length) },
+                            onMultiFeaturesChange([
+                              ...selectedMultiFeatures,
+                              { featureId: feature.id, paletteId: defaultPaletteForIndex(selectedMultiFeatures.length) },
                             ]);
-                            setGeneSearchMultigene("");
+                            setGeneSearchMultiFeature("");
                           }}
                           style={{
                             padding: "6px 10px",
                             fontSize: 12,
                             cursor: "pointer",
-                            background: selectedMultigeneGenes.some((e) => e.gene === g) ? "#333" : "transparent",
-                            color: selectedMultigeneGenes.some((e) => e.gene === g) ? "var(--text-muted)" : "var(--text-primary)",
+                            background: selectedMultiFeatures.some((e) => e.featureId === feature.id) ? "#333" : "transparent",
+                            color: selectedMultiFeatures.some((e) => e.featureId === feature.id) ? "var(--text-muted)" : "var(--text-primary)",
                           }}
                         >
-                          {g}
+                          {feature.label}
                         </div>
                       ))}
                     </div>
                   </>
                 )}
-                {selectedMultigeneGenes.length > 0 && (
+                {selectedMultiFeatures.length > 0 && (
                   <>
                     <label style={{ fontSize: 12, fontWeight: 600, color: "var(--text-secondary)" }}>Color range</label>
                     <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "nowrap" }}>
                       {(() => {
                         const isPercentile = (s: string) => /^p\d+(\.\d+)?$/i.test(String(s).trim());
                         const showEffectiveNumbers =
-                          !isPercentile(multigeneRangeMinInput) || !isPercentile(multigeneRangeMaxInput);
+                          !isPercentile(multiFeatureRangeMinInput) || !isPercentile(multiFeatureRangeMaxInput);
                         return (
                           <>
                             <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 2 }}>
                               <input
                                 type="text"
                                 placeholder="p0 / number"
-                                value={multigeneRangeMinInput}
-                                onChange={(e) => onMultigeneRangeMinInputChange(e.target.value)}
+                                value={multiFeatureRangeMinInput}
+                                onChange={(e) => onMultiFeatureRangeMinInputChange(e.target.value)}
                                 style={{
                                   width: 64,
                                   padding: "4px 6px",
@@ -1354,8 +1381,8 @@ export function Sidebar({
                               />
                               <span style={{ fontSize: 10, color: "#666" }}>
                                 {showEffectiveNumbers
-                                  ? effectiveMultigeneColorMin != null
-                                    ? formatExpr(effectiveMultigeneColorMin)
+                                  ? effectiveMultiFeatureColorMin != null
+                                    ? formatExpr(effectiveMultiFeatureColorMin)
                                     : "—"
                                   : ""}
                               </span>
@@ -1364,8 +1391,8 @@ export function Sidebar({
                               <input
                                 type="text"
                                 placeholder="p100 / number"
-                                value={multigeneRangeMaxInput}
-                                onChange={(e) => onMultigeneRangeMaxInputChange(e.target.value)}
+                                value={multiFeatureRangeMaxInput}
+                                onChange={(e) => onMultiFeatureRangeMaxInputChange(e.target.value)}
                                 style={{
                                   width: 64,
                                   padding: "4px 6px",
@@ -1378,8 +1405,8 @@ export function Sidebar({
                               />
                               <span style={{ fontSize: 10, color: "#666" }}>
                                 {showEffectiveNumbers
-                                  ? effectiveMultigeneColorMax != null
-                                    ? formatExpr(effectiveMultigeneColorMax)
+                                  ? effectiveMultiFeatureColorMax != null
+                                    ? formatExpr(effectiveMultiFeatureColorMax)
                                     : "—"
                                   : ""}
                               </span>
@@ -1400,8 +1427,8 @@ export function Sidebar({
                       >
                         <input
                           type="checkbox"
-                          checked={multigeneLogScale}
-                          onChange={(e) => onMultigeneLogScaleChange(e.target.checked)}
+                          checked={multiFeatureLogScale}
+                          onChange={(e) => onMultiFeatureLogScaleChange(e.target.checked)}
                           style={{ cursor: "pointer" }}
                         />
                         Log scale
@@ -1692,16 +1719,16 @@ export function Sidebar({
               </>
             )}
 
-            {colorMode === "multigene" && (
+            {colorMode === "multiFeature" && (
               <>
                 <label style={{ fontSize: 12, fontWeight: 600, color: "var(--text-secondary)" }}>Layout</label>
                 <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
                   <label style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 12, color: "var(--text-secondary)", cursor: "pointer" }}>
                     <input
                       type="radio"
-                      name="multigeneLayout"
-                      checked={multigeneLayout === "pie"}
-                      onChange={() => onMultigeneLayoutChange("pie")}
+                      name="multiFeatureLayout"
+                      checked={multiFeatureLayout === "pie"}
+                      onChange={() => onMultiFeatureLayoutChange("pie")}
                       style={{ accentColor: "var(--accent)" }}
                     />
                     <span>Pie (round)</span>
@@ -1709,9 +1736,9 @@ export function Sidebar({
                   <label style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 12, color: "var(--text-secondary)", cursor: "pointer" }}>
                     <input
                       type="radio"
-                      name="multigeneLayout"
-                      checked={multigeneLayout === "grid"}
-                      onChange={() => onMultigeneLayoutChange("grid")}
+                      name="multiFeatureLayout"
+                      checked={multiFeatureLayout === "grid"}
+                      onChange={() => onMultiFeatureLayoutChange("grid")}
                       style={{ accentColor: "var(--accent)" }}
                     />
                     <span>Grid (square)</span>

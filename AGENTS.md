@@ -127,6 +127,13 @@
 
 ---
 
+#### Multi-sample panel split 与坐标 fallback（2026-11）
+
+- **问题**：merged h5ad 只有 `obs['Cx'] / obs['Cy']`（无 `obsm['spatial']`，也无 `obs['x'] / obs['y']`）时，`_check_viewable_h5()` 只检查 `obs['x'] / obs['y']`，meta 返回 `viewable=false`；前端加载函数把该 id 从 cache 排除后，load effect 又反复重新加载，形成数千次 meta 请求。
+- **实现/教训**：① 轻量 viewability 检查必须与完整坐标 resolver 使用同一组 fallback（`obsm spatial/X_spatial`、`obs x/y`、`center_x/center_y`、`Cx/Cy`）。② `get_spatial()` 有独立的显式 layout 分支，不能只改 `_get_plot_coordinates()`；force `layout=spatial` 时也要识别相同 fallback。③ 前端加载 effect 必须防止“meta 标记不可视 / 子请求失败 → cache 无 spatial → effect 重试”的无限循环；用 ref 记录 failed/not-viewable id，重新勾选数据集时再清除。④ 面板级 split 可以在已加载 parent 上生成 virtual child（本地过滤 spatial/obs/expression），无需写新 h5ad；但 active panel ids、expression fetch、global legend、embedding 切换、PDF 导出和背景图 API 都要使用 child/parent 映射保持一致。
+- **下次提问要点**：报告 merged h5ad 不显示或重叠时，同时提供 `n_obs/n_vars`、`obsm` keys、`obs` 中坐标相关列名（如 `x/y`、`Cx/Cy`）、sample/group key、完整后端日志；若是加载循环，说明浏览器 Network 中重复请求的 endpoint 和次数。
+
+---
 #### seurat2h5ad：Rscript 缺失与输入文件类型（2026-07）
 
 - **问题**：全局安装后在数据目录运行 `spatialxgene seurat2h5ad GSM7440144_M1FA_filtered_feature_bc_matrix.h5`，报 `[Errno 2] No such file or directory: 'Rscript'`。

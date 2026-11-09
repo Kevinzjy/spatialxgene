@@ -350,17 +350,17 @@ export function continuousToRgb(
   ];
 }
 
-// --- Co-expression palette (2D: Gene1 vs Gene2) ---
-/** Four corner colors: (0,0)=both low, (1,0)=Gene1 high, (0,1)=Gene2 high, (1,1)=both high. Hex strings. */
-export type CoexpressionPalette = {
+// --- Dual Feature palette (2D: Feature1 vs Feature2) ---
+/** Four corner colors: (0,0)=both low, (1,0)=Feature1 high, (0,1)=Feature2 high, (1,1)=both high. Hex strings. */
+export type DualFeaturePalette = {
   c00: string;
   c10: string;
   c01: string;
   c11: string;
 };
 
-/** Default: white (none), blue (Gene1), orange (Gene2), yellow (co-expression). */
-export const DEFAULT_COEXPRESSION_PALETTE: CoexpressionPalette = {
+/** Default: white (none), blue (Feature1), orange (Feature2), yellow (dual feature). */
+export const DEFAULT_DUAL_FEATURE_PALETTE: DualFeaturePalette = {
   c00: "#ffffff",
   c10: "#2563eb",
   c01: "#ea580c",
@@ -373,13 +373,13 @@ function hexToRgbNorm(hex: string): [number, number, number] {
 }
 
 /**
- * Bilinear interpolation for co-expression: (v1, v2) in [0,1]^2 -> RGB hex.
- * v1 = normalized Gene1 expression, v2 = normalized Gene2 expression.
+ * Bilinear interpolation for dual feature: (v1, v2) in [0,1]^2 -> RGB hex.
+ * v1 = normalized Feature1 expression, v2 = normalized Feature2 expression.
  */
-export function coexpressionToHex(
+export function dualFeatureToHex(
   v1: number,
   v2: number,
-  palette: CoexpressionPalette
+  palette: DualFeaturePalette
 ): string {
   const v1c = Math.max(0, Math.min(1, Number.isFinite(v1) ? v1 : 0));
   const v2c = Math.max(0, Math.min(1, Number.isFinite(v2) ? v2 : 0));
@@ -398,8 +398,8 @@ export function coexpressionToHex(
 }
 
 // --- Multi-gene dot palettes (black → color, Cell2Location-style) ---
-/** Two-stop palettes: [0] = black, [1] = accent color. Used for per-gene dot color. */
-const MULTIGENE_PALETTE_STOPS: Record<string, [string, string]> = {
+/** Two-stop palettes: [0] = black, [1] = accent color. Used for per-feature dot color. */
+const MULTI_FEATURE_PALETTE_STOPS: Record<string, [string, string]> = {
   black_yellow: ["#000000", "#ffff00"],
   black_purple: ["#000000", "#9d4edd"],
   black_cyan: ["#000000", "#00d9ff"],
@@ -410,10 +410,10 @@ const MULTIGENE_PALETTE_STOPS: Record<string, [string, string]> = {
   black_pink: ["#000000", "#ff66aa"],
 };
 
-export const MULTIGENE_PALETTE_IDS = Object.keys(MULTIGENE_PALETTE_STOPS);
+export const MULTI_FEATURE_PALETTE_IDS = Object.keys(MULTI_FEATURE_PALETTE_STOPS);
 
 /** Short labels (accent only; base is always black). */
-export const MULTIGENE_PALETTE_LABELS: Record<string, string> = {
+export const MULTI_FEATURE_PALETTE_LABELS: Record<string, string> = {
   black_yellow: "Yellow",
   black_purple: "Purple",
   black_cyan: "Cyan",
@@ -425,7 +425,7 @@ export const MULTIGENE_PALETTE_LABELS: Record<string, string> = {
 };
 
 /** Accent (high) color hex for each palette, for UI swatches. */
-export const MULTIGENE_PALETTE_ACCENT: Record<string, string> = {
+export const MULTI_FEATURE_PALETTE_ACCENT: Record<string, string> = {
   black_yellow: "#ffff00",
   black_purple: "#9d4edd",
   black_cyan: "#00d9ff",
@@ -437,17 +437,17 @@ export const MULTIGENE_PALETTE_ACCENT: Record<string, string> = {
 };
 
 /**
- * Map value in [vmin, vmax] to hex for multi-gene dot color (black at low, accent at high).
+ * Map value in [vmin, vmax] to hex for multi-feature dot color (black at low, accent at high).
  * Used when drawing jittered dots inside each spot.
  */
-export function multigeneValueToHex(
+export function multiFeatureValueToHex(
   value: number,
   vmin: number,
   vmax: number,
   paletteId: string,
   logScale = false
 ): string {
-  const [lowHex, highHex] = MULTIGENE_PALETTE_STOPS[paletteId] ?? MULTIGENE_PALETTE_STOPS.black_yellow;
+  const [lowHex, highHex] = MULTI_FEATURE_PALETTE_STOPS[paletteId] ?? MULTI_FEATURE_PALETTE_STOPS.black_yellow;
   if (vmax <= vmin || !Number.isFinite(value)) {
     return lowHex;
   }
@@ -467,8 +467,8 @@ export function multigeneValueToHex(
   return `#${rr.toString(16).padStart(2, "0")}${gg.toString(16).padStart(2, "0")}${bb.toString(16).padStart(2, "0")}`;
 }
 
-/** CSS linear gradient for multi-gene color bar (horizontal: low → high). */
-export function getMultigenePaletteGradientCss(paletteId: string): string {
-  const [low, high] = MULTIGENE_PALETTE_STOPS[paletteId] ?? MULTIGENE_PALETTE_STOPS.black_yellow;
+/** CSS linear gradient for multi-feature color bar (horizontal: low → high). */
+export function getMultiFeaturePaletteGradientCss(paletteId: string): string {
+  const [low, high] = MULTI_FEATURE_PALETTE_STOPS[paletteId] ?? MULTI_FEATURE_PALETTE_STOPS.black_yellow;
   return `linear-gradient(to right, ${low}, ${high})`;
 }

@@ -4,7 +4,7 @@
  */
 
 import type { jsPDF } from "jspdf";
-import { MULTIGENE_PALETTE_ACCENT, continuousToRgb } from "./colorScale";
+import { MULTI_FEATURE_PALETTE_ACCENT, continuousToRgb } from "./colorScale";
 import { THEME } from "./theme";
 
 const DEFAULT_EXPORT_WIDTH = 800;
@@ -117,28 +117,28 @@ export type VectorExportOptions = {
   plotFormKey?: string;
 };
 
-/** Per-spot segment for multigene pie: proportion (0..1) and fill color (hex). */
-export type MultigeneSegment = { proportion: number; color: string };
+/** Per-spot segment for multiFeature pie: proportion (0..1) and fill color (hex). */
+export type MultiFeatureSegment = { proportion: number; color: string };
 
-export type MultigeneLegendLayer = {
+export type MultiFeatureLegendLayer = {
   name: string;
   paletteId: string;
   vmin: number;
   vmax: number;
 };
 
-/** Options for multigene vector export: one spot = pie or grid with segments. */
-export type MultigeneVectorExportOptions = {
+/** Options for multiFeature vector export: one spot = pie or grid with segments. */
+export type MultiFeatureVectorExportOptions = {
   /** Spot positions and segments (pie wedges or grid). */
-  spots: Array<{ x: number; y: number; segments: MultigeneSegment[] }>;
+  spots: Array<{ x: number; y: number; segments: MultiFeatureSegment[] }>;
   bounds: { xMin: number; xMax: number; yMin: number; yMax: number };
   spotSizeScale: number;
-  /** Layout for multigene spots, matching frontend: "pie" wedges (default) or "grid" of squares. */
+  /** Layout for multiFeature spots, matching frontend: "pie" wedges (default) or "grid" of squares. */
   layout?: "pie" | "grid";
   title?: string;
   legend?: VectorExportLegendEntry[];
-  /** Multigene legend rows (gradient + name + vmin–vmax), matching frontend. */
-  legendLayers?: MultigeneLegendLayer[];
+  /** MultiFeature legend rows (gradient + name + vmin–vmax), matching frontend. */
+  legendLayers?: MultiFeatureLegendLayer[];
   backgroundImageDataUrl?: string | null;
   /** Bounds of the background image in data space; if set, image is placed here to align with spots. */
   backgroundImageBounds?: { xMin: number; yMin: number; xMax: number; yMax: number } | null;
@@ -522,12 +522,12 @@ const WEDGE_ARC_SAMPLES = 12;
 const MIN_PROPORTION_GRID = 0.05;
 
 /**
- * Draw multigene plot onto a jsPDF page: raster background + per-spot layout ("pie" wedges or "grid" of squares), then legend.
- * Layout matches frontend multigene view.
+ * Draw multiFeature plot onto a jsPDF page: raster background + per-spot layout ("pie" wedges or "grid" of squares), then legend.
+ * Layout matches frontend multiFeature view.
  */
-export function drawMultigenePlotToPdfVector(
+export function drawMultiFeaturePlotToPdfVector(
   pdf: jsPDF,
-  options: MultigeneVectorExportOptions,
+  options: MultiFeatureVectorExportOptions,
   pageRect: { x: number; y: number; w: number; h: number },
   gStateClass?: GStateConstructor,
   pageHeightMm?: number
@@ -706,7 +706,7 @@ export function drawMultigenePlotToPdfVector(
     drawSpots(plotArea.x, plotArea.y);
   }
 
-  // Multigene legend: bottom-right, compact (narrow gradient bar + "name vmin–vmax"), with background box.
+  // MultiFeature legend: bottom-right, compact (narrow gradient bar + "name vmin–vmax"), with background box.
   // When legendFormKey is set, draw into a Form XObject so the whole block is one group in Illustrator.
   const drawLegendInForm = (ox: number, oy: number, boxW: number, boxH: number, draw: (dx: number, dy: number) => void) => {
     if (legendFormKey) {
@@ -750,7 +750,7 @@ export function drawMultigenePlotToPdfVector(
         const swX = dx + boxPad;
         const swY = centerY - swH * 0.5;
         const lowHex = "#000000";
-        const highHex = MULTIGENE_PALETTE_ACCENT[layer.paletteId] ?? "#ffff00";
+        const highHex = MULTI_FEATURE_PALETTE_ACCENT[layer.paletteId] ?? "#ffff00";
         const [r0, g0, b0] = hexToRgb(lowHex);
         const [r1, g1, b1] = hexToRgb(highHex);
         const steps = 12;

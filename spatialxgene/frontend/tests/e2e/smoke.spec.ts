@@ -60,14 +60,14 @@ test.describe("Spatialxgene core smoke flow", () => {
     await expect(geneSearch).toBeVisible();
   });
 
-  test("multi-gene mode and layouts do not throw", async ({ page }) => {
+  test("multi-feature mode and layouts do not throw", async ({ page }) => {
     await page.goto("/");
     await selectFirstDataset(page);
 
-    const multigeneTab = page.getByRole("button", { name: "Multi-gene", exact: true });
+    const multigeneTab = page.getByRole("button", { name: "Multi-feature", exact: true });
     await multigeneTab.click();
 
-    const multigeneInput = page.getByPlaceholder(/Search gene to add…/i).or(page.getByRole("textbox", { name: /Multi-gene/i }));
+    const multigeneInput = page.getByPlaceholder(/Search gene or metadata to add…/i).or(page.getByRole("textbox", { name: /Multi-feature/i }));
     await expect(multigeneInput).toBeVisible();
 
     await page.evaluate(() => {

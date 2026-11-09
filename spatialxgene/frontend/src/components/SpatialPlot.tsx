@@ -1,19 +1,19 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { getCategoricalColors, continuousToRgb, multigeneValueToHex, getPaletteGradientCss, getMultigenePaletteGradientCss } from "../colorScale";
+import { getCategoricalColors, continuousToRgb, multiFeatureValueToHex, getPaletteGradientCss, getMultiFeaturePaletteGradientCss } from "../colorScale";
 import { percentile } from "../utils/percentile";
 import { estimateSpotSpacingData, type EmbeddingMode, type PlotBounds } from "../utils/spotSizing";
 
-export type ColorMode = "categorical" | "continuous" | "coexpression" | "multigene" | "none";
+export type ColorMode = "categorical" | "continuous" | "dualFeature" | "multiFeature" | "none";
 
-/** One gene layer for multi-gene plot: expression values and palette (black–accent). */
-export type MultigeneLayer = {
+/** One gene layer for multi-feature plot: expression values and palette (black–accent). */
+export type MultiFeatureLayer = {
   name: string;
   values: number[];
   paletteId: string;
 };
 
 /** Multi-gene layout: pie chart (round spot) or grid of squares (square spot). */
-export type MultigeneLayout = "pie" | "grid";
+export type MultiFeatureLayout = "pie" | "grid";
 
 const PAD = 20;
 const isFirefox = typeof navigator !== "undefined" && /firefox/i.test(navigator.userAgent);
@@ -39,12 +39,12 @@ function formatExpr(v: number): string {
 }
 
 /** Per-spot segment for pie or grid: proportion (0..1) and fill color. */
-type MultigeneSegment = { proportion: number; color: string };
+type MultiFeatureSegment = { proportion: number; color: string };
 
-/** Built spot data for multi-gene: only spots with sum > 0; segments sorted by proportion desc. */
-type MultigeneSpotData = {
-  spots: Array<{ x: number; y: number; sum: number; segments: MultigeneSegment[] }>;
-  /** Per-layer (per-gene) min/max used for color scale (for color bar labels). */
+/** Built spot data for multi-feature: only spots with sum > 0; segments sorted by proportion desc. */
+type MultiFeatureSpotData = {
+  spots: Array<{ x: number; y: number; sum: number; segments: MultiFeatureSegment[] }>;
+  /** Per-layer (per-feature) min/max used for color scale (for color bar labels). */
   vminByLayer: number[];
   vmaxByLayer: number[];
 };
@@ -52,8 +52,8 @@ type MultigeneSpotData = {
 /** In grid layout, only draw cells for genes with at least this proportion (avoids black pixels for low expression). */
 const MIN_PROPORTION_GRID = 0.05;
 
-/** Parse range input for multi-gene: "p1" / "p99.5" → percentile; "0.5" → raw. Returns null if invalid. */
-function parseMultigeneRange(
+/** Parse range input for multi-feature: "p1" / "p99.5" → percentile; "0.5" → raw. Returns null if invalid. */
+function parseMultiFeatureRange(
   str: string
 ): { type: "percentile"; p: number } | { type: "raw"; value: number } | null {
   const s = str.trim().toLowerCase();
@@ -74,7 +74,7 @@ export const SPOT_SIZE_DEFAULT_SCALE = 0.7;
 export type SpatialPlotProps = {
   x: number[];
   y: number[];
-  colorBy: (string | number)[]; // string for categorical/coexpression (hex), number for expression (or placeholder when ColorMode = "none")
+  colorBy: (string | number)[]; // string for categorical/dualFeature (hex), number for expression (or placeholder when ColorMode = "none")
   colorMode: ColorMode;
   bounds: PlotBounds;
   /** Current coordinate space; spatial uses neighbor spacing, embeddings use axis-span normalization. */
@@ -112,24 +112,24 @@ export type SpatialPlotProps = {
   hoverGeneName?: string | null;
   /** For hover tooltip: expression values for current gene (aligned with x/y). */
   hoverGeneValues?: number[] | null;
-  /** For hover tooltip in coexpression mode: Gene1 name and values. */
-  hoverGene1Name?: string | null;
-  hoverGene1Values?: number[] | null;
-  hoverGene2Name?: string | null;
-  hoverGene2Values?: number[] | null;
-  /** Multi-gene mode: per-gene layers (name, values, paletteId). Each spot drawn as pie or grid. */
-  multigeneLayers?: MultigeneLayer[];
-  /** Log scale for multi-gene expression (default false). */
-  multigeneLogScale?: boolean;
+  /** For hover tooltip in dualFeature mode: Feature1 name and values. */
+  hoverFeature1Name?: string | null;
+  hoverFeature1Values?: number[] | null;
+  hoverFeature2Name?: string | null;
+  hoverFeature2Values?: number[] | null;
+  /** Multi-gene mode: per-feature layers (name, values, paletteId). Each spot drawn as pie or grid. */
+  multiFeatureLayers?: MultiFeatureLayer[];
+  /** Log scale for multi-feature expression (default false). */
+  multiFeatureLogScale?: boolean;
   /** Multi-gene layout: pie (round spot) or grid (square spot). */
-  multigeneLayout?: MultigeneLayout;
+  multiFeatureLayout?: MultiFeatureLayout;
   /** Multi-gene color range: min input (e.g. "p0", "p1", or raw number). */
-  multigeneRangeMinInput?: string;
+  multiFeatureRangeMinInput?: string;
   /** Multi-gene color range: max input (e.g. "p100", "p99.5", or raw number). */
-  multigeneRangeMaxInput?: string;
-  /** For hover in multigene mode: per-gene names and value arrays. */
-  hoverMultigeneNames?: string[] | null;
-  hoverMultigeneValues?: number[][] | null;
+  multiFeatureRangeMaxInput?: string;
+  /** For hover in multiFeature mode: per-feature names and value arrays. */
+  hoverMultiFeatureNames?: string[] | null;
+  hoverMultiFeatureValues?: number[][] | null;
   /** When set and colorMode is continuous, draw a color bar inside the plot with lo/mid/hi (per-sample in multi-dataset). */
   colorBarStats?: { lo: number; mid: number; hi: number } | null;
   /** Optional title for color bar (e.g. gene or numeric field name). */
@@ -137,6 +137,10 @@ export type SpatialPlotProps = {
   /** When set and colorMode is categorical, draw a legend inside the plot (label, color, spot count). */
   categoricalLegend?: { label: string; color: string; count?: number }[] | null;
   title?: string;
+  /** Show a panel-level Split button (before zoom controls). */
+  onSplitClick?: () => void;
+  /** Show a panel-level Merge button instead of Split (used by split-child panels). */
+  onMergeClick?: () => void;
 };
 
 export function SpatialPlot({
@@ -163,21 +167,23 @@ export function SpatialPlot({
   hoverAnnotationValues,
   hoverGeneName,
   hoverGeneValues,
-  hoverGene1Name,
-  hoverGene1Values,
-  hoverGene2Name,
-  hoverGene2Values,
-  multigeneLayers,
-  multigeneLogScale = false,
-  multigeneLayout = "pie",
-  multigeneRangeMinInput = "p0",
-  multigeneRangeMaxInput = "p100",
-  hoverMultigeneNames,
-  hoverMultigeneValues,
+  hoverFeature1Name,
+  hoverFeature1Values,
+  hoverFeature2Name,
+  hoverFeature2Values,
+  multiFeatureLayers,
+  multiFeatureLogScale = false,
+  multiFeatureLayout = "pie",
+  multiFeatureRangeMinInput = "p0",
+  multiFeatureRangeMaxInput = "p100",
+  hoverMultiFeatureNames,
+  hoverMultiFeatureValues,
   colorBarStats,
   colorBarTitle,
   categoricalLegend,
   title,
+  onSplitClick,
+  onMergeClick,
 }: SpatialPlotProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -198,18 +204,18 @@ export function SpatialPlot({
   const dragStateRef = useRef<typeof drag>(null);
   dragStateRef.current = drag;
 
-  const multigeneSpotData = React.useMemo((): MultigeneSpotData | null => {
-    if (colorMode !== "multigene" || !multigeneLayers?.length || x.length === 0 || y.length !== x.length) {
+  const multiFeatureSpotData = React.useMemo((): MultiFeatureSpotData | null => {
+    if (colorMode !== "multiFeature" || !multiFeatureLayers?.length || x.length === 0 || y.length !== x.length) {
       return null;
     }
     const n = x.length;
-    const K = multigeneLayers.length;
+    const K = multiFeatureLayers.length;
     const vminByLayer: number[] = [];
     const vmaxByLayer: number[] = [];
-    const minParsed = parseMultigeneRange(multigeneRangeMinInput);
-    const maxParsed = parseMultigeneRange(multigeneRangeMaxInput);
+    const minParsed = parseMultiFeatureRange(multiFeatureRangeMinInput);
+    const maxParsed = parseMultiFeatureRange(multiFeatureRangeMaxInput);
     for (let g = 0; g < K; g++) {
-      const vals = multigeneLayers[g].values;
+      const vals = multiFeatureLayers[g].values;
       let vmin: number;
       let vmax: number;
       if (minParsed?.type === "percentile" && maxParsed?.type === "percentile") {
@@ -235,27 +241,27 @@ export function SpatialPlot({
       vminByLayer.push(vmin);
       vmaxByLayer.push(vmax);
     }
-    const spots: MultigeneSpotData["spots"] = [];
+    const spots: MultiFeatureSpotData["spots"] = [];
     for (let i = 0; i < n; i++) {
       let sum = 0;
       const expr: number[] = [];
       for (let g = 0; g < K; g++) {
-        const raw = multigeneLayers[g].values[i];
+        const raw = multiFeatureLayers[g].values[i];
         const v = Number.isFinite(raw) ? Math.max(0, raw as number) : 0;
-        const e = multigeneLogScale ? Math.log1p(v) : v;
+        const e = multiFeatureLogScale ? Math.log1p(v) : v;
         expr.push(e);
         sum += e;
       }
       if (!Number.isFinite(sum) || sum <= 0) continue;
-      const segments: MultigeneSegment[] = [];
+      const segments: MultiFeatureSegment[] = [];
       for (let g = 0; g < K; g++) {
         const proportion = expr[g] / sum;
-        const color = multigeneValueToHex(
-          multigeneLayers[g].values[i] ?? 0,
+        const color = multiFeatureValueToHex(
+          multiFeatureLayers[g].values[i] ?? 0,
           vminByLayer[g],
           vmaxByLayer[g],
-          multigeneLayers[g].paletteId,
-          multigeneLogScale
+          multiFeatureLayers[g].paletteId,
+          multiFeatureLogScale
         );
         segments.push({ proportion, color });
       }
@@ -263,7 +269,7 @@ export function SpatialPlot({
       spots.push({ x: x[i], y: y[i], sum, segments });
     }
     return { spots, vminByLayer: vminByLayer, vmaxByLayer: vmaxByLayer };
-  }, [colorMode, multigeneLayers, x, y, multigeneLogScale, multigeneRangeMinInput, multigeneRangeMaxInput]);
+  }, [colorMode, multiFeatureLayers, x, y, multiFeatureLogScale, multiFeatureRangeMinInput, multiFeatureRangeMaxInput]);
 
   useEffect(() => {
     if (!backgroundImageUrl) {
@@ -421,12 +427,12 @@ export function SpatialPlot({
       step = Math.max(1, Math.floor(base * zoomFactor));
     }
 
-    if (colorMode === "multigene" && multigeneSpotData) {
-      const spots = multigeneSpotData.spots;
+    if (colorMode === "multiFeature" && multiFeatureSpotData) {
+      const spots = multiFeatureSpotData.spots;
       const len = spots.length;
-      const stepMultigene = len <= MAX_DRAW_POINTS ? 1 : Math.max(1, Math.floor(len / MAX_DRAW_POINTS));
+      const stepMultiFeature = len <= MAX_DRAW_POINTS ? 1 : Math.max(1, Math.floor(len / MAX_DRAW_POINTS));
       const startAngle0 = -Math.PI / 2;
-      if (multigeneLayout === "grid") {
+      if (multiFeatureLayout === "grid") {
         let maxK = 0;
         for (let k = 0; k < len; k++) {
           const visible = spots[k].segments.filter((s) => s.proportion >= MIN_PROPORTION_GRID);
@@ -441,7 +447,7 @@ export function SpatialPlot({
             : maxK === 1
               ? spotSide * 0.5
               : 2 * radiusPolygon * Math.sin(Math.PI / maxK) * 1.1;
-        for (let k = 0; k < len; k += stepMultigene) {
+        for (let k = 0; k < len; k += stepMultiFeature) {
           const { x: cx, y: cy, segments } = spots[k];
           if (cx < clipXMin || cx > clipXMax || cy < clipYMin || cy > clipYMax) continue;
           const visible = segments.filter((s) => s.proportion >= MIN_PROPORTION_GRID);
@@ -469,7 +475,7 @@ export function SpatialPlot({
           ctx.restore();
         }
       } else {
-        for (let k = 0; k < len; k += stepMultigene) {
+        for (let k = 0; k < len; k += stepMultiFeature) {
           const { x: cx, y: cy, segments } = spots[k];
           if (cx < clipXMin || cx > clipXMax || cy < clipYMin || cy > clipYMax) continue;
           let angle = startAngle0;
@@ -507,7 +513,7 @@ export function SpatialPlot({
         const raw = colorBy[idx] as number;
         return !Number.isFinite(raw);
       }
-      if (colorMode === "coexpression") {
+      if (colorMode === "dualFeature") {
         const hex = colorBy[idx];
         return typeof hex !== "string" || !/^#[0-9a-f]{6}$/i.test(hex);
       }
@@ -542,7 +548,7 @@ export function SpatialPlot({
           const v = logScale ? Math.log1p(Math.max(0, raw)) : raw;
           [r, g, b] = continuousToRgb(v, vmin, vmax, continuousPalette, continuousPaletteReverse);
         }
-      } else if (colorMode === "coexpression") {
+      } else if (colorMode === "dualFeature") {
         const hex = (colorBy[i] as string) ?? "#888888";
         const m = hex.match(/#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})/i);
         r = m ? parseInt(m[1], 16) : 136;
@@ -597,10 +603,10 @@ export function SpatialPlot({
     backgroundImageBounds,
     backgroundOpacity,
     logScale,
-    multigeneLayers,
-    multigeneLogScale,
-    multigeneSpotData,
-    multigeneLayout,
+    multiFeatureLayers,
+    multiFeatureLogScale,
+    multiFeatureSpotData,
+    multiFeatureLayout,
   ]);
 
   useEffect(() => draw(), [draw]);
@@ -741,22 +747,22 @@ export function SpatialPlot({
         } else if (colorMode === "continuous" && hoverGeneName && hoverGeneValues) {
           const v = hoverGeneValues[bestIdx];
           lines.push(`${hoverGeneName}: ${formatExpr(Number(v))}`);
-        } else if (colorMode === "coexpression" && hoverGene1Name && hoverGene1Values && hoverGene2Name && hoverGene2Values) {
-          const v1 = hoverGene1Values[bestIdx];
-          const v2 = hoverGene2Values[bestIdx];
-          lines.push(`${hoverGene1Name}: ${formatExpr(Number(v1))}`);
-          lines.push(`${hoverGene2Name}: ${formatExpr(Number(v2))}`);
-        } else if (colorMode === "multigene" && hoverMultigeneNames && hoverMultigeneValues) {
-          for (let g = 0; g < hoverMultigeneNames.length && g < hoverMultigeneValues.length; g++) {
-            const vals = hoverMultigeneValues[g];
+        } else if (colorMode === "dualFeature" && hoverFeature1Name && hoverFeature1Values && hoverFeature2Name && hoverFeature2Values) {
+          const v1 = hoverFeature1Values[bestIdx];
+          const v2 = hoverFeature2Values[bestIdx];
+          lines.push(`${hoverFeature1Name}: ${formatExpr(Number(v1))}`);
+          lines.push(`${hoverFeature2Name}: ${formatExpr(Number(v2))}`);
+        } else if (colorMode === "multiFeature" && hoverMultiFeatureNames && hoverMultiFeatureValues) {
+          for (let g = 0; g < hoverMultiFeatureNames.length && g < hoverMultiFeatureValues.length; g++) {
+            const vals = hoverMultiFeatureValues[g];
             const v = vals && bestIdx < vals.length ? vals[bestIdx] : null;
-            lines.push(`${hoverMultigeneNames[g]}: ${formatExpr(Number(v))}`);
+            lines.push(`${hoverMultiFeatureNames[g]}: ${formatExpr(Number(v))}`);
           }
         }
         setHover({ screenX: mx2 + 10, screenY: my2 + 10, lines });
       });
     },
-    [bounds, x, y, spacing, spotSizeScale, colorMode, hoverAnnotationName, hoverAnnotationValues, hoverGeneName, hoverGeneValues, hoverGene1Name, hoverGene1Values, hoverGene2Name, hoverGene2Values, hoverMultigeneNames, hoverMultigeneValues, drag]
+    [bounds, x, y, spacing, spotSizeScale, colorMode, hoverAnnotationName, hoverAnnotationValues, hoverGeneName, hoverGeneValues, hoverFeature1Name, hoverFeature1Values, hoverFeature2Name, hoverFeature2Values, hoverMultiFeatureNames, hoverMultiFeatureValues, drag]
   );
 
   const onMouseUp = useCallback(() => {
@@ -848,6 +854,42 @@ export function SpatialPlot({
             {title}
           </div>
           <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
+            {onSplitClick && (
+              <button
+                type="button"
+                onClick={onSplitClick}
+                style={{
+                  padding: "2px 8px",
+                  borderRadius: 4,
+                  border: "1px solid var(--sidebar-border)",
+                  background: "var(--bg-main)",
+                  color: "#eee",
+                  fontSize: 12,
+                  cursor: "pointer",
+                }}
+                title="Split this panel by an obs key"
+              >
+                Split
+              </button>
+            )}
+            {onMergeClick && (
+              <button
+                type="button"
+                onClick={onMergeClick}
+                style={{
+                  padding: "2px 8px",
+                  borderRadius: 4,
+                  border: "1px solid var(--sidebar-border)",
+                  background: "var(--accent)",
+                  color: "#fff",
+                  fontSize: 12,
+                  cursor: "pointer",
+                }}
+                title="Merge split panels back into one panel"
+              >
+                Merge
+              </button>
+            )}
             <button
               type="button"
               onClick={() => handleZoomButton(1 / 1.2)}
@@ -1055,7 +1097,7 @@ export function SpatialPlot({
             ))}
           </div>
         )}
-        {colorMode === "multigene" && multigeneSpotData && multigeneLayers && multigeneLayers.length > 0 && (
+        {colorMode === "multiFeature" && multiFeatureSpotData && multiFeatureLayers && multiFeatureLayers.length > 0 && (
           <div
             style={{
               position: "absolute",
@@ -1074,20 +1116,20 @@ export function SpatialPlot({
               lineHeight: 1.2,
             }}
           >
-            {multigeneLayers.map((layer, g) => (
+            {multiFeatureLayers.map((layer, g) => (
               <div key={layer.name} style={{ display: "flex", alignItems: "center", gap: 6 }}>
                 <div
                   style={{
                     width: 32,
                     height: 6,
                     borderRadius: 1,
-                    background: getMultigenePaletteGradientCss(layer.paletteId),
+                    background: getMultiFeaturePaletteGradientCss(layer.paletteId),
                     border: "1px solid #333",
                     flexShrink: 0,
                   }}
                 />
                 <span style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: 120 }}>
-                  {layer.name} {formatExpr(multigeneSpotData.vminByLayer[g])}–{formatExpr(multigeneSpotData.vmaxByLayer[g])}
+                  {layer.name} {formatExpr(multiFeatureSpotData.vminByLayer[g])}–{formatExpr(multiFeatureSpotData.vmaxByLayer[g])}
                 </span>
               </div>
             ))}

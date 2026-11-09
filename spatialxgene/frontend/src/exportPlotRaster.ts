@@ -1,8 +1,8 @@
 import type { jsPDF } from "jspdf";
-import { MULTIGENE_PALETTE_ACCENT, continuousToRgb } from "./colorScale";
+import { MULTI_FEATURE_PALETTE_ACCENT, continuousToRgb } from "./colorScale";
 import type {
-  MultigeneLegendLayer,
-  MultigeneVectorExportOptions,
+  MultiFeatureLegendLayer,
+  MultiFeatureVectorExportOptions,
   VectorExportLegendEntry,
   VectorExportOptions,
 } from "./exportPlotVector";
@@ -252,10 +252,10 @@ function drawScatterLegendLayer(
   });
 }
 
-function drawMultigeneLegendLayer(
+function drawMultiFeatureLegendLayer(
   pdf: jsPDF,
   legend: VectorExportLegendEntry[],
-  legendLayers: MultigeneLegendLayer[] | undefined,
+  legendLayers: MultiFeatureLegendLayer[] | undefined,
   plotArea: { x: number; y: number; w: number; h: number },
   panelRect?: { x: number; y: number; w: number; h: number },
   legendFormKey?: string,
@@ -303,7 +303,7 @@ function drawMultigeneLegendLayer(
         const swX = dx + boxPad;
         const swY = centerY - swH * 0.5;
         const [r0, g0, b0] = hexToRgb("#000000");
-        const [r1, g1, b1] = hexToRgb(MULTIGENE_PALETTE_ACCENT[layer.paletteId] ?? "#ffff00");
+        const [r1, g1, b1] = hexToRgb(MULTI_FEATURE_PALETTE_ACCENT[layer.paletteId] ?? "#ffff00");
         const steps = 12;
         for (let s = 0; s < steps; s++) {
           const t = steps <= 1 ? 1 : s / (steps - 1);
@@ -405,8 +405,8 @@ function renderScatterMarksToDataUrl(
   return canvas.toDataURL("image/png");
 }
 
-function renderMultigeneMarksToDataUrl(
-  options: MultigeneVectorExportOptions,
+function renderMultiFeatureMarksToDataUrl(
+  options: MultiFeatureVectorExportOptions,
   pageRect: { x: number; y: number; w: number; h: number },
   dpi: number
 ) {
@@ -541,9 +541,9 @@ export function drawPlotToPdfRasterized(
   );
 }
 
-export function drawMultigenePlotToPdfRasterized(
+export function drawMultiFeaturePlotToPdfRasterized(
   pdf: jsPDF,
-  options: MultigeneVectorExportOptions,
+  options: MultiFeatureVectorExportOptions,
   pageRect: { x: number; y: number; w: number; h: number },
   gStateClass?: GStateConstructor,
   dpi = 300,
@@ -567,9 +567,9 @@ export function drawMultigenePlotToPdfRasterized(
     pdf.text("No data", pageRect.x + pageRect.w / 2 - 8, pageRect.y + pageRect.h / 2);
     return;
   }
-  const marksDataUrl = renderMultigeneMarksToDataUrl(options, pageRect, dpi);
+  const marksDataUrl = renderMultiFeatureMarksToDataUrl(options, pageRect, dpi);
   if (marksDataUrl) {
     pdf.addImage(marksDataUrl, "PNG", pageRect.x, pageRect.y, pageRect.w, pageRect.h);
   }
-  drawMultigeneLegendLayer(pdf, legend, legendLayers, pageRect, panelRect, legendFormKey, pageHeightMm);
+  drawMultiFeatureLegendLayer(pdf, legend, legendLayers, pageRect, panelRect, legendFormKey, pageHeightMm);
 }

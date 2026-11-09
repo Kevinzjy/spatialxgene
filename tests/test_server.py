@@ -5,9 +5,13 @@ from pathlib import Path
 
 import numpy as np
 import pytest
+import anndata as ad
+import pandas as pd
 from fastapi.testclient import TestClient
 
 from spatialxgene.server.main import (
+    _check_viewable_h5,
+    _has_spatial,
     _get_plot_coordinates,
     app,
     set_data_dir,
@@ -102,3 +106,37 @@ class TestGetPlotCoordinates:
     def test_raises_when_no_coords(self, minimal_adata_no_coords):
         with pytest.raises(ValueError, match="No spatial coordinates or UMAP"):
             _get_plot_coordinates(minimal_adata_no_coords)
+
+    @pytest.mark.parametrize(
+        "x_key,y_key",
+        [("x", "y"), ("center_x", "center_y"), ("Cx", "Cy")],
+    )
+    def test_returns_spatial_from_obs_fallback_pairs(self, x_key, y_key):
+        obs = pd.DataFrame(
+            {x_key: [2.0, 4.0], y_key: [3.0, 5.0]},
+            index=["c0", "c1"],
+        )
+        adata = ad.AnnData(
+            np.ones((2, 1), dtype=np.float32),
+            obs=obs,
+            var=pd.DataFrame(index=["g1"]),
+        )
+        assert _has_spatial(adata) is True
+        x, y, layout = _get_plot_coordinates(adata)
+        assert layout == "spatial"
+        np.testing.assert_array_almost_equal(x, [2.0, 4.0])
+        np.testing.assert_array_almost_equal(y, [3.0, 5.0])
+
+    def test_viewability_check_supports_cx_cy_fallback(self, tmp_path):
+        obs = pd.DataFrame(
+            {"Cx": [1.0, 2.0], "Cy": [3.0, 4.0]},
+            index=["c0", "c1"],
+        )
+        adata = ad.AnnData(
+            np.ones((2, 1), dtype=np.float32),
+            obs=obs,
+            var=pd.DataFrame(index=["g1"]),
+        )
+        path = tmp_path / "morphology.h5ad"
+        adata.write_h5ad(path)
+        assert _check_viewable_h5(path)[0] is True

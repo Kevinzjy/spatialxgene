@@ -1,6 +1,6 @@
 # Spatialxgene
 
-**v0.2.6** — 基于浏览器的空间转录组可视化分析与预处理工具（cellxgene 风格）。启动查看器以探索空间图谱（支持缩放/平移，按 **注释 (Annotation)**、**基因 (Gene)**、**共表达 (Co-expression)** 或 **多基因 (Multi-gene)** 着色；可选组织背景图；支持从 `X` 或 `adata.layers` 读取表达值），或对原始 h5ad 进行 **预处理 (preprocess)**。支持通过 **visium2h5ad** 将 **Visium** Space Ranger 输出转换为 h5ad，或通过 **seurat2h5ad** 将 **Seurat RDS** 转换为 h5ad。
+**v0.2.6** — 基于浏览器的空间转录组可视化分析与预处理工具（cellxgene 风格）。启动查看器以探索空间图谱（支持缩放/平移，按 **注释 (Annotation)**、**基因 (Gene)**、**双特征 (Dual Feature)** 或 **多特征 (Multi-Feature)** 着色；可选组织背景图；特征可以是基因，也可以是 `obs` 数值元数据；基因支持从 `X` 或 `adata.layers` 读取表达值），或对原始 h5ad 进行 **预处理 (preprocess)**。支持通过 **visium2h5ad** 将 **Visium** Space Ranger 输出转换为 h5ad，或通过 **seurat2h5ad** 将 **Seurat RDS** 转换为 h5ad。
 
 ## 环境要求
 
@@ -56,13 +56,14 @@ pixi global install --path .
    ### 基础操作
    *   **数据加载**：默认扫描 `./tests/h5ad` 及其子目录下的所有 `.h5ad` 文件。支持**增量加载**（切换数据集时仅加载新增项）和后端 **LRU 缓存**（默认缓存 16 个数据集）。
    *   **多样本对比**：在侧边栏选中多个数据集后，主界面将自动切换为**对比网格**。你可以通过**拖拽排序**侧边栏的已选列表来调整显示顺序。
+   *   **Panel Split / Merge**：每个样本 panel 标题栏的 **− / + / Reset** 左侧有 **Split** 按钮。点击后可选择一个 `obs` key（推荐 2–200 个分组），panel 会按该 key 拆成多个虚拟子 panel 并自动改名；拆分后的子 panel 提供 **Merge** 按钮，可随时恢复为原始 merged panel。不会写出额外的 h5ad 文件。
    *   **显示调节**：支持调节 **Spot Size**（20%–300%）。Spatial 坐标使用邻近 spot 间距估算默认大小；UMAP/PCA/tSNE 等 embedding 坐标按 `max(xRange, yRange) / sqrt(n_spots)` 自适应归一化，默认值较保守，便于在多样本和导出 PDF 中保持一致。
 
    ### 可视化模式
    *   **Annotation (注释)**：按细胞类型或聚类着色。图例显示单样本内的类别计数。
    *   **Gene (基因)**：支持从 `X` 或 `layers` 读取数据，支持颜色范围调节 (pmin/pmax) 与 Log 缩放。
-   *   **Co-expression (共表达)**：选择两个基因，使用 2D 调色板展示它们的空间分布。
-   *   **Multi-gene (多基因)**：单点展示多个基因。支持 **Pie (饼图)** 或 **Grid (网格)** 布局。每个样本右下角带有独立的颜色指示条。
+   *   **Dual Feature (双特征)**：选择两个数值特征（基因或 `obs` 元数据列），使用 2D 调色板展示它们的空间关系。基因可从 `X` 或 `layers` 读取；元数据直接来自 `obs`。
+   *   **Multi-Feature (多特征)**：单点展示多个数值特征（基因或 `obs` 元数据列）。支持 **Pie (饼图)** 或 **Grid (网格)** 布局。每个样本右下角带有独立的颜色指示条。
 
    ### 结果导出 (Export PDF)
    *   **导出菜单**：点击顶部工具栏的 **Export PDF** 可选择 `Raw PDF`、`Rasterized PDF (300dpi)`、`Rasterized PDF (600dpi)` 或 `Rasterized PDF (1200dpi)`。

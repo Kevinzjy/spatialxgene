@@ -20,12 +20,12 @@ export type LoadedDataset = {
 };
 import {
   DEFAULT_CONTINUOUS_PALETTE,
-  DEFAULT_COEXPRESSION_PALETTE,
-  coexpressionToHex,
+  DEFAULT_DUAL_FEATURE_PALETTE,
+  dualFeatureToHex,
   continuousToRgb,
   rgbToHex,
-  multigeneValueToHex,
-  type CoexpressionPalette,
+  multiFeatureValueToHex,
+  type DualFeaturePalette,
   ANNOTATION_MAX_CATEGORIES,
   ANNOTATION_MIN_CATEGORIES,
   LABEL_NAN_TOO_MANY,
@@ -33,15 +33,20 @@ import {
   getCategoricalColors,
 } from "./colorScale";
 import type {
-  MultigeneSegment,
-  MultigeneVectorExportOptions,
+  MultiFeatureSegment,
+  MultiFeatureVectorExportOptions,
   VectorExportLegendEntry,
   VectorExportOptions,
 } from "./exportPlotVector";
 import type { jsPDF } from "jspdf";
 import { setDebugMode, debugLog } from "./debug";
 import { percentile } from "./utils/percentile";
-import { Sidebar, type MultigeneGeneEntry } from "./components/Sidebar";
+import {
+  featureLabel,
+  parseFeatureId,
+  type FeatureRef,
+} from "./features";
+import { Sidebar, type MultiFeatureEntry } from "./components/Sidebar";
 
 type SaveFilePickerWritable = {
   write(data: Blob): Promise<void>;
@@ -108,6 +113,151 @@ async function savePdfToTarget(pdf: jsPDF, target: PdfSaveTarget): Promise<void>
   await writable.close();
 }
 
+/** Convert an obs value array to numeric values; non-finite entries become NaN. */
+function obsValuesToNumbers(values: Array<string | number> | undefined, length?: number): number[] {
+  const out = (values ?? []).map((value) => {
+    const num = typeof value === "number" ? value : Number(value);
+    return Number.isFinite(num) ? num : NaN;
+  });
+  if (length != null && out.length < length) {
+    while (out.length < length) out.push(NaN);
+  }
+  return out;
+}
+
+/** A panel split remembers the selected obs key and the virtual child ids rendered from one parent dataset. */
+type SplitDefinition = {
+  key: string;
+  values: string[];
+  childrenIds: string[];
+};
+const SPLIT_ID_SEPARATOR = "@@split:";
+
+function makeSplitChildId(parentId: string, key: string, value: string): string {
+  return `${parentId}${SPLIT_ID_SEPARATOR}${encodeURIComponent(key)}=${encodeURIComponent(value)}`;
+}
+
+function parseSplitChildId(childId: string): { parentId: string; key: string; value: string } | null {
+  const separatorIndex = childId.indexOf(SPLIT_ID_SEPARATOR);
+  if (separatorIndex < 0) return null;
+  const parentId = childId.slice(0, separatorIndex);
+  const packed = childId.slice(separatorIndex + SPLIT_ID_SEPARATOR.length);
+  const equalsIndex = packed.indexOf("=");
+  if (equalsIndex < 0) return null;
+  try {
+    return {
+      parentId,
+      key: decodeURIComponent(packed.slice(0, equalsIndex)),
+      value: decodeURIComponent(packed.slice(equalsIndex + 1)),
+    };
+  } catch {
+    return null;
+  }
+}
+
+/** Map a parent-array index set onto one virtual split child. */
+function sliceValuesForSplitChild(
+  parent: LoadedDataset,
+  childId: string,
+  values: number[] | null | undefined
+): number[] | null {
+  if (!values) return null;
+  const parsed = parseSplitChildId(childId);
+  if (!parsed || parsed.parentId !== parent.meta.id) return null;
+  const parentValues = parent.obs.data[parsed.key];
+  if (!parentValues) return null;
+  const indices: number[] = [];
+  for (let i = 0; i < parentValues.length; i++) {
+    if (String(parentValues[i] ?? "nan") === parsed.value) indices.push(i);
+  }
+  return indices.map((i) => (i < values.length ? values[i] : NaN));
+}
+
+/** Only offer obs keys with a practical number of groups for a panel split. */
+function getSplitCandidates(parent: LoadedDataset): Array<{ key: string; count: number }> {
+  return parent.obs.columns
+    .map((key) => {
+      const values = parent.obs.data[key] ?? [];
+      return { key, count: new Set(values.map(String)).size };
+    })
+    .filter((candidate) => candidate.count >= 2 && candidate.count <= 200)
+    .sort((a, b) => {
+      const preferred = ["sample", "sample_id", "library_id", "orig.ident", "batch", "dataset", "slice"];
+      const ai = preferred.indexOf(a.key);
+      const bi = preferred.indexOf(b.key);
+      if (ai >= 0 || bi >= 0) return (ai < 0 ? 999 : ai) - (bi < 0 ? 999 : bi);
+      if (a.count !== b.count) return a.count - b.count;
+      return a.key.localeCompare(b.key);
+    });
+}
+
+function createSplitDefinition(parent: LoadedDataset, key: string): SplitDefinition | null {
+  const values = parent.obs.data[key];
+  if (!values?.length) return null;
+  const unique = Array.from(new Set(values.map((value) => String(value ?? "nan")))).sort((a, b) => {
+    const na = Number(a);
+    const nb = Number(b);
+    if (Number.isFinite(na) && Number.isFinite(nb) && String(na) === a && String(nb) === b) return na - nb;
+    return a.localeCompare(b, undefined, { numeric: true });
+  });
+  if (unique.length < 2 || unique.length > 200) return null;
+  return {
+    key,
+    values: unique,
+    childrenIds: unique.map((value) => makeSplitChildId(parent.meta.id, key, value)),
+  };
+}
+
+function buildSplitDatasets(parent: LoadedDataset, split: SplitDefinition): Record<string, LoadedDataset> {
+  const values = parent.obs.data[split.key] ?? [];
+  const valueSet = new Map<string, number[]>();
+  split.values.forEach((value) => valueSet.set(value, []));
+  for (let i = 0; i < values.length; i++) {
+    const value = String(values[i] ?? "nan");
+    valueSet.get(value)?.push(i);
+  }
+
+  const next: Record<string, LoadedDataset> = {};
+  for (const value of split.values) {
+    const indices = valueSet.get(value) ?? [];
+    const childId = makeSplitChildId(parent.meta.id, split.key, value);
+    const spatial = {
+      x: indices.map((i) => parent.spatial.x[i]),
+      y: indices.map((i) => parent.spatial.y[i]),
+    };
+    let xMin = spatial.x[0] ?? 0;
+    let xMax = spatial.x[0] ?? 1;
+    let yMin = spatial.y[0] ?? 0;
+    let yMax = spatial.y[0] ?? 1;
+    for (let i = 1; i < spatial.x.length; i++) {
+      if (spatial.x[i] < xMin) xMin = spatial.x[i];
+      if (spatial.x[i] > xMax) xMax = spatial.x[i];
+      if (spatial.y[i] < yMin) yMin = spatial.y[i];
+      if (spatial.y[i] > yMax) yMax = spatial.y[i];
+    }
+    const obsData: ObsResponse["data"] = {};
+    for (const column of parent.obs.columns) {
+      obsData[column] = indices.map((i) => parent.obs.data[column]?.[i] ?? "nan");
+    }
+    next[childId] = {
+      meta: {
+        ...parent.meta,
+        id: childId,
+        name: `${parent.meta.name} / ${value}`,
+        n_obs: indices.length,
+        x_min: xMin,
+        x_max: xMax,
+        y_min: yMin,
+        y_max: yMax,
+      },
+      spatial,
+      obs: { columns: parent.obs.columns, data: obsData },
+      genes: parent.genes,
+    };
+  }
+  return next;
+}
+
 /** Multi-sample grid: minimum width/height per cell so each sample gets at least this much space. */
 const MULTIPLOT_MIN_CELL_WIDTH_PX = 220;
 const MULTIPLOT_MIN_CELL_HEIGHT_PX = 200;
@@ -140,8 +290,8 @@ function loadImageAsDataUrl(url: string): Promise<string | null> {
   });
 }
 
-/** Parse multi-gene range input: "p1"/"p99.5" → percentile; "0.5" → raw. Returns null if invalid. */
-function parseMultigeneRange(
+/** Parse multi-feature range input: "p1"/"p99.5" → percentile; "0.5" → raw. Returns null if invalid. */
+function parseMultiFeatureRange(
   str: string
 ): { type: "percentile"; p: number } | { type: "raw"; value: number } | null {
   const s = str.trim().toLowerCase();
@@ -203,7 +353,7 @@ function colorByToHex(
   if (mode === "categorical" && options.catMap) {
     return colorBy.map((l) => options.catMap!.get(String(l)) ?? "#888888");
   }
-  if (mode === "coexpression") {
+  if (mode === "dualFeature") {
     return colorBy as string[];
   }
   if (mode === "continuous" && options.colorMin != null && options.colorMax != null) {
@@ -230,7 +380,7 @@ type PdfExportRequest =
 
 type PlotTask =
   | { type: "scatter"; options: VectorExportOptions }
-  | { type: "multigene"; options: MultigeneVectorExportOptions };
+  | { type: "multiFeature"; options: MultiFeatureVectorExportOptions };
 
 export default function App() {
   const [datasets, setDatasets] = useState<DatasetItem[]>([]);
@@ -238,27 +388,42 @@ export default function App() {
   const [selectedDatasetIds, setSelectedDatasetIds] = useState<string[]>([]);
   /** Cache of loaded dataset data (meta, spatial, obs, genes) keyed by dataset id. */
   const [datasetCache, setDatasetCache] = useState<Record<string, LoadedDataset>>({});
-  /** Primary slot: first selected id. Used for sidebar meta display and embedding/layer. */
-  const primaryId = selectedDatasetIds[0] ?? null;
+  /** Per-parent panel split. Virtual child datasets are generated locally from the already loaded parent. */
+  const [splitByDataset, setSplitByDataset] = useState<Record<string, SplitDefinition>>({});
+  /** IDs actually shown in panels: normally selectedDatasetIds, or split children after a panel split. */
+  const activeDatasetIds = useMemo(
+    () => selectedDatasetIds.flatMap((id) => splitByDataset[id]?.childrenIds ?? [id]),
+    [selectedDatasetIds, splitByDataset]
+  );
+  /** Virtual child id -> original selected dataset id (used for background image requests and Merge). */
+  const splitParentByChildId = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const [parentId, split] of Object.entries(splitByDataset)) {
+      split.childrenIds.forEach((childId) => map.set(childId, parentId));
+    }
+    return map;
+  }, [splitByDataset]);
+  /** Primary slot: first displayed id. Used for sidebar meta display and embedding/layer. */
+  const primaryId = activeDatasetIds[0] ?? null;
   const meta = primaryId ? datasetCache[primaryId]?.meta ?? null : null;
   const spatial = primaryId ? datasetCache[primaryId]?.spatial ?? null : null;
   const obs = primaryId ? datasetCache[primaryId]?.obs ?? null : null;
   /** Union of all genes from all selected datasets (for multi-dataset: user can pick any gene; missing in a sample → NaN). */
   const genes = useMemo(() => {
-    if (selectedDatasetIds.length === 0) return [];
     const set = new Set<string>();
-    for (const id of selectedDatasetIds) {
+    if (activeDatasetIds.length === 0) return [];
+    for (const id of activeDatasetIds) {
       const gs = datasetCache[id]?.genes ?? [];
       gs.forEach((g) => set.add(g));
     }
     return Array.from(set).sort((a, b) => a.localeCompare(b));
-  }, [selectedDatasetIds, datasetCache]);
+  }, [activeDatasetIds, datasetCache]);
 
   /** Union of all obs columns from all selected datasets (for multi-dataset: same annotation key across samples). */
   const obsColumns = useMemo(() => {
-    if (selectedDatasetIds.length === 0) return [];
+    if (activeDatasetIds.length === 0) return [];
     const set = new Set<string>();
-    for (const id of selectedDatasetIds) {
+    for (const id of activeDatasetIds) {
       const cols = datasetCache[id]?.obs?.columns ?? [];
       cols.forEach((c) => set.add(c));
     }
@@ -266,32 +431,53 @@ export default function App() {
     const rest = Array.from(set).filter((c) => !clusterFirst.includes(c));
     const first = clusterFirst.filter((c) => set.has(c));
     return [...first, ...rest.sort((a, b) => a.localeCompare(b))];
-  }, [selectedDatasetIds, datasetCache]);
+  }, [activeDatasetIds, datasetCache]);
+  /** Obs columns that are usable as numeric overlays in dual/multi-feature modes. */
+  const numericObsColumns = useMemo(() => {
+    if (activeDatasetIds.length === 0) return [];
+    const candidates = new Set<string>();
+    for (const id of activeDatasetIds) {
+      (datasetCache[id]?.obs?.columns ?? []).forEach((column) => {
+        if (obsColumns.includes(column)) candidates.add(column);
+      });
+    }
+    return Array.from(candidates)
+      .filter((column) =>
+        activeDatasetIds.every((id) => {
+          const values = datasetCache[id]?.obs?.data[column];
+          return values?.length > 0 && values.every((value) => {
+            const num = typeof value === "number" ? value : Number(value);
+            return Number.isFinite(num);
+          });
+        })
+      )
+      .sort((a, b) => a.localeCompare(b));
+  }, [activeDatasetIds, datasetCache, obsColumns]);
   /** Expression per dataset (gene mode). Key = dataset id. */
   const [expressionByDataset, setExpressionByDataset] = useState<Record<string, number[]>>({});
   /** Backward compat: single-dataset expression for code paths that still expect one array. */
-  const expression = primaryId && selectedDatasetIds.length === 1 ? expressionByDataset[primaryId] ?? null : null;
-  const [colorMode, setColorMode] = useState<"gene" | "annotation" | "coexpression" | "multigene">("annotation");
+  const expression = primaryId && activeDatasetIds.length === 1 ? expressionByDataset[primaryId] ?? null : null;
+  const [colorMode, setColorMode] = useState<"gene" | "annotation" | "dualFeature" | "multiFeature">("annotation");
   const [selectedGene, setSelectedGene] = useState<string | null>(null);
-  const [selectedGene1, setSelectedGene1] = useState<string | null>(null);
-  const [selectedGene2, setSelectedGene2] = useState<string | null>(null);
+  const [selectedFeature1, setSelectedFeature1] = useState<string | null>(null);
+  const [selectedFeature2, setSelectedFeature2] = useState<string | null>(null);
   const [expression1, setExpression1] = useState<number[] | null>(null);
   const [expression2, setExpression2] = useState<number[] | null>(null);
-  /** Co-expression gene1 expression per dataset (for multi-sample view). */
+  /** Dual Feature first feature values per dataset (for multi-sample view). */
   const [expression1ByDataset, setExpression1ByDataset] = useState<Record<string, number[]>>({});
-  /** Co-expression gene2 expression per dataset (for multi-sample view). */
+  /** Dual Feature second feature values per dataset (for multi-sample view). */
   const [expression2ByDataset, setExpression2ByDataset] = useState<Record<string, number[]>>({});
-  const [coexpressionPalette, setCoexpressionPalette] = useState<CoexpressionPalette>(DEFAULT_COEXPRESSION_PALETTE);
-  const [coexpressionLogScale, setCoexpressionLogScale] = useState(false);
-  const [selectedMultigeneGenes, setSelectedMultigeneGenes] = useState<MultigeneGeneEntry[]>([]);
-  const [multigeneLogScale, setMultigeneLogScale] = useState(false);
-  const [multigeneLayout, setMultigeneLayout] = useState<"pie" | "grid">("pie");
-  const [multigeneRangeMinInput, setMultigeneRangeMinInput] = useState("p0");
-  const [multigeneRangeMaxInput, setMultigeneRangeMaxInput] = useState("p100");
-  const [multigeneExpressionByGene, setMultigeneExpressionByGene] = useState<Record<string, number[]>>({});
+  const [dualFeaturePalette, setDualFeaturePalette] = useState<DualFeaturePalette>(DEFAULT_DUAL_FEATURE_PALETTE);
+  const [dualFeatureLogScale, setDualFeatureLogScale] = useState(false);
+  const [selectedMultiFeatures, setSelectedMultiFeatures] = useState<MultiFeatureEntry[]>([]);
+  const [multiFeatureLogScale, setMultiFeatureLogScale] = useState(false);
+  const [multiFeatureLayout, setMultiFeatureLayout] = useState<"pie" | "grid">("pie");
+  const [multiFeatureRangeMinInput, setMultiFeatureRangeMinInput] = useState("p0");
+  const [multiFeatureRangeMaxInput, setMultiFeatureRangeMaxInput] = useState("p100");
+  const [multiFeatureValuesByFeature, setMultiFeatureValuesByFeature] = useState<Record<string, number[]>>({});
   /** Multi-gene expression per dataset and per gene (for multi-sample view). dataset id -> gene -> values */
-  const [multigeneExpressionByDataset, setMultigeneExpressionByDataset] = useState<Record<string, Record<string, number[]>>>({});
-  const [multigeneLoading, setMultigeneLoading] = useState(false);
+  const [multiFeatureValuesByDataset, setMultiFeatureValuesByDataset] = useState<Record<string, Record<string, number[]>>>({});
+  const [multiFeatureLoading, setMultiFeatureLoading] = useState(false);
   const [selectedLayer, setSelectedLayer] = useState<string>("X");
   const [selectedObsCol, setSelectedObsCol] = useState<string | null>(null);
   const [obsValueType, setObsValueType] = useState<"categorical" | "numeric">("categorical");
@@ -309,8 +495,8 @@ export default function App() {
   const [loadProgress, setLoadProgress] = useState(0);
   /** True while fetching expression for the selected gene (single-gene mode). */
   const [expressionLoading, setExpressionLoading] = useState(false);
-  /** True while fetching expression for co-expression mode. */
-  const [coexpressionLoading, setCoexpressionLoading] = useState(false);
+  /** True while fetching expression for dual feature mode. */
+  const [dualFeatureLoading, setDualFeatureLoading] = useState(false);
   const [exportingPdf, setExportingPdf] = useState(false);
   const [exportProgress, setExportProgress] = useState(0);
   const [exportMenuOpen, setExportMenuOpen] = useState(false);
@@ -321,6 +507,10 @@ export default function App() {
   const selectedIdsRef = useRef<string[]>([]);
   const loadAbortRef = useRef<AbortController | null>(null);
   const exportMenuRef = useRef<HTMLDivElement | null>(null);
+  /** IDs whose metadata or initial data request failed; prevents the load effect from retrying them forever. */
+  const failedLoadIdsRef = useRef<Set<string>>(new Set());
+  const [splitModalParentId, setSplitModalParentId] = useState<string | null>(null);
+  const [splitSearch, setSplitSearch] = useState("");
 
   useEffect(() => {
     selectedIdsRef.current = selectedDatasetIds;
@@ -363,6 +553,84 @@ export default function App() {
     };
   }, [exportMenuOpen]);
 
+  /** Put one already loaded panel into per-obs-value virtual panels. */
+  const applySplit = useCallback((parentId: string, key: string) => {
+    const parent = datasetCache[parentId];
+    if (!parent?.spatial || !parent.obs) return;
+    const split = createSplitDefinition(parent, key);
+    if (!split) {
+      setError(`Cannot split by "${key}": it does not contain 2–200 unique values.`);
+      return;
+    }
+    const children = buildSplitDatasets(parent, split);
+    setDatasetCache((prev) => ({ ...prev, ...children }));
+    setSplitByDataset((prev) => ({ ...prev, [parentId]: split }));
+    setSplitModalParentId(null);
+    setSplitSearch("");
+  }, [datasetCache]);
+
+  /** Remove virtual children and return the parent to one merged panel. */
+  const removeSplit = useCallback((parentId: string) => {
+    const childIds = splitByDataset[parentId]?.childrenIds ?? [];
+    setSplitByDataset((prev) => {
+      if (!(parentId in prev)) return prev;
+      const next = { ...prev };
+      delete next[parentId];
+      return next;
+    });
+    setDatasetCache((prev) => {
+      if (childIds.length === 0) return prev;
+      const next = { ...prev };
+      childIds.forEach((id) => delete next[id]);
+      return next;
+    });
+    const clearByDataset = <T,>(state: Record<string, T>): Record<string, T> => {
+      const next = { ...state };
+      childIds.forEach((id) => delete next[id]);
+      return next;
+    };
+    setExpressionByDataset(clearByDataset);
+    setExpression1ByDataset(clearByDataset);
+    setExpression2ByDataset(clearByDataset);
+    setMultiFeatureValuesByDataset(clearByDataset);
+  }, [splitByDataset]);
+
+  /** When a selected parent disappears, discard its split and virtual children. */
+  const pruneSplitsForSelection = useCallback((ids: string[]) => {
+    const selected = new Set(ids);
+    const removedChildren = Object.entries(splitByDataset)
+      .filter(([parentId]) => !selected.has(parentId))
+      .flatMap(([, split]) => split.childrenIds);
+    if (removedChildren.length === 0) return;
+    setSplitByDataset((prev) => {
+      const next = { ...prev };
+      Object.keys(prev).forEach((parentId) => {
+        if (!selected.has(parentId)) delete next[parentId];
+      });
+      return next;
+    });
+    setDatasetCache((cache) => {
+      const next = { ...cache };
+      removedChildren.forEach((id) => delete next[id]);
+      return next;
+    });
+  }, [splitByDataset]);
+
+  const splitModalParent = splitModalParentId ? datasetCache[splitModalParentId] : null;
+  const splitModalCandidates = useMemo(
+    () => (splitModalParent?.spatial ? getSplitCandidates(splitModalParent) : []),
+    [splitModalParent]
+  );
+  const filteredSplitCandidates = useMemo(() => {
+    const query = splitSearch.trim().toLowerCase();
+    if (!query) return splitModalCandidates;
+    return splitModalCandidates.filter((candidate) => candidate.key.toLowerCase().includes(query));
+  }, [splitModalCandidates, splitSearch]);
+
+  useEffect(() => {
+    if (splitModalParentId) setSplitSearch("");
+  }, [splitModalParentId]);
+
   const resolveEmbeddingMode = useCallback((m: DatasetMeta): "spatial" | "umap" | "pca" | "tsne" => {
     const hasSpatial = m.has_spatial ?? m.layout === "spatial";
     const hasUmap = m.has_umap ?? m.layout === "umap";
@@ -404,6 +672,7 @@ export default function App() {
           onStep();
           if (selectedIdsRef.current.length === 0) return;
           if (metaRes.viewable === false) {
+            failedLoadIdsRef.current.add(id);
             setError(`Dataset "${id}" has no spatial/UMAP.`);
             metas.push(null);
             continue;
@@ -437,6 +706,7 @@ export default function App() {
             nextCache[id] = { meta: metaRes, spatial: spatialRes, obs: obsRes, genes: varRes };
           } catch (e) {
             if (e instanceof Error && e.name === "AbortError") throw e;
+            failedLoadIdsRef.current.add(id);
             setError(e instanceof Error ? e.message : String(e));
           }
         }
@@ -457,8 +727,8 @@ export default function App() {
           setSelectedGene(null);
           setExpression1(null);
           setExpression2(null);
-          setSelectedGene1(null);
-          setSelectedGene2(null);
+          setSelectedFeature1(null);
+          setSelectedFeature2(null);
           setRangeMinInput("p0");
           setRangeMaxInput("p100");
           setBackgroundImageKey(null);
@@ -493,15 +763,17 @@ export default function App() {
       debugLog("selectedDatasetIds cleared, clearing state");
       setLoading(false);
       setDatasetCache({});
+      setSplitByDataset({});
+      failedLoadIdsRef.current.clear();
       setExpressionByDataset({});
       setSelectedObsCol(null);
       setObsValueType("categorical");
       setSelectedGene(null);
-      setSelectedGene1(null);
-      setSelectedGene2(null);
-      setSelectedMultigeneGenes([]);
-      setMultigeneExpressionByGene({});
-      setMultigeneExpressionByDataset({});
+      setSelectedFeature1(null);
+      setSelectedFeature2(null);
+      setSelectedMultiFeatures([]);
+      setMultiFeatureValuesByFeature({});
+      setMultiFeatureValuesByDataset({});
       setExpression1ByDataset({});
       setExpression2ByDataset({});
       setExpression1(null);
@@ -515,13 +787,15 @@ export default function App() {
   // Load datasets when selection changes: only fetch ids not already in cache (incremental load)
   useEffect(() => {
     if (selectedDatasetIds.length === 0) return;
-    const idsToLoad = selectedDatasetIds.filter((id) => !datasetCache[id]?.spatial);
+    const idsToLoad = selectedDatasetIds.filter(
+      (id) => !datasetCache[id]?.spatial && !failedLoadIdsRef.current.has(id)
+    );
     if (idsToLoad.length === 0) return;
     loadDatasets(idsToLoad, embeddingMode, { allSelectedIds: selectedDatasetIds });
   }, [selectedDatasetIds, datasetCache, embeddingMode, loadDatasets]);
 
   useEffect(() => {
-    if (selectedDatasetIds.length === 0 || !selectedGene) {
+    if (activeDatasetIds.length === 0 || !selectedGene) {
       setExpressionByDataset({});
       setExpressionLoading(false);
       return;
@@ -530,12 +804,14 @@ export default function App() {
     const signal = ac.signal;
     setExpressionLoading(true);
     const slotLengths: Record<string, number> = {};
-    selectedDatasetIds.forEach((id) => {
+    activeDatasetIds.forEach((id) => {
       slotLengths[id] = datasetCache[id]?.spatial?.x?.length ?? 0;
     });
-    debugLog("fetchExpression", { datasetIds: selectedDatasetIds, gene: selectedGene, layer: selectedLayer });
+    const parentBySlot = new Map(activeDatasetIds.map((id) => [id, splitParentByChildId.get(id) ?? id]));
+    const parentIds = Array.from(new Set(parentBySlot.values()));
+    debugLog("fetchExpression", { datasetIds: activeDatasetIds, gene: selectedGene, layer: selectedLayer });
     Promise.all(
-      selectedDatasetIds.map((id) =>
+      parentIds.map((id) =>
         fetchExpression(id, selectedGene, signal, selectedLayer).catch((e) => {
           if (e?.name === "AbortError") throw e;
           return null;
@@ -543,11 +819,16 @@ export default function App() {
       )
     )
       .then((arrays) => {
+        const expressionByParent = new Map(parentIds.map((id, i) => [id, arrays[i]] as const));
         const next: Record<string, number[]> = {};
-        selectedDatasetIds.forEach((id, i) => {
+        activeDatasetIds.forEach((id) => {
           const n = slotLengths[id] ?? 0;
-          if (arrays[i]) next[id] = arrays[i];
-          else next[id] = new Array(n).fill(NaN);
+          const parentId = parentBySlot.get(id) ?? id;
+          const parentValues = expressionByParent.get(parentId) ?? null;
+          const values = parentId === id
+            ? parentValues
+            : sliceValuesForSplitChild(datasetCache[parentId], id, parentValues);
+          next[id] = values ?? new Array(n).fill(NaN);
         });
         setExpressionByDataset(next);
       })
@@ -560,27 +841,53 @@ export default function App() {
       ac.abort();
       setExpressionLoading(false);
     };
-  }, [selectedDatasetIds, selectedGene, selectedLayer]);
+  }, [activeDatasetIds, selectedGene, selectedLayer, datasetCache, splitParentByChildId]);
 
-  // Fetch both genes for co-expression mode for all selected datasets (multi-sample view)
+  // Load both numeric features (genes or obs columns) for dual-feature mode and all selected datasets.
   useEffect(() => {
-    if (selectedDatasetIds.length === 0 || !selectedGene1 || !selectedGene2) {
+    if (activeDatasetIds.length === 0 || !selectedFeature1 || !selectedFeature2) {
       setExpression1ByDataset({});
       setExpression2ByDataset({});
       setExpression1(null);
       setExpression2(null);
-      setCoexpressionLoading(false);
+      setDualFeatureLoading(false);
       return;
     }
     const ac = new AbortController();
     const signal = ac.signal;
-    setCoexpressionLoading(true);
-    const ids = [...selectedDatasetIds];
-    debugLog("fetchCoexpression", { datasetIds: ids, gene1: selectedGene1, gene2: selectedGene2, layer: selectedLayer });
+    setDualFeatureLoading(true);
+    const ids = [...activeDatasetIds];
+    const feature1 = parseFeatureId(selectedFeature1);
+    const feature2 = parseFeatureId(selectedFeature2);
+    const slotLength = (id: string) => datasetCache[id]?.spatial?.x?.length ?? 0;
+    const parentFeatureRequests = new Map<string, Promise<number[] | null>>();
+    const loadFeatureForParent = (parentId: string, feature: FeatureRef): Promise<number[] | null> => {
+      const requestKey = `${parentId}\0${feature.key}\0${selectedLayer}`;
+      let request = parentFeatureRequests.get(requestKey);
+      if (!request) {
+        request = fetchExpression(parentId, feature.key, signal, selectedLayer).catch((e) => (
+          e?.name === "AbortError" ? Promise.reject(e) : null
+        ));
+        parentFeatureRequests.set(requestKey, request);
+      }
+      return request;
+    };
+    const loadFeature = async (id: string, feature: FeatureRef): Promise<number[] | null> => {
+      if (feature.source === "obs") {
+        const values = obsValuesToNumbers(datasetCache[id]?.obs?.data[feature.key], slotLength(id));
+        return values.length > 0 ? values : null;
+      }
+      const parentId = splitParentByChildId.get(id) ?? id;
+      const parentValues = await loadFeatureForParent(parentId, feature);
+      return parentId === id
+        ? parentValues
+        : sliceValuesForSplitChild(datasetCache[parentId], id, parentValues);
+    };
+    debugLog("fetchDualFeature", { datasetIds: ids, feature1: selectedFeature1, feature2: selectedFeature2, layer: selectedLayer });
     Promise.all(
       ids.flatMap((id) => [
-        fetchExpression(id, selectedGene1, signal, selectedLayer).catch((e) => (e?.name === "AbortError" ? Promise.reject(e) : null)),
-        fetchExpression(id, selectedGene2, signal, selectedLayer).catch((e) => (e?.name === "AbortError" ? Promise.reject(e) : null)),
+        loadFeature(id, feature1),
+        loadFeature(id, feature2),
       ])
     )
       .then((arrays) => {
@@ -598,43 +905,66 @@ export default function App() {
         const prim2 = primaryId ? next2[primaryId] : null;
         setExpression1(prim1 ?? null);
         setExpression2(prim2 ?? null);
-        debugLog("fetchCoexpression done", { ids, len1: prim1?.length, len2: prim2?.length });
+        debugLog("fetchDualFeature done", { ids, len1: prim1?.length, len2: prim2?.length });
       })
       .catch((e) => {
         if (e?.name === "AbortError") return;
-        debugLog("fetchCoexpression error", { error: String(e) });
+        debugLog("fetchDualFeature error", { error: String(e) });
         setExpression1ByDataset({});
         setExpression2ByDataset({});
         setExpression1(null);
         setExpression2(null);
       })
-      .finally(() => setCoexpressionLoading(false));
+      .finally(() => setDualFeatureLoading(false));
     return () => {
       ac.abort();
-      setCoexpressionLoading(false);
+      setDualFeatureLoading(false);
     };
-  }, [selectedDatasetIds, primaryId, selectedGene1, selectedGene2, selectedLayer]);
+  }, [activeDatasetIds, primaryId, selectedFeature1, selectedFeature2, selectedLayer, datasetCache, splitParentByChildId]);
 
-  // Fetch expression for each gene in multi-gene mode for all selected datasets (multi-sample view)
+  // Load each selected feature (gene or numeric obs column) for multi-feature mode and all selected datasets.
   useEffect(() => {
-    if (selectedDatasetIds.length === 0 || selectedMultigeneGenes.length === 0) {
-      setMultigeneExpressionByGene({});
-      setMultigeneExpressionByDataset({});
-      setMultigeneLoading(false);
+    if (activeDatasetIds.length === 0 || selectedMultiFeatures.length === 0) {
+      setMultiFeatureValuesByFeature({});
+      setMultiFeatureValuesByDataset({});
+      setMultiFeatureLoading(false);
       return;
     }
     const ac = new AbortController();
     const signal = ac.signal;
-    setMultigeneLoading(true);
-    const ids = [...selectedDatasetIds];
-    const genesToFetch = selectedMultigeneGenes.map((e) => e.gene);
+    setMultiFeatureLoading(true);
+    const ids = [...activeDatasetIds];
+    const features = selectedMultiFeatures.map((e) => e.featureId);
+    const slotLength = (id: string) => datasetCache[id]?.spatial?.x?.length ?? 0;
+    const parentFeatureRequests = new Map<string, Promise<number[] | null>>();
+    const loadFeatureForParent = (parentId: string, feature: FeatureRef): Promise<number[] | null> => {
+      const requestKey = `${parentId}\0${feature.key}\0${selectedLayer}`;
+      let request = parentFeatureRequests.get(requestKey);
+      if (!request) {
+        request = fetchExpression(parentId, feature.key, signal, selectedLayer).catch((e) => (
+          e?.name === "AbortError" ? Promise.reject(e) : null
+        ));
+        parentFeatureRequests.set(requestKey, request);
+      }
+      return request;
+    };
+    const loadFeature = async (id: string, featureId: string): Promise<{ id: string; featureId: string; arr: number[] | null }> => {
+      const feature = parseFeatureId(featureId);
+      if (feature.source === "obs") {
+        const values = obsValuesToNumbers(datasetCache[id]?.obs?.data[feature.key], slotLength(id));
+        return { id, featureId, arr: values.length > 0 ? values : null };
+      }
+      const parentId = splitParentByChildId.get(id) ?? id;
+      const parentValues = await loadFeatureForParent(parentId, feature);
+      const values = parentId === id
+        ? parentValues
+        : sliceValuesForSplitChild(datasetCache[parentId], id, parentValues);
+      return { id, featureId, arr: values };
+    };
     Promise.all(
       ids.flatMap((id) =>
-        genesToFetch.map((gene) =>
-          fetchExpression(id, gene, signal, selectedLayer).then((arr) => ({ id, gene, arr })).catch((e) => {
-            if (e?.name === "AbortError") throw e;
-            return { id, gene, arr: null as number[] | null };
-          })
+        features.map((featureId) =>
+          loadFeature(id, featureId)
         )
       )
     )
@@ -643,23 +973,23 @@ export default function App() {
         ids.forEach((id) => {
           byDataset[id] = {};
         });
-        results.forEach(({ id, gene, arr }) => {
-          if (arr) byDataset[id]![gene] = arr;
+        results.forEach(({ id, featureId, arr }) => {
+          if (arr) byDataset[id]![featureId] = arr;
         });
-        setMultigeneExpressionByDataset(byDataset);
-        setMultigeneExpressionByGene(primaryId ? (byDataset[primaryId] ?? {}) : {});
+        setMultiFeatureValuesByDataset(byDataset);
+        setMultiFeatureValuesByFeature(primaryId ? (byDataset[primaryId] ?? {}) : {});
       })
       .catch((e) => {
         if (e?.name === "AbortError") return;
-        setMultigeneExpressionByDataset({});
-        setMultigeneExpressionByGene({});
+        setMultiFeatureValuesByDataset({});
+        setMultiFeatureValuesByFeature({});
       })
-      .finally(() => setMultigeneLoading(false));
+      .finally(() => setMultiFeatureLoading(false));
     return () => {
       ac.abort();
-      setMultigeneLoading(false);
+      setMultiFeatureLoading(false);
     };
-  }, [selectedDatasetIds, primaryId, selectedLayer, selectedMultigeneGenes]);
+  }, [activeDatasetIds, primaryId, selectedLayer, selectedMultiFeatures, datasetCache, splitParentByChildId]);
 
   const colorByValues = React.useMemo(() => {
     if (!spatial) return [];
@@ -668,7 +998,7 @@ export default function App() {
       const raw = obs?.data[selectedObsCol];
       if (!raw) return new Array(n).fill("nan") as (string | number)[];
       const sliced = raw.slice(0, n);
-      if (obsValueType === "categorical" && selectedDatasetIds.length === 1) {
+      if (obsValueType === "categorical" && activeDatasetIds.length === 1) {
         const uniq = new Set(sliced.map(String)).size;
         if (uniq > ANNOTATION_MAX_CATEGORIES) {
           return new Array(n).fill(LABEL_NAN_TOO_MANY) as (string | number)[];
@@ -682,8 +1012,8 @@ export default function App() {
     if (colorMode === "gene" && expression) {
       return expression.slice(0, n);
     }
-    if (colorMode === "coexpression" && expression1 && expression2 && expression1.length >= n && expression2.length >= n) {
-      const mapRaw = (arr: number[]) => (coexpressionLogScale ? arr.map((x) => Math.log1p(Math.max(0, x))) : arr);
+    if (colorMode === "dualFeature" && expression1 && expression2 && expression1.length >= n && expression2.length >= n) {
+      const mapRaw = (arr: number[]) => (dualFeatureLogScale ? arr.map((x) => Math.log1p(Math.max(0, x))) : arr);
       const log1 = mapRaw(expression1.slice(0, n) as number[]);
       const log2 = mapRaw(expression2.slice(0, n) as number[]);
       const { min: min1, max: max1 } = finiteMinMax(log1);
@@ -694,13 +1024,13 @@ export default function App() {
       for (let i = 0; i < n; i++) {
         const v1 = (log1[i] - min1) / range1;
         const v2 = (log2[i] - min2) / range2;
-        out.push(coexpressionToHex(v1, v2, coexpressionPalette));
+        out.push(dualFeatureToHex(v1, v2, dualFeaturePalette));
       }
       return out;
     }
     // No annotation/gene selected: still show all points (color decided by plotColorMode).
     return new Array(n).fill(0);
-  }, [obs, spatial, colorMode, selectedObsCol, obsValueType, expression, expression1, expression2, coexpressionPalette, coexpressionLogScale]);
+  }, [obs, spatial, colorMode, selectedObsCol, obsValueType, expression, expression1, expression2, dualFeaturePalette, dualFeatureLogScale]);
 
   const plotColorMode: ColorMode = React.useMemo(() => {
     if (!spatial) return "none";
@@ -711,24 +1041,24 @@ export default function App() {
       return "continuous";
     }
     if (
-      colorMode === "coexpression" &&
+      colorMode === "dualFeature" &&
       expression1 &&
       expression2 &&
       expression1.length === spatial.x.length &&
       expression2.length === spatial.x.length
     ) {
-      return "coexpression";
+      return "dualFeature";
     }
-    if (colorMode === "multigene" && selectedMultigeneGenes.length > 0 && spatial.x.length > 0) {
+    if (colorMode === "multiFeature" && selectedMultiFeatures.length > 0 && spatial.x.length > 0) {
       const n = spatial.x.length;
-      const hasAnyWithData = selectedMultigeneGenes.some((e) => {
-        const vals = multigeneExpressionByGene[e.gene];
+      const hasAnyWithData = selectedMultiFeatures.some((e) => {
+        const vals = multiFeatureValuesByFeature[e.featureId];
         return (vals?.length ?? 0) >= n && (vals?.some((v) => Number.isFinite(v)) ?? false);
       });
-      if (hasAnyWithData) return "multigene";
+      if (hasAnyWithData) return "multiFeature";
     }
     return "none";
-  }, [spatial, colorMode, selectedObsCol, obs, expression, expression1, expression2, selectedMultigeneGenes, multigeneExpressionByGene, obsValueType]);
+  }, [spatial, colorMode, selectedObsCol, obs, expression, expression1, expression2, selectedMultiFeatures, multiFeatureValuesByFeature, obsValueType]);
   const bounds = useMemo(() => {
     if (spatial && spatial.x.length > 0 && spatial.y.length === spatial.x.length) {
       let xMin = spatial.x[0];
@@ -771,7 +1101,7 @@ export default function App() {
   /** All continuous values for color scale: gene mode = merged across selected datasets (unified scale); annotation numeric = primary. */
   const continuousValues: number[] | null = React.useMemo(() => {
     if (colorMode === "gene") {
-      const arrays = selectedDatasetIds
+      const arrays = activeDatasetIds
         .map((id) => expressionByDataset[id])
         .filter((arr): arr is number[] => !!arr && arr.some((v) => Number.isFinite(v))) as number[][];
       if (arrays.length === 0) return null;
@@ -779,8 +1109,8 @@ export default function App() {
       return arrays.flat();
     }
     if (colorMode === "annotation" && obsValueType === "numeric" && selectedObsCol) {
-      if (selectedDatasetIds.length > 1) {
-        const arrays = selectedDatasetIds
+      if (activeDatasetIds.length > 1) {
+        const arrays = activeDatasetIds
           .map((id) => datasetCache[id]?.obs?.data[selectedObsCol])
           .filter(Boolean) as (number | string)[][];
         if (arrays.length === 0) return null;
@@ -796,7 +1126,7 @@ export default function App() {
       }
     }
     return null;
-  }, [colorMode, obsValueType, selectedObsCol, obs, selectedDatasetIds, expressionByDataset, datasetCache]);
+  }, [colorMode, obsValueType, selectedObsCol, obs, activeDatasetIds, expressionByDataset, datasetCache]);
 
   /** True when both range inputs are percentiles (e.g. p1, p99) → per-sample scale in multi-dataset. */
   const isRangePercentile = useMemo(() => {
@@ -833,7 +1163,7 @@ export default function App() {
 
   /** Per-slot color range and bar stats for multi-dataset continuous. When percentile: each sample scaled separately; when raw: same range for all. */
   const slotContinuousRange = useMemo((): Record<string, { colorMin: number; colorMax: number; colorBarStats: { lo: number; mid: number; hi: number } }> | null => {
-    if (selectedDatasetIds.length <= 1) return null;
+    if (activeDatasetIds.length <= 1) return null;
     const isNumeric = colorMode === "gene" || (colorMode === "annotation" && obsValueType === "numeric" && selectedObsCol);
     if (!isNumeric) return null;
     const out: Record<string, { colorMin: number; colorMax: number; colorBarStats: { lo: number; mid: number; hi: number } }> = {};
@@ -846,7 +1176,7 @@ export default function App() {
       return (lo + hi) / 2;
     };
     if (isRangePercentile) {
-      for (const id of selectedDatasetIds) {
+      for (const id of activeDatasetIds) {
         let values: number[] = [];
         if (colorMode === "gene") {
           const arr = expressionByDataset[id];
@@ -867,13 +1197,13 @@ export default function App() {
       const lo = r?.colorMin ?? 0;
       const hi = r?.colorMax ?? 1;
       const bar = { lo, mid: continuousColorBarMid, hi };
-      for (const id of selectedDatasetIds) {
+      for (const id of activeDatasetIds) {
         out[id] = { colorMin: lo, colorMax: hi, colorBarStats: bar };
       }
     }
     return Object.keys(out).length > 0 ? out : null;
   }, [
-    selectedDatasetIds,
+    activeDatasetIds,
     colorMode,
     obsValueType,
     selectedObsCol,
@@ -887,27 +1217,27 @@ export default function App() {
     continuousColorBarMid,
   ]);
 
-  const multigeneLayers = React.useMemo(() => {
-    if (!spatial || selectedMultigeneGenes.length === 0) return undefined;
+  const multiFeatureLayers = React.useMemo(() => {
+    if (!spatial || selectedMultiFeatures.length === 0) return undefined;
     const n = spatial.x.length;
-    const layers = selectedMultigeneGenes
+    const layers = selectedMultiFeatures
       .map((entry) => {
-        const values = multigeneExpressionByGene[entry.gene];
+        const values = multiFeatureValuesByFeature[entry.featureId];
         if (!values || values.length < n) return null;
         const slice = values.slice(0, n);
         const hasFinite = slice.some((v) => Number.isFinite(v));
         if (!hasFinite) return null;
-        return { name: entry.gene, values: slice, paletteId: entry.paletteId };
+        return { name: featureLabel(entry.featureId), values: slice, paletteId: entry.paletteId };
       })
       .filter((l): l is { name: string; values: number[]; paletteId: string } => l !== null);
     return layers.length > 0 ? layers : undefined;
-  }, [spatial, selectedMultigeneGenes, multigeneExpressionByGene]);
+  }, [spatial, selectedMultiFeatures, multiFeatureValuesByFeature]);
 
-  const effectiveMultigeneColorRange = React.useMemo(() => {
-    if (!multigeneLayers || multigeneLayers.length === 0) return null;
-    const firstValues = multigeneLayers[0].values;
-    const lo = parseRangeInput(multigeneRangeMinInput, firstValues);
-    const hi = parseRangeInput(multigeneRangeMaxInput, firstValues);
+  const effectiveMultiFeatureColorRange = React.useMemo(() => {
+    if (!multiFeatureLayers || multiFeatureLayers.length === 0) return null;
+    const firstValues = multiFeatureLayers[0].values;
+    const lo = parseRangeInput(multiFeatureRangeMinInput, firstValues);
+    const hi = parseRangeInput(multiFeatureRangeMaxInput, firstValues);
     if (lo == null && hi == null) return null;
     const { min: dataMin, max: dataMax } = finiteMinMax(firstValues);
     const colorMin = lo ?? dataMin;
@@ -916,14 +1246,14 @@ export default function App() {
       colorMin: Math.min(colorMin, colorMax),
       colorMax: Math.max(colorMin, colorMax),
     };
-  }, [multigeneLayers, multigeneRangeMinInput, multigeneRangeMaxInput]);
+  }, [multiFeatureLayers, multiFeatureRangeMinInput, multiFeatureRangeMaxInput]);
 
   /** Global unique labels for selected annotation column across all samples (for unified categorical color map). */
   const globalCategoricalLabels = useMemo(() => {
     if (colorMode !== "annotation" || !selectedObsCol || obsValueType !== "categorical") return [];
     const set = new Set<string>();
     let anyMissing = false;
-    for (const id of selectedDatasetIds) {
+    for (const id of activeDatasetIds) {
       const vals = datasetCache[id]?.obs?.data[selectedObsCol];
       if (!vals) {
         anyMissing = true;
@@ -934,7 +1264,7 @@ export default function App() {
     const list = Array.from(set).sort((a, b) => a.localeCompare(b));
     if (anyMissing && !list.includes("nan")) list.push("nan");
     return list;
-  }, [colorMode, selectedObsCol, obsValueType, selectedDatasetIds, datasetCache]);
+  }, [colorMode, selectedObsCol, obsValueType, activeDatasetIds, datasetCache]);
 
   /** Unified category → color map (same across all samples). */
   const globalCatMap = useMemo(() => {
@@ -955,7 +1285,7 @@ export default function App() {
     const uniq = globalCategoricalLabels.length;
     if (uniq > ANNOTATION_MAX_CATEGORIES) {
       let total = 0;
-      for (const id of selectedDatasetIds) {
+      for (const id of activeDatasetIds) {
         const vals = datasetCache[id]?.obs?.data[selectedObsCol];
         if (vals) total += vals.length;
       }
@@ -963,14 +1293,14 @@ export default function App() {
     }
     if (uniq < ANNOTATION_MIN_CATEGORIES) {
       let total = 0;
-      for (const id of selectedDatasetIds) {
+      for (const id of activeDatasetIds) {
         const vals = datasetCache[id]?.obs?.data[selectedObsCol];
         if (vals) total += vals.length;
       }
       return [{ label: LABEL_NAN_TOO_FEW, count: total, color: globalCatMap.get(LABEL_NAN_TOO_FEW) ?? "#888888" }];
     }
     const counts = new Map<string, number>();
-    for (const id of selectedDatasetIds) {
+    for (const id of activeDatasetIds) {
       const vals = datasetCache[id]?.obs?.data[selectedObsCol];
       if (!vals) continue;
       for (const v of vals) {
@@ -982,7 +1312,7 @@ export default function App() {
       .map(([label, count]) => ({ label, count, color: globalCatMap.get(label) ?? "#888888" }))
       .sort((a, b) => (b.count !== a.count ? b.count - a.count : (a.label < b.label ? -1 : a.label > b.label ? 1 : 0)));
     return entries;
-  }, [colorMode, selectedObsCol, obsValueType, globalCatMap, globalCategoricalLabels, selectedDatasetIds, datasetCache]);
+  }, [colorMode, selectedObsCol, obsValueType, globalCatMap, globalCategoricalLabels, activeDatasetIds, datasetCache]);
 
   /** For in-plot categorical legend: label, color, and spot count (no scroll; compact wrap in corner). */
   const categoricalLegendForPlot = useMemo(
@@ -992,7 +1322,7 @@ export default function App() {
 
   const handleEmbeddingModeChange = useCallback(
     async (mode: "spatial" | "umap" | "pca" | "tsne") => {
-      if (selectedDatasetIds.length === 0 || !meta) return;
+      if (activeDatasetIds.length === 0 || !meta) return;
       if (mode === embeddingMode) return;
       if (mode === "spatial" && !(meta.has_spatial ?? meta.layout === "spatial")) return;
       if (mode === "umap" && !(meta.has_umap ?? false)) return;
@@ -1002,7 +1332,8 @@ export default function App() {
       if (mode !== "spatial") {
         setBackgroundImageKey(null);
       }
-      const ids = selectedDatasetIds;
+      // Fetch parent datasets only; split children are regenerated from their refreshed parent coordinates.
+      const ids = Array.from(new Set(activeDatasetIds.map((id) => splitParentByChildId.get(id) ?? id)));
       try {
         const ac = new AbortController();
         const signal = ac.signal;
@@ -1020,6 +1351,10 @@ export default function App() {
               next[r.id] = { ...next[r.id], spatial: r.coords };
             }
           }
+          for (const [parentId, split] of Object.entries(splitByDataset)) {
+            const parent = next[parentId];
+            if (parent?.spatial) Object.assign(next, buildSplitDatasets(parent, split));
+          }
           return next;
         });
       } catch (e) {
@@ -1028,15 +1363,15 @@ export default function App() {
         setError(msg);
       }
     },
-    [selectedDatasetIds, meta, embeddingMode]
+    [activeDatasetIds, splitParentByChildId, splitByDataset, meta, embeddingMode]
   );
 
   const buildPdfPlotTasks = (): { plotTasks: PlotTask[]; plotIds: string[] } => {
-    const hasLoaded = selectedDatasetIds.length > 0 && selectedDatasetIds.some((id) => datasetCache[id]?.spatial);
+    const hasLoaded = activeDatasetIds.length > 0 && activeDatasetIds.some((id) => datasetCache[id]?.spatial);
     const multiPlot =
-      selectedDatasetIds.length > 1 &&
-      (colorMode === "gene" || colorMode === "annotation" || colorMode === "coexpression" || colorMode === "multigene");
-    const showSinglePlot = hasLoaded && selectedDatasetIds.length === 1 && spatial != null;
+      activeDatasetIds.length > 1 &&
+      (colorMode === "gene" || colorMode === "annotation" || colorMode === "dualFeature" || colorMode === "multiFeature");
+    const showSinglePlot = hasLoaded && activeDatasetIds.length === 1 && spatial != null;
 
     const getSlotBounds = (s: { x: number[]; y: number[] }) => {
       if (s.x.length === 0 || s.y.length === 0) return { xMin: 0, xMax: 1, yMin: 0, yMax: 1 };
@@ -1055,16 +1390,16 @@ export default function App() {
       if (colorMode === "annotation" && selectedObsCol && d.obs?.data[selectedObsCol])
         return obsValueType === "numeric" ? "continuous" : "categorical";
       if (colorMode === "gene" && expressionByDataset[id]?.length === d.spatial.x.length) return "continuous";
-      if (colorMode === "coexpression") {
+      if (colorMode === "dualFeature") {
         const e1 = expression1ByDataset[id];
         const e2 = expression2ByDataset[id];
         const n = d.spatial.x.length;
-        if (e1 && e2 && e1.length >= n && e2.length >= n) return "coexpression";
+        if (e1 && e2 && e1.length >= n && e2.length >= n) return "dualFeature";
       }
-      if (colorMode === "multigene" && selectedMultigeneGenes.length > 0) {
-        const byGene = multigeneExpressionByDataset[id];
-        if (byGene && selectedMultigeneGenes.some((entry) => (byGene[entry.gene]?.length ?? 0) >= d.spatial.x.length)) {
-          return "multigene";
+      if (colorMode === "multiFeature" && selectedMultiFeatures.length > 0) {
+        const byFeature = multiFeatureValuesByDataset[id];
+        if (byFeature && selectedMultiFeatures.some((entry) => (byFeature[entry.featureId]?.length ?? 0) >= d.spatial.x.length)) {
+          return "multiFeature";
         }
       }
       return "none";
@@ -1082,11 +1417,11 @@ export default function App() {
         const expr = expressionByDataset[id];
         return expr ? expr.slice(0, n) : (new Array(n).fill(NaN) as (string | number)[]);
       }
-      if (colorMode === "coexpression") {
+      if (colorMode === "dualFeature") {
         const e1 = expression1ByDataset[id];
         const e2 = expression2ByDataset[id];
         if (!e1 || !e2 || e1.length < n || e2.length < n) return new Array(n).fill(0);
-        const mapRaw = (arr: number[]) => (coexpressionLogScale ? arr.map((x) => Math.log1p(Math.max(0, x))) : arr);
+        const mapRaw = (arr: number[]) => (dualFeatureLogScale ? arr.map((x) => Math.log1p(Math.max(0, x))) : arr);
         const log1 = mapRaw(e1.slice(0, n));
         const log2 = mapRaw(e2.slice(0, n));
         const { min: min1, max: max1 } = finiteMinMax(log1);
@@ -1097,7 +1432,7 @@ export default function App() {
         for (let i = 0; i < n; i++) {
           const v1 = (log1[i] - min1) / range1;
           const v2 = (log2[i] - min2) / range2;
-          out.push(coexpressionToHex(v1, v2, coexpressionPalette));
+          out.push(dualFeatureToHex(v1, v2, dualFeaturePalette));
         }
         return out;
       }
@@ -1139,21 +1474,21 @@ export default function App() {
     if (showSinglePlot && spatial) {
       const singleTitle =
         primaryId && meta
-          ? `${primaryId}${embeddingMode === "umap" ? " (UMAP)" : " (Spatial)"}`
+          ? `${meta.name}${embeddingMode === "umap" ? " (UMAP)" : " (Spatial)"}`
           : primaryId ?? undefined;
 
-      if (plotColorMode === "multigene" && selectedMultigeneGenes.length > 0) {
+      if (plotColorMode === "multiFeature" && selectedMultiFeatures.length > 0) {
         const n = spatial.x.length;
-        const byGene = multigeneExpressionByDataset[primaryId ?? ""];
+        const byFeature = multiFeatureValuesByDataset[primaryId ?? ""];
         const layers =
-          byGene && selectedMultigeneGenes.length > 0
-            ? selectedMultigeneGenes
+          byFeature && selectedMultiFeatures.length > 0
+            ? selectedMultiFeatures
                 .map((entry) => {
-                  const values = byGene[entry.gene];
+                  const values = byFeature[entry.featureId];
                   if (!values || values.length < n) return null;
                   const slice = values.slice(0, n);
                   if (!slice.some((value) => Number.isFinite(value))) return null;
-                  return { name: entry.gene, values: slice, paletteId: entry.paletteId };
+                  return { name: featureLabel(entry.featureId), values: slice, paletteId: entry.paletteId };
                 })
                 .filter((layer): layer is { name: string; values: number[]; paletteId: string } => layer !== null)
             : [];
@@ -1161,8 +1496,8 @@ export default function App() {
         if (layerCount > 0) {
           const vminByLayer: number[] = [];
           const vmaxByLayer: number[] = [];
-          const minParsed = parseMultigeneRange(multigeneRangeMinInput);
-          const maxParsed = parseMultigeneRange(multigeneRangeMaxInput);
+          const minParsed = parseMultiFeatureRange(multiFeatureRangeMinInput);
+          const maxParsed = parseMultiFeatureRange(multiFeatureRangeMaxInput);
           for (let g = 0; g < layerCount; g++) {
             const vals = layers[g].values;
             let vmin: number, vmax: number;
@@ -1183,28 +1518,28 @@ export default function App() {
             vmaxByLayer.push(vmax);
           }
 
-          const spots: Array<{ x: number; y: number; segments: MultigeneSegment[] }> = [];
+          const spots: Array<{ x: number; y: number; segments: MultiFeatureSegment[] }> = [];
           for (let i = 0; i < n; i++) {
             let sum = 0;
             const expr: number[] = [];
             for (let g = 0; g < layerCount; g++) {
               const raw = layers[g].values[i];
               const v = Number.isFinite(raw) ? Math.max(0, raw) : 0;
-              const e = multigeneLogScale ? Math.log1p(v) : v;
+              const e = multiFeatureLogScale ? Math.log1p(v) : v;
               expr.push(e);
               sum += e;
             }
             if (!Number.isFinite(sum) || sum <= 0) continue;
-            const segments: MultigeneSegment[] = [];
+            const segments: MultiFeatureSegment[] = [];
             for (let g = 0; g < layerCount; g++) {
               segments.push({
                 proportion: expr[g] / sum,
-                color: multigeneValueToHex(
+                color: multiFeatureValueToHex(
                   layers[g].values[i] ?? 0,
                   vminByLayer[g],
                   vmaxByLayer[g],
                   layers[g].paletteId,
-                  multigeneLogScale
+                  multiFeatureLogScale
                 ),
               });
             }
@@ -1213,12 +1548,12 @@ export default function App() {
           }
 
           plotTasks.push({
-            type: "multigene",
+            type: "multiFeature",
             options: {
               spots,
               bounds,
               spotSizeScale,
-              layout: multigeneLayout,
+              layout: multiFeatureLayout,
               title: singleTitle,
               legendLayers: layers.map((layer, g) => ({
                 name: layer.name,
@@ -1232,7 +1567,7 @@ export default function App() {
               spotOpacity,
             },
           });
-          plotIds.push(primaryId ?? "");
+          plotIds.push(primaryId ? splitParentByChildId.get(primaryId) ?? primaryId : "");
         }
       } else {
         const colorByHex = colorByToHex(colorByValues, plotColorMode, {
@@ -1284,30 +1619,30 @@ export default function App() {
             spotOpacity,
           },
         });
-        plotIds.push(primaryId ?? "");
+        plotIds.push(primaryId ? splitParentByChildId.get(primaryId) ?? primaryId : "");
       }
     } else if (multiPlot) {
-      for (const id of selectedDatasetIds) {
+      for (const id of activeDatasetIds) {
         const d = datasetCache[id];
         if (!d?.spatial) continue;
         const mode = getSlotMode(id);
-        if (mode === "multigene") {
+        if (mode === "multiFeature") {
           const n = d.spatial.x.length;
-          const byGene = multigeneExpressionByDataset[id];
-          const layers = selectedMultigeneGenes
+          const byFeature = multiFeatureValuesByDataset[id];
+          const layers = selectedMultiFeatures
             .map((entry) => {
-              const values = byGene?.[entry.gene];
+              const values = byFeature?.[entry.featureId];
               if (!values || values.length < n) return null;
               const slice = values.slice(0, n);
               if (!slice.some((value) => Number.isFinite(value))) return null;
-              return { name: entry.gene, values: slice, paletteId: entry.paletteId };
+              return { name: featureLabel(entry.featureId), values: slice, paletteId: entry.paletteId };
             })
             .filter((layer): layer is { name: string; values: number[]; paletteId: string } => layer !== null);
           const layerCount = layers.length;
           const vminByLayer: number[] = [];
           const vmaxByLayer: number[] = [];
-          const minParsed = parseMultigeneRange(multigeneRangeMinInput);
-          const maxParsed = parseMultigeneRange(multigeneRangeMaxInput);
+          const minParsed = parseMultiFeatureRange(multiFeatureRangeMinInput);
+          const maxParsed = parseMultiFeatureRange(multiFeatureRangeMaxInput);
           for (let g = 0; g < layerCount; g++) {
             const vals = layers[g].values;
             let vmin: number, vmax: number;
@@ -1327,28 +1662,28 @@ export default function App() {
             vminByLayer.push(vmin);
             vmaxByLayer.push(vmax);
           }
-          const spots: Array<{ x: number; y: number; segments: MultigeneSegment[] }> = [];
+          const spots: Array<{ x: number; y: number; segments: MultiFeatureSegment[] }> = [];
           for (let i = 0; i < n; i++) {
             let sum = 0;
             const expr: number[] = [];
             for (let g = 0; g < layerCount; g++) {
               const raw = layers[g].values[i];
               const v = Number.isFinite(raw) ? Math.max(0, raw) : 0;
-              const e = multigeneLogScale ? Math.log1p(v) : v;
+              const e = multiFeatureLogScale ? Math.log1p(v) : v;
               expr.push(e);
               sum += e;
             }
             if (!Number.isFinite(sum) || sum <= 0) continue;
-            const segments: MultigeneSegment[] = [];
+            const segments: MultiFeatureSegment[] = [];
             for (let g = 0; g < layerCount; g++) {
               segments.push({
                 proportion: expr[g] / sum,
-                color: multigeneValueToHex(
+                color: multiFeatureValueToHex(
                   layers[g].values[i] ?? 0,
                   vminByLayer[g],
                   vmaxByLayer[g],
                   layers[g].paletteId,
-                  multigeneLogScale
+                  multiFeatureLogScale
                 ),
               });
             }
@@ -1356,13 +1691,13 @@ export default function App() {
             spots.push({ x: d.spatial.x[i], y: d.spatial.y[i], segments });
           }
           plotTasks.push({
-            type: "multigene",
+            type: "multiFeature",
             options: {
               spots,
               bounds: getSlotBounds(d.spatial),
               spotSizeScale,
-              layout: multigeneLayout,
-              title: `${id}${embeddingMode === "umap" ? " (UMAP)" : " (Spatial)"}`,
+              layout: multiFeatureLayout,
+              title: `${d.meta.name}${embeddingMode === "umap" ? " (UMAP)" : " (Spatial)"}`,
               legendLayers: layers.map((layer, g) => ({
                 name: layer.name,
                 paletteId: layer.paletteId,
@@ -1375,7 +1710,7 @@ export default function App() {
               spotOpacity,
             },
           });
-          plotIds.push(id);
+          plotIds.push(splitParentByChildId.get(id) ?? id);
         } else {
           const slotRange = mode === "continuous" && slotContinuousRange ? slotContinuousRange[id] : null;
           const colorByHex = colorByToHex(getSlotColorBy(id), mode, {
@@ -1396,7 +1731,7 @@ export default function App() {
               colorByHex,
               bounds: getSlotBounds(d.spatial),
               spotSizeScale,
-              title: `${id}${embeddingMode === "umap" ? " (UMAP)" : " (Spatial)"}`,
+              title: `${d.meta.name}${embeddingMode === "umap" ? " (UMAP)" : " (Spatial)"}`,
               legend: getSlotLegend(id),
               colorBarStats: slotColorBar,
               colorBarTitle:
@@ -1413,7 +1748,7 @@ export default function App() {
               spotOpacity,
             },
           });
-          plotIds.push(id);
+            plotIds.push(splitParentByChildId.get(id) ?? id);
         }
       }
     }
@@ -1442,23 +1777,23 @@ export default function App() {
         gStateClass?: typeof GStateClass,
         pageHeightMm?: number
       ) => void;
-      let drawMultigenePlotToPdf: (
+      let drawMultiFeaturePlotToPdf: (
         pdf: jsPDF,
-        options: MultigeneVectorExportOptions,
+        options: MultiFeatureVectorExportOptions,
         pageRect: { x: number; y: number; w: number; h: number },
         gStateClass?: typeof GStateClass,
         pageHeightMm?: number
       ) => void;
       if (request.mode === "raw") {
-        const { drawPlotToPdfVector, drawMultigenePlotToPdfVector } = await import("./exportPlotVector");
+        const { drawPlotToPdfVector, drawMultiFeaturePlotToPdfVector } = await import("./exportPlotVector");
         drawScatterPlotToPdf = drawPlotToPdfVector;
-        drawMultigenePlotToPdf = drawMultigenePlotToPdfVector;
+        drawMultiFeaturePlotToPdf = drawMultiFeaturePlotToPdfVector;
       } else {
-        const { drawPlotToPdfRasterized, drawMultigenePlotToPdfRasterized } = await import("./exportPlotRaster");
+        const { drawPlotToPdfRasterized, drawMultiFeaturePlotToPdfRasterized } = await import("./exportPlotRaster");
         drawScatterPlotToPdf = (pdf, options, pageRect, gStateClass, pageHeightMm) =>
           drawPlotToPdfRasterized(pdf, options, pageRect, gStateClass, request.dpi, pageHeightMm);
-        drawMultigenePlotToPdf = (pdf, options, pageRect, gStateClass, pageHeightMm) =>
-          drawMultigenePlotToPdfRasterized(pdf, options, pageRect, gStateClass, request.dpi, pageHeightMm);
+        drawMultiFeaturePlotToPdf = (pdf, options, pageRect, gStateClass, pageHeightMm) =>
+          drawMultiFeaturePlotToPdfRasterized(pdf, options, pageRect, gStateClass, request.dpi, pageHeightMm);
       }
       setExportProgress(5);
       console.log("[Export PDF] Modules loaded, building plot tasks...");
@@ -1597,7 +1932,7 @@ export default function App() {
         if (task.type === "scatter") {
           drawScatterPlotToPdf(pdf, task.options, contentRect, GStateClass, PAGE_H_MM);
         } else {
-          drawMultigenePlotToPdf(pdf, task.options, contentRect, GStateClass, PAGE_H_MM);
+          drawMultiFeaturePlotToPdf(pdf, task.options, contentRect, GStateClass, PAGE_H_MM);
         }
         setExportProgress(5 + Math.round((95 * (i + 1)) / plotCount));
       }
@@ -1672,6 +2007,134 @@ export default function App() {
           Backend: {anndataError}
         </div>
       )}
+      {splitModalParent && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label="Split panel"
+          style={{
+            position: "fixed",
+            inset: 0,
+            zIndex: 10000,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            background: "rgba(0, 0, 0, 0.65)",
+            padding: 24,
+          }}
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) setSplitModalParentId(null);
+          }}
+        >
+          <div
+            style={{
+              width: "min(520px, 100%)",
+              maxHeight: "min(680px, 90vh)",
+              display: "flex",
+              flexDirection: "column",
+              borderRadius: 10,
+              border: "1px solid var(--sidebar-border)",
+              background: "var(--sidebar-bg)",
+              boxShadow: "0 18px 45px rgba(0,0,0,0.45)",
+              overflow: "hidden",
+            }}
+          >
+            <div style={{ padding: "14px 16px 10px", borderBottom: "1px solid var(--sidebar-border)" }}>
+              <div style={{ fontSize: 16, fontWeight: 600 }}>Split panel by obs key</div>
+              <div
+                style={{
+                  marginTop: 4,
+                  fontSize: 12,
+                  color: "var(--text-muted)",
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                  whiteSpace: "nowrap",
+                }}
+                title={splitModalParent.meta.name}
+              >
+                {splitModalParent.meta.name}
+              </div>
+            </div>
+            <div style={{ padding: "12px 16px 0" }}>
+              <input
+                type="text"
+                value={splitSearch}
+                onChange={(event) => setSplitSearch(event.target.value)}
+                placeholder="Search obs key…"
+                autoFocus
+                style={{
+                  width: "100%",
+                  padding: "8px 10px",
+                  borderRadius: 6,
+                  border: "1px solid var(--sidebar-border)",
+                  background: "var(--bg-main)",
+                  color: "var(--text-primary)",
+                  fontSize: 13,
+                  boxSizing: "border-box",
+                }}
+              />
+            </div>
+            <div
+              className="sidebar-scroll"
+              style={{ flex: 1, minHeight: 180, overflow: "auto", margin: "12px 8px 8px", padding: "0 8px" }}
+            >
+              {filteredSplitCandidates.length === 0 ? (
+                <div style={{ padding: 16, fontSize: 12, color: "var(--text-muted)" }}>
+                  No obs key has 2–200 unique values.
+                </div>
+              ) : (
+                filteredSplitCandidates.map((candidate) => (
+                  <button
+                    key={candidate.key}
+                    type="button"
+                    onClick={() => applySplit(splitModalParent.meta.id, candidate.key)}
+                    style={{
+                      width: "100%",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                      gap: 10,
+                      padding: "10px 10px",
+                      marginBottom: 6,
+                      borderRadius: 6,
+                      border: "1px solid var(--sidebar-border)",
+                      background: "var(--bg-main)",
+                      color: "var(--text-primary)",
+                      fontSize: 13,
+                      cursor: "pointer",
+                      textAlign: "left",
+                    }}
+                  >
+                    <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      {candidate.key}
+                    </span>
+                    <span style={{ flexShrink: 0, fontSize: 11, color: "var(--text-muted)" }}>
+                      {candidate.count} groups
+                    </span>
+                  </button>
+                ))
+              )}
+            </div>
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, padding: "10px 16px 14px" }}>
+              <button
+                type="button"
+                onClick={() => setSplitModalParentId(null)}
+                style={{
+                  padding: "7px 12px",
+                  borderRadius: 6,
+                  border: "1px solid var(--sidebar-border)",
+                  background: "var(--bg-main)",
+                  color: "var(--text-primary)",
+                  fontSize: 13,
+                  cursor: "pointer",
+                }}
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       <div style={{ display: "flex", flex: 1, minHeight: 0, minWidth: 0, overflow: "hidden" }}>
       <Sidebar
         datasets={datasets}
@@ -1680,15 +2143,17 @@ export default function App() {
         onSelectDatasets={(ids) => {
           debugLog("onSelectDatasets", { ids });
           setSelectedDatasetIds(ids);
+          failedLoadIdsRef.current.clear();
+          pruneSplitsForSelection(ids);
           if (ids.length > 0) {
             setExpressionByDataset({});
             setSelectedGene(null);
             setExpression1(null);
             setExpression2(null);
-            setSelectedGene1(null);
-            setSelectedGene2(null);
-            setSelectedMultigeneGenes([]);
-            setMultigeneExpressionByGene({});
+            setSelectedFeature1(null);
+            setSelectedFeature2(null);
+            setSelectedMultiFeatures([]);
+            setMultiFeatureValuesByFeature({});
             setBackgroundImageKey(null);
           }
         }}
@@ -1697,6 +2162,7 @@ export default function App() {
         genes={genes}
         obs={obs}
         obsColumns={obsColumns}
+        numericObsColumns={numericObsColumns}
         annotationLegendEntries={annotationLegendEntries}
         colorMode={colorMode}
         selectedGene={selectedGene}
@@ -1710,30 +2176,30 @@ export default function App() {
           setSelectedObsCol(c);
           setColorMode("annotation");
         }}
-        onColorByCoexpression={(g1, g2) => {
-          setSelectedGene1(g1);
-          setSelectedGene2(g2);
-          setColorMode("coexpression");
+        onColorByDualFeature={(g1, g2) => {
+          setSelectedFeature1(g1);
+          setSelectedFeature2(g2);
+          setColorMode("dualFeature");
         }}
         onColorModeChange={setColorMode}
-        selectedGene1={selectedGene1}
-        selectedGene2={selectedGene2}
-        coexpressionPalette={coexpressionPalette}
-        onCoexpressionPaletteChange={setCoexpressionPalette}
-        coexpressionLogScale={coexpressionLogScale}
-        onCoexpressionLogScaleChange={setCoexpressionLogScale}
-        selectedMultigeneGenes={selectedMultigeneGenes}
-        onMultigeneGenesChange={setSelectedMultigeneGenes}
-        multigeneLogScale={multigeneLogScale}
-        onMultigeneLogScaleChange={setMultigeneLogScale}
-        multigeneLayout={multigeneLayout}
-        onMultigeneLayoutChange={setMultigeneLayout}
-        multigeneRangeMinInput={multigeneRangeMinInput}
-        multigeneRangeMaxInput={multigeneRangeMaxInput}
-        onMultigeneRangeMinInputChange={setMultigeneRangeMinInput}
-        onMultigeneRangeMaxInputChange={setMultigeneRangeMaxInput}
-        effectiveMultigeneColorMin={effectiveMultigeneColorRange?.colorMin ?? null}
-        effectiveMultigeneColorMax={effectiveMultigeneColorRange?.colorMax ?? null}
+        selectedFeature1={selectedFeature1}
+        selectedFeature2={selectedFeature2}
+        dualFeaturePalette={dualFeaturePalette}
+        onDualFeaturePaletteChange={setDualFeaturePalette}
+        dualFeatureLogScale={dualFeatureLogScale}
+        onDualFeatureLogScaleChange={setDualFeatureLogScale}
+        selectedMultiFeatures={selectedMultiFeatures}
+        onMultiFeaturesChange={setSelectedMultiFeatures}
+        multiFeatureLogScale={multiFeatureLogScale}
+        onMultiFeatureLogScaleChange={setMultiFeatureLogScale}
+        multiFeatureLayout={multiFeatureLayout}
+        onMultiFeatureLayoutChange={setMultiFeatureLayout}
+        multiFeatureRangeMinInput={multiFeatureRangeMinInput}
+        multiFeatureRangeMaxInput={multiFeatureRangeMaxInput}
+        onMultiFeatureRangeMinInputChange={setMultiFeatureRangeMinInput}
+        onMultiFeatureRangeMaxInputChange={setMultiFeatureRangeMaxInput}
+        effectiveMultiFeatureColorMin={effectiveMultiFeatureColorRange?.colorMin ?? null}
+        effectiveMultiFeatureColorMax={effectiveMultiFeatureColorRange?.colorMax ?? null}
         selectedLayer={selectedLayer}
         onLayerChange={setSelectedLayer}
         spotSizeScale={spotSizeScale}
@@ -1751,8 +2217,8 @@ export default function App() {
         rangeMaxInput={rangeMaxInput}
         onRangeMinInputChange={setRangeMinInput}
         onRangeMaxInputChange={setRangeMaxInput}
-        effectiveColorMin={selectedDatasetIds.length > 1 && isRangePercentile ? null : (continuousColorRange?.colorMin ?? null)}
-        effectiveColorMax={selectedDatasetIds.length > 1 && isRangePercentile ? null : (continuousColorRange?.colorMax ?? null)}
+        effectiveColorMin={activeDatasetIds.length > 1 && isRangePercentile ? null : (continuousColorRange?.colorMin ?? null)}
+        effectiveColorMax={activeDatasetIds.length > 1 && isRangePercentile ? null : (continuousColorRange?.colorMax ?? null)}
         logScale={logScale}
         onLogScaleChange={setLogScale}
         backgroundImageKey={backgroundImageKey}
@@ -1770,7 +2236,7 @@ export default function App() {
       />
       <div style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0 }}>
         {/* Toolbar: shown when at least one dataset has loaded spatial; Export captures nodes with data-export-plot */}
-        {selectedDatasetIds.length > 0 && selectedDatasetIds.some((id) => datasetCache[id]?.spatial) && (
+        {activeDatasetIds.length > 0 && activeDatasetIds.some((id) => datasetCache[id]?.spatial) && (
           <div
             style={{
               flexShrink: 0,
@@ -1896,7 +2362,7 @@ export default function App() {
               fontSize: 14,
             }}
           >
-            <span>Loading dataset{selectedDatasetIds.length > 1 ? "s" : ""}… {loadProgress}%</span>
+            <span>Loading dataset{activeDatasetIds.length > 1 ? "s" : ""}… {loadProgress}%</span>
             <div
               style={{
                 width: 280,
@@ -1918,10 +2384,12 @@ export default function App() {
             </div>
           </div>
         ) : (() => {
-          const hasLoaded = selectedDatasetIds.length > 0 && selectedDatasetIds.some((id) => datasetCache[id]?.spatial);
-          const multiPlot = selectedDatasetIds.length > 1 && (colorMode === "gene" || colorMode === "annotation" || colorMode === "coexpression" || colorMode === "multigene");
-          const showSinglePlot = hasLoaded && selectedDatasetIds.length === 1;
+          const hasLoaded = activeDatasetIds.length > 0 && activeDatasetIds.some((id) => datasetCache[id]?.spatial);
+          const multiPlot = activeDatasetIds.length > 1 && (colorMode === "gene" || colorMode === "annotation" || colorMode === "dualFeature" || colorMode === "multiFeature");
+          const showSinglePlot = hasLoaded && activeDatasetIds.length === 1;
           if (showSinglePlot && spatial) {
+            const singleParentId = primaryId ? splitParentByChildId.get(primaryId) ?? primaryId : null;
+            const singleSplit = singleParentId ? splitByDataset[singleParentId] : undefined;
             return (
           <div
             data-export-plot
@@ -1953,8 +2421,8 @@ export default function App() {
             colorMin={plotColorMode === "continuous" ? continuousColorRange?.colorMin : undefined}
             colorMax={plotColorMode === "continuous" ? continuousColorRange?.colorMax : undefined}
             backgroundImageUrl={
-              primaryId && backgroundImageKey
-                ? datasetImageUrl(primaryId, backgroundImageKey)
+              singleParentId && backgroundImageKey
+                ? datasetImageUrl(singleParentId, backgroundImageKey)
                 : null
             }
             backgroundOpacity={backgroundOpacity}
@@ -1984,23 +2452,23 @@ export default function App() {
                     : null
                 : null
             }
-            hoverGene1Name={plotColorMode === "coexpression" ? selectedGene1 : null}
-            hoverGene1Values={plotColorMode === "coexpression" ? expression1 : null}
-            hoverGene2Name={plotColorMode === "coexpression" ? selectedGene2 : null}
-            hoverGene2Values={plotColorMode === "coexpression" ? expression2 : null}
-            multigeneLayers={multigeneLayers}
-            multigeneLogScale={multigeneLogScale}
-            multigeneLayout={multigeneLayout}
-            multigeneRangeMinInput={multigeneRangeMinInput}
-            multigeneRangeMaxInput={multigeneRangeMaxInput}
-            hoverMultigeneNames={
-              plotColorMode === "multigene"
-                ? selectedMultigeneGenes.map((e) => e.gene)
+            hoverFeature1Name={plotColorMode === "dualFeature" && selectedFeature1 ? featureLabel(selectedFeature1) : null}
+            hoverFeature1Values={plotColorMode === "dualFeature" ? expression1 : null}
+            hoverFeature2Name={plotColorMode === "dualFeature" && selectedFeature2 ? featureLabel(selectedFeature2) : null}
+            hoverFeature2Values={plotColorMode === "dualFeature" ? expression2 : null}
+            multiFeatureLayers={multiFeatureLayers}
+            multiFeatureLogScale={multiFeatureLogScale}
+            multiFeatureLayout={multiFeatureLayout}
+            multiFeatureRangeMinInput={multiFeatureRangeMinInput}
+            multiFeatureRangeMaxInput={multiFeatureRangeMaxInput}
+            hoverMultiFeatureNames={
+              plotColorMode === "multiFeature"
+                ? selectedMultiFeatures.map((e) => featureLabel(e.featureId))
                 : null
             }
-            hoverMultigeneValues={
-              plotColorMode === "multigene"
-                ? selectedMultigeneGenes.map((e) => multigeneExpressionByGene[e.gene] ?? [])
+            hoverMultiFeatureValues={
+              plotColorMode === "multiFeature"
+                ? selectedMultiFeatures.map((e) => multiFeatureValuesByFeature[e.featureId] ?? [])
                 : null
             }
             colorBarTitle={
@@ -2012,7 +2480,7 @@ export default function App() {
             }
             title={
               primaryId
-                ? `${primaryId}${
+                ? `${meta?.name ?? primaryId}${
                     meta
                       ? embeddingMode === "umap"
                         ? " (UMAP)"
@@ -2021,8 +2489,10 @@ export default function App() {
                   }`
                 : undefined
             }
+            onSplitClick={!singleSplit ? () => setSplitModalParentId(singleParentId) : undefined}
+            onMergeClick={singleSplit && singleParentId ? () => removeSplit(singleParentId) : undefined}
             />
-            {(expressionLoading || coexpressionLoading || multigeneLoading) && (
+            {(expressionLoading || dualFeatureLoading || multiFeatureLoading) && (
               <div
                 style={{
                   position: "absolute",
@@ -2040,10 +2510,10 @@ export default function App() {
                 <span>
                   {expressionLoading && selectedGene
                     ? `Loading expression for ${selectedGene}…`
-                    : coexpressionLoading && selectedGene1 && selectedGene2
-                      ? `Loading expression for ${selectedGene1}, ${selectedGene2}…`
-                      : multigeneLoading && selectedMultigeneGenes.length > 0
-                        ? `Loading expression for ${selectedMultigeneGenes.map((e) => e.gene).join(", ")}…`
+                    : dualFeatureLoading && selectedFeature1 && selectedFeature2
+                      ? `Loading features for ${featureLabel(selectedFeature1)}, ${featureLabel(selectedFeature2)}…`
+                      : multiFeatureLoading && selectedMultiFeatures.length > 0
+                        ? `Loading features for ${selectedMultiFeatures.map((e) => featureLabel(e.featureId)).join(", ")}…`
                         : "Loading expression…"}
                 </span>
                 <div
@@ -2093,11 +2563,11 @@ export default function App() {
                 const expr = expressionByDataset[id];
                 return expr ? expr.slice(0, n) : (new Array(n).fill(NaN) as (string | number)[]);
               }
-              if (colorMode === "coexpression") {
+              if (colorMode === "dualFeature") {
                 const e1 = expression1ByDataset[id];
                 const e2 = expression2ByDataset[id];
                 if (!e1 || !e2 || e1.length < n || e2.length < n) return new Array(n).fill(0);
-                const mapRaw = (arr: number[]) => (coexpressionLogScale ? arr.map((x) => Math.log1p(Math.max(0, x))) : arr);
+                const mapRaw = (arr: number[]) => (dualFeatureLogScale ? arr.map((x) => Math.log1p(Math.max(0, x))) : arr);
                 const log1 = mapRaw(e1.slice(0, n));
                 const log2 = mapRaw(e2.slice(0, n));
                 const { min: min1, max: max1 } = finiteMinMax(log1);
@@ -2108,7 +2578,7 @@ export default function App() {
                 for (let i = 0; i < n; i++) {
                   const v1 = (log1[i] - min1) / range1;
                   const v2 = (log2[i] - min2) / range2;
-                  out.push(coexpressionToHex(v1, v2, coexpressionPalette));
+                  out.push(dualFeatureToHex(v1, v2, dualFeaturePalette));
                 }
                 return out;
               }
@@ -2120,37 +2590,37 @@ export default function App() {
               if (colorMode === "annotation" && selectedObsCol && d.obs?.data[selectedObsCol])
                 return obsValueType === "numeric" ? "continuous" : "categorical";
               if (colorMode === "gene" && expressionByDataset[id]?.length === d.spatial.x.length) return "continuous";
-              if (colorMode === "coexpression") {
+              if (colorMode === "dualFeature") {
                 const e1 = expression1ByDataset[id];
                 const e2 = expression2ByDataset[id];
                 const n = d.spatial.x.length;
-                if (e1 && e2 && e1.length >= n && e2.length >= n) return "coexpression";
+                if (e1 && e2 && e1.length >= n && e2.length >= n) return "dualFeature";
               }
-              if (colorMode === "multigene" && selectedMultigeneGenes.length > 0) {
-                const byGene = multigeneExpressionByDataset[id];
-                if (byGene) {
+              if (colorMode === "multiFeature" && selectedMultiFeatures.length > 0) {
+                const byFeature = multiFeatureValuesByDataset[id];
+                if (byFeature) {
                   const n = d.spatial.x.length;
-                  // Show multigene when at least one gene has data in this sample (missing genes are skipped)
-                  const hasAnyLoaded = selectedMultigeneGenes.some((e) => (byGene[e.gene]?.length ?? 0) >= n);
-                  if (hasAnyLoaded) return "multigene";
+                  // Show multiFeature when at least one gene has data in this sample (missing genes are skipped)
+                  const hasAnyLoaded = selectedMultiFeatures.some((e) => (byFeature[e.featureId]?.length ?? 0) >= n);
+                  if (hasAnyLoaded) return "multiFeature";
                 }
               }
               return "none";
             };
-            // Build multigene layers for this slot: only genes with valid (finite) data in this dataset
-            const slotMultigeneLayers = (id: string) => {
+            // Build multiFeature layers for this slot: only genes with valid (finite) data in this dataset
+            const slotMultiFeatureLayers = (id: string) => {
               const d = datasetCache[id]?.spatial;
-              const byGene = multigeneExpressionByDataset[id];
-              if (!d || !byGene || selectedMultigeneGenes.length === 0) return undefined;
+              const byFeature = multiFeatureValuesByDataset[id];
+              if (!d || !byFeature || selectedMultiFeatures.length === 0) return undefined;
               const n = d.x.length;
-              const layers = selectedMultigeneGenes
+              const layers = selectedMultiFeatures
                 .map((entry) => {
-                  const values = byGene[entry.gene];
+                  const values = byFeature[entry.featureId];
                   if (!values || values.length < n) return null;
                   const slice = values.slice(0, n);
                   const hasFinite = slice.some((v) => Number.isFinite(v));
                   if (!hasFinite) return null;
-                  return { name: entry.gene, values: slice, paletteId: entry.paletteId };
+                  return { name: featureLabel(entry.featureId), values: slice, paletteId: entry.paletteId };
                 })
                 .filter((l): l is { name: string; values: number[]; paletteId: string } => l !== null);
               return layers.length > 0 ? layers : undefined;
@@ -2186,11 +2656,11 @@ export default function App() {
                 .map(([label, count]) => ({ label, count, color: globalCatMap.get(label) ?? "#888888" }))
                 .sort((a, b) => (b.count !== a.count ? b.count - a.count : (a.label < b.label ? -1 : a.label > b.label ? 1 : 0)));
             };
-            const cols = selectedDatasetIds.length <= 2 ? 2 : selectedDatasetIds.length <= 4 ? 2 : 3;
-            const rows = Math.ceil(selectedDatasetIds.length / cols);
+            const cols = activeDatasetIds.length <= 2 ? 2 : activeDatasetIds.length <= 4 ? 2 : 3;
+            const rows = Math.ceil(activeDatasetIds.length / cols);
             const gridMinWidth = cols * MULTIPLOT_MIN_CELL_WIDTH_PX + (cols - 1) * MULTIPLOT_GAP_PX + 2 * MULTIPLOT_PADDING_PX;
             const gridMinHeight = rows * MULTIPLOT_MIN_CELL_HEIGHT_PX + (rows - 1) * MULTIPLOT_GAP_PX + 2 * MULTIPLOT_PADDING_PX;
-            const gridLoading = (colorMode === "coexpression" && coexpressionLoading) || (colorMode === "multigene" && multigeneLoading);
+            const gridLoading = (colorMode === "dualFeature" && dualFeatureLoading) || (colorMode === "multiFeature" && multiFeatureLoading);
             return (
               <div
                 style={{
@@ -2215,12 +2685,15 @@ export default function App() {
                     boxSizing: "border-box",
                   }}
                 >
-                {selectedDatasetIds.map((id) => {
+                {activeDatasetIds.map((id) => {
                   const d = datasetCache[id];
                   if (!d?.spatial) return null;
                   const mode = slotPlotMode(id);
                   const slotRange = mode === "continuous" && slotContinuousRange ? slotContinuousRange[id] : null;
-                  const slotMultigene = slotMultigeneLayers(id);
+                  const slotMultiFeature = slotMultiFeatureLayers(id);
+                  const parentId = splitParentByChildId.get(id) ?? id;
+                  const childSplit = splitByDataset[parentId];
+                  const isSplitChild = parentId !== id;
                   return (
                     <div key={id} data-export-plot style={{ position: "relative", minHeight: 0, minWidth: 0, display: "flex", flexDirection: "column" }}>
                       <SpatialPlot
@@ -2249,25 +2722,27 @@ export default function App() {
                               : selectedObsCol
                             : null
                         }
-                        backgroundImageUrl={backgroundImageKey ? datasetImageUrl(id, backgroundImageKey) : null}
+                        backgroundImageUrl={backgroundImageKey ? datasetImageUrl(parentId, backgroundImageKey) : null}
                         backgroundOpacity={backgroundOpacity}
                         backgroundImageBounds={slotBgBounds(d.meta, backgroundImageKey)}
                         hoverAnnotationName={colorMode === "annotation" && obsValueType === "categorical" ? selectedObsCol : null}
                         hoverAnnotationValues={colorMode === "annotation" && selectedObsCol && d.obs?.data[selectedObsCol] ? d.obs.data[selectedObsCol] : null}
                         hoverGeneName={mode === "continuous" ? (colorMode === "gene" ? selectedGene : selectedObsCol) : null}
                         hoverGeneValues={mode === "continuous" && selectedObsCol && d.obs?.data[selectedObsCol] ? (d.obs.data[selectedObsCol] as number[]) : mode === "continuous" && colorMode === "gene" ? expressionByDataset[id] ?? null : null}
-                        hoverGene1Name={mode === "coexpression" ? selectedGene1 : null}
-                        hoverGene1Values={mode === "coexpression" ? (expression1ByDataset[id] ?? null) : null}
-                        hoverGene2Name={mode === "coexpression" ? selectedGene2 : null}
-                        hoverGene2Values={mode === "coexpression" ? (expression2ByDataset[id] ?? null) : null}
-                        multigeneLayers={mode === "multigene" ? slotMultigene : undefined}
-                        multigeneLogScale={multigeneLogScale}
-                        multigeneLayout={multigeneLayout}
-                        multigeneRangeMinInput={multigeneRangeMinInput}
-                        multigeneRangeMaxInput={multigeneRangeMaxInput}
-                        hoverMultigeneNames={mode === "multigene" ? selectedMultigeneGenes.map((e) => e.gene) : null}
-                        hoverMultigeneValues={mode === "multigene" ? selectedMultigeneGenes.map((e) => multigeneExpressionByDataset[id]?.[e.gene] ?? []) : null}
-                        title={`${id}${embeddingMode === "umap" ? " (UMAP)" : " (Spatial)"}`}
+                        hoverFeature1Name={mode === "dualFeature" && selectedFeature1 ? featureLabel(selectedFeature1) : null}
+                        hoverFeature1Values={mode === "dualFeature" ? (expression1ByDataset[id] ?? null) : null}
+                        hoverFeature2Name={mode === "dualFeature" && selectedFeature2 ? featureLabel(selectedFeature2) : null}
+                        hoverFeature2Values={mode === "dualFeature" ? (expression2ByDataset[id] ?? null) : null}
+                        multiFeatureLayers={mode === "multiFeature" ? slotMultiFeature : undefined}
+                        multiFeatureLogScale={multiFeatureLogScale}
+                        multiFeatureLayout={multiFeatureLayout}
+                        multiFeatureRangeMinInput={multiFeatureRangeMinInput}
+                        multiFeatureRangeMaxInput={multiFeatureRangeMaxInput}
+                        hoverMultiFeatureNames={mode === "multiFeature" ? selectedMultiFeatures.map((e) => featureLabel(e.featureId)) : null}
+                        hoverMultiFeatureValues={mode === "multiFeature" ? selectedMultiFeatures.map((e) => multiFeatureValuesByDataset[id]?.[e.featureId] ?? []) : null}
+                        title={`${d.meta.name}${embeddingMode === "umap" ? " (UMAP)" : " (Spatial)"}`}
+                        onSplitClick={!isSplitChild ? () => setSplitModalParentId(id) : undefined}
+                        onMergeClick={isSplitChild && childSplit ? () => removeSplit(parentId) : undefined}
                       />
                     </div>
                   );
@@ -2288,10 +2763,10 @@ export default function App() {
                     }}
                   >
                     <span>
-                      {colorMode === "coexpression" && selectedGene1 && selectedGene2
-                        ? `Loading co-expression for ${selectedGene1}, ${selectedGene2}…`
-                        : colorMode === "multigene" && selectedMultigeneGenes.length > 0
-                          ? `Loading multi-gene for ${selectedMultigeneGenes.map((e) => e.gene).join(", ")}…`
+                      {colorMode === "dualFeature" && selectedFeature1 && selectedFeature2
+                        ? `Loading dual features for ${featureLabel(selectedFeature1)}, ${featureLabel(selectedFeature2)}…`
+                        : colorMode === "multiFeature" && selectedMultiFeatures.length > 0
+                          ? `Loading multi-features for ${selectedMultiFeatures.map((e) => featureLabel(e.featureId)).join(", ")}…`
                           : "Loading…"}
                     </span>
                     <div style={{ width: 240, height: 6, background: "var(--sidebar-border)", borderRadius: 3, overflow: "hidden" }}>

@@ -86,7 +86,7 @@ This will automatically:
 
 ## Frontend tests (Playwright E2E)
 
-- **Scope**: A small set of Playwright end-to-end smoke tests cover core flows (dataset selection, embedding/background toggles, Color by Annotation/Gene, Multi-gene layouts, Export PDF).
+- **Scope**: A small set of Playwright end-to-end smoke tests cover core flows (dataset selection, embedding/background toggles, Color by Annotation/Gene, Multi-Feature layouts, Export PDF).
 - **Setup**:
   - Browser system dependencies (like `libnss3`, `libatk`) are managed automatically via `pixi.toml` for Linux.
   - In `spatialxgene/frontend`, install dev deps: `npm install` (or `pixi run install` from root).
@@ -106,13 +106,13 @@ This will automatically:
 - **PDF export**:
   - The toolbar’s “Export PDF” button opens a menu with `Raw PDF`, `Rasterized PDF (300dpi)`, `Rasterized PDF (600dpi)`, and `Rasterized PDF (1200dpi)`; all use export-specific renderers rather than screenshotting the DOM.
   - The PDF page size is fixed to 180×210 mm (portrait). A global scale is computed from the union of spot bounds and background image bounds for all samples; spot size uses the same coordinate-aware spacing as the screen view so Spatial and embedding exports match the UI.
-  - `Raw PDF`: tissue images are raster layers; spots, titles, legends, and multigene Pie/Grid marks are vector shapes.
+  - `Raw PDF`: tissue images are raster layers; spots, titles, legends, and multi-feature Pie/Grid marks are vector shapes.
   - `Rasterized PDF`: only the expression plot marks are rasterized into a separate image layer at the selected DPI; the tissue/background layer remains independent, and titles/legends stay vector.
   - **Legend/color bar placement**: Each sample is given a `panelRect` (the full cell area in mm). All legends and color bars use this rectangle to anchor the bottom-right corner, so they align to the **panel** rather than to the spots or image bounds. This avoids misalignment when only spots are drawn (no background).
   - **Categorical legend**: Background box with padding; rows of swatch + label (light) + count (grey), with a fixed one-character gap between label and count; content offset (`contentY = boxTop + PAD + 1.5`) so the block sits vertically centered in the box.
   - **Gene color bar**: Background box contains a title line (gene or numeric field name, left-aligned with the bar), then a vertical gradient bar (high at top, low at bottom) and hi/mid/lo labels; bar uses `continuousToRgb` and the same palette/reverse as the UI.
-  - **Multi-gene legend**: Rows of narrow gradient bar + "gene vmin–vmax" text; each row uses a shared `centerY` so the bar and text are vertically centered. Same palettes and ranges as the on-screen multigene legend.
-  - **Sample title**: Drawn **only once per cell** in the layout **title band** (App.tsx, before calling the draw functions). The draw functions receive `contentRect` (plot area only), so they must **not** draw the title—otherwise the title would appear twice (once in the band, once inside the plot). Single-sample export: when `plotColorMode === "multigene"`, App builds a **multigene** task (spots + legendLayers) instead of scatter, so the PDF shows the same pie/grid colors as the UI.
+  - **Multi-Feature legend**: Rows of narrow gradient bar + "gene vmin–vmax" text; each row uses a shared `centerY` so the bar and text are vertically centered. Same palettes and ranges as the on-screen multi-feature legend.
+  - **Sample title**: Drawn **only once per cell** in the layout **title band** (App.tsx, before calling the draw functions). The draw functions receive `contentRect` (plot area only), so they must **not** draw the title—otherwise the title would appear twice (once in the band, once inside the plot). Single-sample export: when `plotColorMode === "multi-feature"`, App builds a **multi-feature** task (spots + legendLayers) instead of scatter, so the PDF shows the same pie/grid colors as the UI.
   - **Grouping for Illustrator**: In `Raw PDF`, each sample’s plot (background rect + tissue image + spots) and its legend (color bar or categorical legend + background box) are drawn as separate **Form XObjects** (`plotFormKey`, `legendFormKey`), so in Illustrator they appear as two groups per panel that can be moved or edited independently. `Rasterized PDF` keeps the tissue/background and rasterized marks as separate PDF objects rather than flattening them into a single image.
 
 ## Pixi tasks / Makefile targets
@@ -152,7 +152,7 @@ Bump in sync: `spatialxgene/__init__.py` (`__version__`), `pyproject.toml` (`ver
 ## Rules and conventions (quick pointer)
 
 - **Error handling and communication**: When errors occur, follow root [RULES.md](../RULES.md) §1 (minimal fix → logging → output snippets). Communicate in 中文; **code and comments in English**.
-- **Detailed rules**: Frontend (large arrays, rAF, sidebar scroll, JSX, multigene), backend (dataset path, viewable), preprocess (return value, counts, in_tissue, raw), deployment (subpath, package): see [RULES.md](../RULES.md) §5 table and §4.3.
+- **Detailed rules**: Frontend (large arrays, rAF, sidebar scroll, JSX, multi-feature), backend (dataset path, viewable), preprocess (return value, counts, in_tissue, raw), deployment (subpath, package): see [RULES.md](../RULES.md) §5 table and §4.3.
 
 ## Other docs
 

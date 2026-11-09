@@ -154,6 +154,13 @@ def _obsm_entry_has_at_least_2_cols(obsm: Any, key: str) -> bool:
     return False
 
 
+SPATIAL_OBS_COLUMN_PAIRS: tuple[tuple[str, str], ...] = (
+    ("x", "y"),
+    ("center_x", "center_y"),
+    ("Cx", "Cy"),
+)
+
+
 def _check_viewable_h5(path: Path) -> tuple[bool, bool, bool, bool]:
     """
     Check if the h5ad has spatial/UMAP/PCA/tsne by reading only structure (obsm keys, obs columns)
@@ -176,7 +183,10 @@ def _check_viewable_h5(path: Path) -> tuple[bool, bool, bool, bool]:
             if not has_spatial:
                 obs = f.get("obs")
                 if obs is not None and isinstance(obs, h5py.Group):
-                    has_spatial = "x" in obs and "y" in obs
+                    has_spatial = any(
+                        x_key in obs and y_key in obs
+                        for x_key, y_key in SPATIAL_OBS_COLUMN_PAIRS
+                    )
     except Exception:
         pass
     return (has_spatial, has_umap, has_pca, has_tsne)
@@ -396,11 +406,26 @@ def _get_image_array(adata, key: str):
     return arr
 
 
+def _get_obs_spatial_xy(adata) -> Optional[tuple[np.ndarray, np.ndarray]]:
+    """Return numeric x/y columns using supported fallback names, or None."""
+    for x_key, y_key in SPATIAL_OBS_COLUMN_PAIRS:
+        if x_key not in adata.obs.columns or y_key not in adata.obs.columns:
+            continue
+        try:
+            x = np.asarray(adata.obs[x_key].values, dtype=np.float64)
+            y = np.asarray(adata.obs[y_key].values, dtype=np.float64)
+        except (TypeError, ValueError):
+            continue
+        if len(x) == len(y):
+            return x, y
+    return None
+
+
 def _has_spatial(adata) -> bool:
-    """True if adata has spatial coordinates (obsm or obs x/y)."""
+    """True if adata has spatial coordinates (obsm or common obs x/y columns)."""
     if "spatial" in adata.obsm or "X_spatial" in adata.obsm:
         return True
-    return "x" in adata.obs.columns and "y" in adata.obs.columns
+    return _get_obs_spatial_xy(adata) is not None
 
 
 def _get_plot_coordinates(adata):
@@ -417,8 +442,10 @@ def _get_plot_coordinates(adata):
             x = np.asarray(adata.obsm["X_spatial"][:, 0], dtype=np.float64)
             y = np.asarray(adata.obsm["X_spatial"][:, 1], dtype=np.float64)
         else:
-            x = np.asarray(adata.obs["x"].values, dtype=np.float64)
-            y = np.asarray(adata.obs["y"].values, dtype=np.float64)
+            obs_xy = _get_obs_spatial_xy(adata)
+            if obs_xy is None:
+                raise ValueError("Spatial obs columns exist but could not be converted to numeric x/y")
+            x, y = obs_xy
         return x, y, "spatial"
     if "X_umap" in adata.obsm and adata.obsm["X_umap"].shape[1] >= 2:
         x = np.asarray(adata.obsm["X_umap"][:, 0], dtype=np.float64)
@@ -452,8 +479,13 @@ def get_spatial(dataset_id: str, layout: Optional[str] = None):
             x = np.asarray(adata.obsm["X_spatial"][:, 0], dtype=np.float64)
             y = np.asarray(adata.obsm["X_spatial"][:, 1], dtype=np.float64)
         else:
-            x = np.asarray(adata.obs["x"].values, dtype=np.float64)
-            y = np.asarray(adata.obs["y"].values, dtype=np.float64)
+            obs_xy = _get_obs_spatial_xy(adata)
+            if obs_xy is None:
+                raise HTTPException(
+                    status_code=500,
+                    detail="Spatial obs columns exist but could not be converted to numeric x/y",
+                )
+            x, y = obs_xy
     elif layout == "umap":
         umap = adata.obsm.get("X_umap")
         if umap is None or getattr(umap, "shape", (0, 0))[1] < 2:

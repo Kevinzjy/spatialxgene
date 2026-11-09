@@ -73,6 +73,8 @@
 - [x] **空数据集提示**：当 `/api/datasets` 返回 `[]` 时，侧栏 Datasets 区域显示「No datasets found. Check data-dir (e.g. --data-dir).」；后改为「No h5ad files found under {data_dir}」，data_dir 由 /api/config 提供。
 - [x] **主题色抽离**：侧栏/强调/背景等色值抽成 `index.html` 的 `:root` CSS 变量（`--sidebar-bg`、`--sidebar-border`、`--bg-main`、`--accent`、`--text-primary`、`--text-secondary`、`--text-muted`、`--error`、`--error-bg`）及 `src/theme.ts` 的 `THEME` 常量；Sidebar、App、SpatialPlot、exportPlotVector 已改用变量或 THEME，便于换肤与维护。
 - [x] **基因列表说明**：在 Gene / Gene1 / Gene2 / Multi-gene 列表标题右侧增加实心圆问号图标，悬停提示「Only the first 200 entries are shown; use search to narrow the range.」
+- [x] **通用双/多特征**：原 Co-expression 与 Multi-gene 更名为 Dual Feature 与 Multi-Feature；两个模式的候选列表同时包含基因与所有选中样本共有的数值 `obs` 元数据列。obs 元数据无需请求 expression API，按样本从 `/obs` 已加载数据读取；图例、悬停与 PDF 导出显示 `column (obs)`。
+- [x] **Panel Split / Merge**：每个 panel 标题栏在 −/+ / Reset 左侧增加 Split；选择 2–200 个分组的 obs key 后，前端从已加载 parent 生成虚拟子 panel（自动命名为 `parent / value`），子 panel 提供 Merge 恢复。不写新 h5ad；筛选空间坐标、obs、expression 与导出任务；背景图和 gene expression 请求仍指向 parent，child expression 按 split index 切片。后端同步支持 `Cx/Cy`、`center_x/center_y` 坐标 fallback。
 
 ---
 
