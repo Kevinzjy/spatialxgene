@@ -92,3 +92,88 @@ def test_run_preprocess_no_cluster_skips_leiden(small_adata_for_preprocess):
     assert "X_pca" in out.obsm and "X_umap" in out.obsm
     # leiden/louvain may or may not be present when run_cluster=False
     assert out.obsm["X_umap"].shape[0] == out.n_obs
+
+
+def _assert_sanitized_pipeline_output(out):
+    """Shared assertions: pipeline survives non-finite/negative X and output stays finite/non-negative."""
+    from scipy import sparse
+
+    assert out.n_obs > 0 and out.n_vars > 0
+    X_out = out.X.toarray() if sparse.issparse(out.X) else out.X
+    assert np.isfinite(X_out).all()
+    assert (X_out >= 0).all()
+    assert "counts" in out.layers
+    counts_out = out.layers["counts"].toarray() if sparse.issparse(out.layers["counts"]) else out.layers["counts"]
+    assert np.isfinite(counts_out).all()
+    assert (counts_out >= 0).all()
+
+
+def test_run_preprocess_sanitizes_dense_nonfinite_and_negative_x(small_adata_for_preprocess):
+    """Dense X with NaN/Inf/negatives must not break normalize/log1p or seurat HVG binning."""
+    from spatialxgene.preprocess import run_preprocess
+
+    adata = small_adata_for_preprocess.copy()
+    X = adata.X.astype(np.float32).copy()
+    X[0, 0] = np.nan
+    X[1, 1] = np.inf
+    X[2, 2] = -5.0
+    adata.X = X
+    out = run_preprocess(
+        adata,
+        min_genes=2,
+        min_cells=2,
+        n_top_genes=50,
+        n_pcs=5,
+        n_neighbors=5,
+        run_cluster=False,
+        run_celltypist=False,
+    )
+    _assert_sanitized_pipeline_output(out)
+
+
+def test_run_preprocess_sanitizes_sparse_nonfinite_and_negative_x(small_adata_for_preprocess):
+    """Sparse X with NaN/Inf/negatives in stored data must be sanitized before QC."""
+    from scipy import sparse
+
+    from spatialxgene.preprocess import run_preprocess
+
+    adata = small_adata_for_preprocess.copy()
+    X = sparse.csr_matrix(adata.X.astype(np.float32))
+    X[0, 0] = np.nan
+    X[1, 1] = -np.inf
+    X[2, 2] = -3.0
+    adata.X = X
+    assert sparse.issparse(adata.X)
+    out = run_preprocess(
+        adata,
+        min_genes=2,
+        min_cells=2,
+        n_top_genes=50,
+        n_pcs=5,
+        n_neighbors=5,
+        run_cluster=False,
+        run_celltypist=False,
+    )
+    _assert_sanitized_pipeline_output(out)
+
+
+def test_run_preprocess_small_gene_panel_percent_top(small_adata_for_preprocess):
+    """Gene panels with n_vars < 500 must not crash scanpy's percent_top QC metrics."""
+    from spatialxgene.preprocess import run_preprocess
+
+    adata = small_adata_for_preprocess[:, :60].copy()
+    out = run_preprocess(
+        adata,
+        min_genes=2,
+        min_cells=2,
+        n_top_genes=30,
+        n_pcs=5,
+        n_neighbors=5,
+        run_cluster=False,
+        run_celltypist=False,
+    )
+    assert out.n_vars == 60
+    assert "total_counts" in out.obs.columns
+    # Clamped percent_top columns must exist and not exceed the gene count.
+    assert "pct_counts_in_top_50_genes" in out.obs.columns
+    assert "pct_counts_in_top_60_genes" in out.obs.columns

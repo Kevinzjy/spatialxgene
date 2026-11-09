@@ -11,6 +11,8 @@ from pathlib import Path
 from typing import Optional
 
 import anndata as ad
+import numpy as np
+from scipy import sparse
 
 logger = logging.getLogger(__name__)
 import scanpy.preprocessing as sc_pp
@@ -22,6 +24,54 @@ def _has_spatial(adata: ad.AnnData) -> bool:
     if "spatial" in adata.obsm:
         return True
     return "x" in adata.obs.columns and "y" in adata.obs.columns
+
+
+# Dense X sanitization scans in row blocks to bound peak memory on large matrices.
+_SANITIZE_BLOCK_ELEMENTS = 1 << 24  # ~16.7M matrix entries per block
+
+
+def _sanitize_expression_values(adata: ad.AnnData) -> tuple:
+    """Replace non-finite (NaN/Inf) values with 0 and clip negatives to 0 in adata.X.
+
+    The preprocess pipeline assumes non-negative, finite count-like values: NaN/Inf
+    (e.g. missing entries) and negatives (e.g. scaled inputs) propagate NaN through
+    normalize_total/log1p and break seurat-flavor HVG mean binning.
+
+    Returns
+    -------
+    tuple[int, int]
+        (n_nonfinite_replaced, n_negative_clipped).
+    """
+    X = adata.X
+    n_nonfinite = 0
+    n_negative = 0
+    if sparse.issparse(X):
+        data = X.data
+        nonfinite_mask = ~np.isfinite(data)
+        n_nonfinite = int(np.count_nonzero(nonfinite_mask))
+        if n_nonfinite:
+            data[nonfinite_mask] = 0
+        negative_mask = data < 0
+        n_negative = int(np.count_nonzero(negative_mask))
+        if n_negative:
+            np.maximum(data, 0, out=data)
+    else:
+        X_arr = np.asarray(X)
+        n_vars = max(1, X_arr.shape[1])
+        step = max(1, _SANITIZE_BLOCK_ELEMENTS // n_vars)
+        for start in range(0, X_arr.shape[0], step):
+            block = X_arr[start : start + step]
+            nonfinite_mask = ~np.isfinite(block)
+            block_nonfinite = int(np.count_nonzero(nonfinite_mask))
+            if block_nonfinite:
+                block[nonfinite_mask] = 0
+            negative_mask = block < 0
+            block_negative = int(np.count_nonzero(negative_mask))
+            if block_negative:
+                np.maximum(block, 0, out=block)
+            n_nonfinite += block_nonfinite
+            n_negative += block_negative
+    return n_nonfinite, n_negative
 
 
 def _check_spatial_preserved(adata: ad.AnnData, step: str) -> None:
@@ -56,6 +106,9 @@ def run_preprocess(
     UMAP, Leiden. HVG is used only for dimensionality reduction and clustering; the
     returned adata contains all genes that passed QC (X = normalized log counts).
     All stochastic steps use random_state=42 for reproducibility.
+    Before QC, adata.X is sanitized (NaN/Inf -> 0, negatives clipped to 0 with a
+    warning) and calculate_qc_metrics percent_top is clamped to n_vars (needed for
+    small gene panels where scanpy's default (50, 100, 200, 500) would be out of range).
 
     Parameters
     ----------
@@ -106,6 +159,24 @@ def run_preprocess(
     if x_size is not None and x_size == 0:
         raise ValueError("adata.X is empty (size 0); cannot run preprocess.")
 
+    # Sanitize X before QC/normalization so downstream steps never see NaN/Inf
+    # or negative values (would break log1p and seurat HVG binning).
+    t0 = time.perf_counter()
+    n_nonfinite, n_negative = _sanitize_expression_values(adata)
+    if n_nonfinite or n_negative:
+        logger.warning(
+            "sanitize X: replaced %s non-finite values with 0 and clipped %s negative values to 0 (%.1fs)",
+            n_nonfinite,
+            n_negative,
+            time.perf_counter() - t0,
+        )
+        warnings.warn(
+            "adata.X contained non-count-like values (%s non-finite, %s negative); "
+            "they were replaced/clipped to 0 before preprocessing." % (n_nonfinite, n_negative),
+            UserWarning,
+            stacklevel=2,
+        )
+
     logger.info(
         "run_preprocess start: n_obs=%s n_vars=%s min_genes=%s min_cells=%s n_top_genes=%s save_raw_layer=%s run_cluster=%s",
         adata.n_obs,
@@ -120,7 +191,13 @@ def run_preprocess(
 
     # QC metrics
     t0 = time.perf_counter()
-    sc_pp.calculate_qc_metrics(adata, inplace=True)
+    # Clamp percent_top to n_vars: scanpy's default (50, 100, 200, 500) raises
+    # "Positions outside range of features" on small gene panels (n_vars < 500).
+    # Dedupe so clamped entries do not create duplicate QC columns.
+    percent_top = sorted({min(t, adata.n_vars) for t in (50, 100, 200, 500)})
+    if max(percent_top) < 500:
+        logger.info("calculate_qc_metrics percent_top clamped to %s (n_vars=%s)", percent_top, adata.n_vars)
+    sc_pp.calculate_qc_metrics(adata, percent_top=percent_top, inplace=True)
     logger.info("calculate_qc_metrics done (%.1fs)", time.perf_counter() - t0)
 
     # Filter cells by number of genes. Skip for Visium-like data with in_tissue so we do not
@@ -251,7 +328,13 @@ def run_preprocess(
                 force_model=celltypist_model,
             )
         except ImportError as e:
-            logger.warning("CellTypist annotation skipped (install celltypist to enable): %s", e)
+            logger.warning(
+                "CellTypist annotation skipped (install celltypist to enable): %s. "
+                'Hint: pip install "celltypist>=1.7,<2" into the same env '
+                "(for pixi global installs, use that env's python, e.g. "
+                '~/.pixi/envs/<env-name>/bin/python -m pip install "celltypist>=1.7,<2").',
+                e,
+            )
         except Exception as e:
             logger.warning("CellTypist annotation failed: %s", e)
 
