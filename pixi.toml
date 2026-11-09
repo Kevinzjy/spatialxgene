@@ -11,7 +11,7 @@ description = "Spatial transcriptomics processing tools & browser-based viewer"
 license = "MIT"
 readme = "README.md"
 repository = "https://bioinfo.ioz.ac.cn/git/zhangjy/spatialxgene"
-channels = ["conda-forge"]
+channels = ["conda-forge", "bioconda"]
 platforms = ["linux-64", "osx-arm64", "osx-64", "win-64"]
 preview = ["pixi-build"]
 
@@ -29,6 +29,7 @@ wheel = "*"
 
 [package.run-dependencies]
 python = ">=3.9,<3.12"
+celltypist = ">=1.7.1,<2"
 anndata = ">=0.12.10,<0.13"
 numpy = ">=2.3.5,<3"
 setuptools = ">=82.0.0,<83"
