@@ -327,6 +327,28 @@
 
 ---
 
+#### Preprocess X 含 NaN/负值导致 HVG 崩溃 与 沙箱内 test_server 挂起（2026-11）
+
+- **问题**：mIF 数据（如 pbms.S1.staining.mIF.h5ad，n_vars=3000 预筛选基因集）跑 preprocess 时，log1p 报 `invalid value encountered`，随后 seurat HVG 在 `pd.cut` 处抛 `ValueError: Bin edges must be unique: Index([nan, ...])`。
+- **根因**：输入 `adata.X` 不是非负计数（含 NaN/Inf 或负值）。normalize_total/log1p 把 NaN/Inf 写进 X，seurat flavor 的 mean 分箱拿到全 NaN 分位边界后崩溃。
+- **修复约定**：`run_preprocess` 在 QC 之前调用 `_sanitize_expression_values()`——sparse 只清洗 `X.data`；dense 按行块扫描（`~16.7M` 元素/块）控制峰值内存；非有限值置 0、负值 clip 到 0，并用 `logger.warning` + `UserWarning` 输出清洗数量。清洗发生在保存 `layers['counts']` 之前，因此 counts layer 与后续 X 一致。新增 dense/sparse 两个 pytest 用例（`tests/test_preprocess.py`）。
+- **环境差异教训（测试挂起）**：在受限沙箱（seccomp）里 `pixi run test` 会在 `tests/test_server.py` 的第一个 `TestClient` 请求处无限挂起（faulthandler 栈显示 anyio portal 线程 `selectors.select()` 不再唤醒、主线程等 future）。这与项目代码无关（server 路径不 import preprocess）。排查方法：① `timeout -s ABRT ... pytest ...` 让 pytest 内置 faulthandler 打全线程栈；② 注意 pixi 的 `test` 任务会自动在参数前注入 `tests/`，传单个文件也会跑全套；绕过方法是用 `.pixi/envs/default/bin/python3.11 -m pytest <指定文件>`。沙箱内跑全量套件时，server 测试可能必须跳过或在真实终端执行。
+- **下次提问要点**：报告 preprocess 失败时贴完整 traceback + 数据来源/已知特点（是否已 normalize/scaled、基因数、有无缺失值）；报告“测试卡住”时说明执行环境（本地终端还是受限沙箱）、卡在哪个测试文件，必要时附 faulthandler 栈。
+
+#### Preprocess 小基因集 percent_top 越界（2026-11）
+
+- **问题**：AllOocyte.h5ad（n_vars=254 的小基因面板）在 `calculate_qc_metrics` 处抛 `IndexError: Positions outside range of features`。
+- **根因**：scanpy 默认 `percent_top=(50, 100, 200, 500)`，任一位置 > n_vars 就越界；与旧教训「fixture n_vars ≥ 200」是同一个默认值的坑，这次出现在真实数据集上。
+- **修复约定**：`run_preprocess` 调用 `calculate_qc_metrics` 前把 `percent_top` clamp 到 n_vars 并去重（`sorted({min(t, n_vars) for t in (50, 100, 200, 500)})`），clamped 时打 info 日志；新增 n_vars=60 的回归用例。凡直接调用 scanpy QC 的新代码都要带同样的 clamp。
+
+#### pixi global 环境缺 celltypist（PyPI 依赖不进 conda 包）（2026-11）
+
+- **问题**：全局安装后 preprocess 提示 `CellTypist annotation skipped (install celltypist to enable): No module named 'celltypist'`，但源码 `pixi run` 环境正常。
+- **根因**：`celltypist`/`pytz` 只写在 `[pypi-dependencies]`，而 `pixi global install --path .` 安装的是 pixi-build 构建的 conda 包，只带 `[package.run-dependencies]`；pixi-build 目前**不会**把 PyPI 依赖打进包。开发环境有 celltypist、全局环境没有，且全局环境的 pytz 版本（2026.4）与开发环境（2025.2）不同——说明 pytz 此前也是手动 pip 装进去的，属于同一类问题。
+- **修复约定**：① 短期：全局环境手动补装 `~/.pixi/envs/<env>/bin/python -m pip install "celltypist>=1.7,<2"`（env 内自带 pip）；② **已实施**：`celltypist = ">=1.7.1,<2"` 已加入 `[package.run-dependencies]`，channels 改为 `["conda-forge", "bioconda"]`，`pixi lock` + `pixi global install --path . --force-reinstall` 后全局环境已带 celltypist 1.7.1（bioconda 渠道），同时保留 `[pypi-dependencies]` 供开发环境使用；③ `except ImportError` 的 warning 已补充带 pip 安装命令的 Hint。
+- **重要教训（勿误判）**：在受限沙箱（workspace 外只读）里验证全局环境时，`import scanpy/celltypist` 会报 `numba RuntimeError: cannot cache function ... no locator available`——这是 numba 缓存定位器写 `__pycache__`/`~/.cache/numba` 失败的**沙箱假象**（包版本完全一致时开发环境可用、全局环境报错即此特征），在真实终端不会出现；不要据此降级 numba。验证全局环境导入必须在沙箱外执行。
+- **下次提问要点**：报告“模块缺失但源码环境正常”时，说明安装方式（源码 pixi run / pixi global / wheel / 容器）、`which spatialxgene`、以及 `pip show <包名>` 或全局 env site-packages 的检查结果；可参考 seurat2h5ad/Rscript 同类教训。
+
 ## 5. 开发经验规则总结（快速参考）
 
 以下为 §4 的提炼，新成员或 AI 协作时优先遵守。
@@ -341,7 +363,7 @@
 | **Spot size** | Spatial 用最近邻间距；PCA/UMAP/tSNE 用 `max(xRange, yRange) / sqrt(n_spots)` 的自适应 spacing；屏幕与 PDF 导出共用 `utils/spotSizing.ts`，调参时保持一致。 |
 | **后端路径** | 由 dataset_id 拼 h5ad 路径用 `id + ".h5ad"`，不用 `Path.with_suffix(".h5ad")`（中间带点的文件名会错）。 |
 | **后端 viewable** | 用 h5py 只读结构判断是否有空间/UMAP，避免全量读 adata；返回 200 + `viewable: false`。 |
-| **Preprocess** | 调用方必须用 `run_preprocess` 返回值写盘；counts 在 normalize 之前写入 layers；有 in_tissue 时跳过 min_genes 过滤；写盘前有 raw 则拷到 layers['counts'] 后清空 raw。 |
+| **Preprocess** | 调用方必须用 `run_preprocess` 返回值写盘；counts 在 normalize 之前写入 layers；有 in_tissue 时跳过 min_genes 过滤；写盘前有 raw 则拷到 layers['counts'] 后清空 raw；`calculate_qc_metrics` 的 `percent_top` 必须 clamp 到 n_vars 并去重（小基因面板会越界）。 |
 | **子路径部署** | 所有资源与 API 落在同一 location；前端用 `API_BASE`；favicon/logo 404 时区分「标签页图标」与「页面内 logo」。 |
 | **文档** | 变更行为后同步 README、CHANGELOG、RULES、docs；发布说明只维护 CHANGELOG。 |
 | **Multi-gene** | 与 Gene 模式共用 Color range（pmin/pmax）/Log scale 的解析与状态流；Grid 布局统一像素、仅画 proportion≥5%；useMemo 依赖含 genes/layout/layer 等。**部分基因缺失**：至少一个基因有数据即显示 multigene；传入的 layers 排除全 NaN 的基因；SpatialPlot 中 NaN 按 0、vmin/vmax 做 fallback。 |
